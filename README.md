@@ -21,7 +21,7 @@ AI-assisted project — see Acknowledgements for more info.
 ✔ Single .exe — no dependencies
 
 > **More detailed internal behavior, CMD execution model, quoting rules, and limitations are extensively documented  
-> inside `SilentRunner.cpp` in the header section.**
+> inside `src/SilentRunner.cpp` in the header section.**
 
 ---
 
@@ -98,16 +98,16 @@ SilentRunner binds stdin to **NUL**, so external input pipes do not work:
 - For long-running or fire-and-forget tasks, use `nircmd exec hide` instead — https://nircmd.nirsoft.net/exec.html
 
 > Full technical notes including implementation details, quoting behavior, caveats and design reasoning  
-> are documented at the top of `SilentRunner.cpp`.
+> are documented at the top of `src/SilentRunner.cpp`.
 
 ---
 
 ## Build
 
-Prebuilt binaries are included in `/bin`.
+Prebuilt binary is included in `bin/`.
 
 Manual compilation is optional — full build steps (toolchain, flags, notes)
-are documented inside the header of `SilentRunner.cpp` under **Build** section.
+are documented inside the header of `src/SilentRunner.cpp` under **Build** section.
 
 ---
 
