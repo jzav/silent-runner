@@ -28,8 +28,8 @@ AI-assisted project — see Acknowledgements for more info.
 ## Usage
 
 SilentRunner supports two execution modes:
-- Script/Executable path mode (`<script-or-exe> [args...]`)
-- Raw command mode (`-c "<raw-cmd>"`)
+- Script/Executable path mode: `<script-or-exe> [args...]`
+- Raw command mode: `-c "<raw-cmd>"`
 
 ```
 SilentRunner.exe [options] <script-or-exe> [args...]
