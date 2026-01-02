@@ -13,7 +13,7 @@ AI-assisted project — see Acknowledgements for more info.
 
 ## Features
 
-✔ Runs commands via `cmd.exe` — supports pipes, `&&`, `|`, builtins (`echo`, `chcp`, ...)  
+✔ Runs commands via `cmd.exe` (child process) — supports pipes, `&&`, `|`, builtins (`echo`, `chcp`, ...)  
 ✔ Silent execution (no flashing console window)  
 ✔ Captures **exit code, stdout and stderr without deadlocks**  
 ✔ Optional timeout with best-effort process tree kill  
@@ -27,8 +27,12 @@ AI-assisted project — see Acknowledgements for more info.
 
 ## Usage
 
+SilentRunner supports two execution modes:
+- Script/Executable path mode (`<script-or-exe> [args...]`)
+- Raw command mode (`-c "<raw-cmd>"`)
+
 ```
-SilentRunner.exe [options] <script-or-exe> [args...]
+SilentRunner.exe [options] <script-or-exe> [args...] Script/Executable path mode
 SilentRunner.exe [options] -c "<raw-cmd>"
 ```
 
@@ -89,7 +93,7 @@ SilentRunner binds stdin to **NUL**, so external input pipes do not work:
 
 ## Behavior Notes
 
-- Execution is **synchronous** — output appears only after child exits  
+- Execution is **synchronous** — output is delivered only after the child process exits 
 - Output is fully buffered in RAM → **not ideal for GB-scale logs**  
 - stdout/stderr order is not preserved — both streams are drained concurrently and replayed sequentially after the process exits
 - Working directory inherits the parent’s — use absolute paths, or `pushd`/`popd` inside `.cmd` if needed
