@@ -32,7 +32,7 @@ SilentRunner supports two execution modes:
 - Raw command mode (`-c "<raw-cmd>"`)
 
 ```
-SilentRunner.exe [options] <script-or-exe> [args...] Script/Executable path mode
+SilentRunner.exe [options] <script-or-exe> [args...]
 SilentRunner.exe [options] -c "<raw-cmd>"
 ```
 
