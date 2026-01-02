@@ -76,7 +76,7 @@ SilentRunner.exe --utf8 -c "echo こんにちは"
 
 Timeout example:
 ```
-SilentRunner.exe --timeout-ms 5000 -c "long_running_task.cmd"
+SilentRunner.exe --timeout-ms 5000 "long_running_task.cmd"
 ```
 
 ### About stdin
