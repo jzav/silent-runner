@@ -61,7 +61,7 @@ SilentRunner.exe "C:\Tools\app.exe" --mode fast --silent
 
 Run `.cmd` script with parameters:
 ```
-SilentRunner.exe backup.cmd D:\ 30
+SilentRunner.exe backup.cmd D:\ 20
 ```
 
 `backup.cmd` example:
