@@ -41,7 +41,7 @@ SilentRunner.exe [options] -c "<raw-cmd>"
 | Option               | Description                                  |
 |----------------------|----------------------------------------------|
 | `--timeout-ms <N>`   | Kill process tree after N ms → exit code 124 |
-| `--print-cmdline`    | Print PID + CMD line to stderr (debug)       |
+| `--print-cmdline`    | Print PID + CMD command to stderr (debug)    |
 | `--utf8`             | Prepends `chcp 65001>nul & ...` inside child |
 | `-c "<cmd>"`         | Raw inline command instead of script mode    |
 
