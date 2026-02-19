@@ -345,7 +345,7 @@ static bool ParseArgs(int argc, wchar_t** argv, Options& opt, std::wstring& err)
     std::wstring path = argv[i];
 
     // Build inner: "<path>" arg1 arg2 ...
-    std::wstring inner = L"\"" + path + L"\"";
+    std::wstring inner = QuoteIfNeeded(path);
     for (int k = i + 1; k < argc; k++) {
         inner.push_back(L' ');
         inner.append(QuoteIfNeeded(argv[k]));
