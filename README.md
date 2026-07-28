@@ -61,16 +61,16 @@ SilentRunner.exe "C:\Tools\app.exe" --mode fast --silent
 
 Run `.cmd` script with parameters:
 ```
-SilentRunner.exe backup.cmd D:\ 20
+SilentRunner.exe cleanup.cmd C:\Temp
 ```
 
-`backup.cmd` example:
+`cleanup.cmd` example:
 ```
 @echo off
-REM disable command echo for cleaner output
-set "DRIVE=%~1"
-set "DAYS=%~2"
-echo Backing up %DRIVE% (keeping %DAYS% days)
+set "TARGET=%~1"
+echo Cleaning %TARGET%...
+if exist "%TARGET%\*.tmp" del /q "%TARGET%\*.tmp"
+echo Done.
 ```
 
 UTF-8 mode:
