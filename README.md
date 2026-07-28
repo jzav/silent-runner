@@ -4,6 +4,10 @@ SilentRunner is a lightweight Windows command runner that executes console appli
 
 Beyond silent execution, SilentRunner provides flexible output routing, persistent TXT/JSONL logging, delayed output replay, execution hooks, configurable process environment, and structured diagnostics for automation, scripting, CI/CD pipelines, and scheduled tasks.
 
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Platform](https://img.shields.io/badge/platform-Windows-lightblue)
+![Build](https://img.shields.io/badge/build-gcc-9cf)
+
 Key capabilities include:
 
 - Silent execution via `cmd.exe` without creating a console window.
@@ -15,10 +19,6 @@ Key capabilities include:
 - Post-execution hooks with execution metadata exposed through environment variables.
 - Configurable working directory, standard input, UTF-8 mode, and execution timeout.
 - Multiple diagnostic levels ranging from normal execution messages to detailed debugging and verbose execution summaries.
-
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Platform](https://img.shields.io/badge/platform-Windows-lightblue)
-![Build](https://img.shields.io/badge/build-gcc-9cf)
 
 ---
 
