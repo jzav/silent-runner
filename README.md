@@ -24,7 +24,7 @@ Key capabilities include:
 
 ## Architecture Overview
 
-SilentRunner is organized as a small processing pipeline rather than a monolithic command wrapper.
+SilentRunner is organized as a event-driven processing pipeline rather than a monolithic command wrapper.
 
 Output from the child process and SilentRunner diagnostics is collected into a common execution timeline. This unified event stream is then consumed by independent worker components responsible for parent output emission and persistent logging.
 
