@@ -239,23 +239,22 @@ Timeout example:
 SilentRunner.exe --timeout-ms 5000 "medium_running_task.cmd"
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
 ---
 
 ## Build
 Prebuilt binary is included in `bin/`.
 
+---
+
+## Architecture Overview
+
+SilentRunner is organized as a small processing pipeline rather than a monolithic command wrapper.
+
+The child process, SilentRunner diagnostics, and execution events are collected into a common execution timeline. This unified event stream is then consumed by independent worker components responsible for parent output emission and persistent logging. 
+
+This architecture allows parent output routing, persistent logging, buffering, replay, and diagnostics post-execution hooks to operate independently while sharing the same timeline data.
+
+Most features described below are implemented as different processing stages built on top of this common execution timeline.
 
 ---
 
@@ -264,7 +263,6 @@ Prebuilt binary is included in `bin/`.
 Developed in C++ with a focus on a minimal, self-contained Windows binary without external dependencies, using direct WinAPI process handling.
 The code and documentation were created with assistance from ChatGPT.
 Contributions, bug reports, and security notes are welcome.
-
 
 ---
 
