@@ -250,11 +250,11 @@ Prebuilt binary is included in `bin/`.
 
 SilentRunner is organized as a small processing pipeline rather than a monolithic command wrapper.
 
-The child process, SilentRunner diagnostics, and execution events are collected into a common execution timeline. This unified event stream is then consumed by independent worker components responsible for parent output emission and persistent logging. 
+Output from the child process and SilentRunner diagnostics is collected into a common execution timeline. This unified event stream is then consumed by independent worker components responsible for parent output emission and persistent logging.
 
-This architecture allows parent output routing, persistent logging, buffering, replay, and diagnostics post-execution hooks to operate independently while sharing the same timeline data.
+This architecture allows parent output routing, persistent logging, buffering, replay, diagnostics, and post-execution hooks to operate independently while sharing the same execution timeline.
 
-Most features described below are implemented as different processing stages built on top of this common execution timeline.
+Most features described below are implemented as independent processing components built on top of this common execution timeline.
 
 ---
 
