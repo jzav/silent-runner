@@ -194,9 +194,9 @@ Informational, error, and fatal diagnostics are enabled by default. Their parent
 
 If no SilentRunner diagnostic channel is available (neither parent emission nor persistent logging), SilentRunner terminates immediately with exit code `254`, because diagnostic messages could not be reported.
 
-The `--debug` option enables additional diagnostic messages describing internal decisions and execution behavior.
+The `--debug` option enables additional diagnostic messages describing internal execution flow, child (sub)process lifecycle, and output routing decisions.
 
-The `--verbose` option implies `--debug` and adds detailed execution summaries, including event processing, output routing, worker activity, and final processing results.
+The `--verbose` option implies `--debug` and adds detailed execution summaries, including event processing, worker activity, and final processing results.
 
 Options:
 
