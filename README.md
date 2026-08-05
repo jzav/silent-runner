@@ -254,7 +254,7 @@ SilentRunner.exe --timeout-ms 5000 "medium_running_task.cmd"
 ---
 
 ## Build
-Prebuilt binary is included in `bin/`.
+Prebuilt binary is included in `bin/`. Release builder is included in `scripts/`.
 
 ---
 
