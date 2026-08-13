@@ -38,22 +38,21 @@ Most features described below are implemented as independent processing componen
 
 SilentRunner supports two execution modes:
 
-- **Script/Executable mode:** `<script-or-exe> [child args...]`
-- **Raw mode:** `-c "<raw-cmd>"`
-
-The command line is divided into SilentRunner options and the child command.
+### Script/Executable mode
 
 ```text
 SilentRunner.exe [SilentRunner options...] <script-or-exe> [child args...]
-SilentRunner.exe [SilentRunner options...] -c "<raw-cmd>"
 ```
 
-### Script/Executable mode
 In Script/Executable mode, SilentRunner parses its own options first. The first non-option argument marks the beginning of the child command. That argument is treated as the script or executable path, and all remaining arguments are treated as child arguments.
 
 Paths and arguments containing spaces should be enclosed in quotes.
 
 ### Raw mode
+
+```text
+SilentRunner.exe [SilentRunner options...] -c "<raw-cmd>"
+```
 
 In Raw mode, `-c` consumes the following argument as the complete raw command string. Enclose the command in quotes when needed to keep it as a single argument.
 
