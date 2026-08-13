@@ -1,6 +1,6 @@
 # SilentRunner.exe  
 
-SilentRunner is a lightweight Windows command runner that executes console applications without creating a console window while capturing **exit code, stdout, stderr, and execution diagnostics**.
+SilentRunner is a lightweight Windows command runner that executes console applications without creating a console window **(no flashing)** while capturing **exit code, stdout, stderr, and execution diagnostics**.
 
 Beyond silent execution, SilentRunner provides flexible output routing, persistent TXT/JSONL logging, delayed output replay, execution hooks, configurable process environment, and structured diagnostics for automation, scripting, CI/CD pipelines, and scheduled tasks.
 
@@ -10,7 +10,7 @@ Beyond silent execution, SilentRunner provides flexible output routing, persiste
 
 Key capabilities include:
 
-- Silent execution via `cmd.exe` without creating a console window.
+- Silent execution via `cmd.exe` without creating a console window (no flashing).
 - Independent routing of stdout, child stderr, and SilentRunner diagnostics.
 - Streaming or delayed parent output emission.
 - Persistent TXT and JSONL logging with configurable retention policies.
@@ -34,16 +34,28 @@ Most features described below are implemented as independent processing componen
 
 ---
 
-## Usage
+## Execution Modes
 
 SilentRunner supports two execution modes:
-- Script/Executable path mode: `<script-or-exe> [args...]`
-- Raw command mode: `-c "<raw-cmd>"`
 
+- **Script/Executable mode:** `<script-or-exe> [child args...]`
+- **Raw mode:** `-c "<raw-cmd>"`
+
+The command line is divided into SilentRunner options and the child command.
+
+```text
+SilentRunner.exe [SilentRunner options...] <script-or-exe> [child args...]
+SilentRunner.exe [SilentRunner options...] -c "<raw-cmd>"
 ```
-SilentRunner.exe [options] <script-or-exe> [args...]
-SilentRunner.exe [options] -c "<raw-cmd>"
-```
+
+### Script/Executable mode
+In Script/Executable mode, SilentRunner parses its own options first. The first non-option argument marks the beginning of the child command. That argument is treated as the script or executable path, and all remaining arguments are treated as child arguments.
+
+Paths and arguments containing spaces should be enclosed in quotes.
+
+### Raw mode
+
+In Raw mode, `-c` consumes the following argument as the complete raw command string. Enclose the command in quotes when needed to keep it as a single argument.
 
 ---
 
