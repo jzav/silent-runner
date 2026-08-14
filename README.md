@@ -105,6 +105,11 @@ Options:
 -   `--utf8` or `--utf-8`
 -   `--timeout-ms <ms>`
 
+Examples:
+``` text
+SilentRunner.exe --cwd "D:\Work" task.cmd
+```
+
 ------------------------------------------------------------------------
 
 ### Execution ID
@@ -255,8 +260,9 @@ SilentRunner also provides additional execution-specific environment
 variables, allowing hooks to access execution metadata such as the
 execution ID, execution result, and log file locations.
 
-The complete list of available environment variables can be displayed
-using `SilentRunner --help`.
+The complete list of currently available environment variables can be displayed
+using `SilentRunner --help`. Requests for additional environment variables are
+welcome.
 
 Options:
 
@@ -306,35 +312,214 @@ Options:
 
 ------------------------------------------------------------------------
 
-### Examples (TO BE UPDATED)
+## Usage
 
-Run inline command:
+### 1. Basic execution
 
-    SilentRunner.exe -c "echo Hello & ver"
+Run a command using the default SilentRunner configuration:
 
-Run program with arguments:
+```text
+SilentRunner.exe task.cmd
+```
 
-    SilentRunner.exe "C:\Tools\app.exe" --mode fast --silent
+- `task.cmd` runs without creating a console window.
+- The child process inherits SilentRunner's current working directory.
+- Standard input is connected to `NUL`.
+- UTF-8 mode is not enabled.
+- No execution timeout is applied.
+- Child stdout is streamed to parent stdout.
+- Child stderr and SilentRunner diagnostics are both streamed to parent stderr.
+- No persistent log files are created.
+- Debug and verbose diagnostics are disabled.
+- No post-execution hooks are executed.
 
-Run `.cmd` script with parameters:
+------------------------------------------------------------------------
 
-    SilentRunner.exe cleanup.cmd C:\Temp
+### 2. Controlling the process environment
 
-`cleanup.cmd` example:
+Run the child process in a specific working directory with a five-second
+execution timeout:
 
-    @echo off
-    set "TARGET=%~1"
-    echo Cleaning %TARGET%...
-    if exist "%TARGET%\*.tmp" del /q "%TARGET%\*.tmp"
-    echo Done.
+```text
+SilentRunner.exe --cwd "D:\Work" --utf8 --timeout-ms 5000 task.cmd
+```
 
-UTF-8 mode:
+`task.cmd`:
 
-    SilentRunner.exe --utf8 -c "echo こんにちは"
+```text
+@echo off
+echo Příliš žluťoučký kůň
+echo こんにちは
+```
 
-Timeout example:
+- `task.cmd` runs with `D:\Work` as its working directory.
+- UTF-8 code page (`65001`) is enabled for the child process.
+- If execution exceeds five seconds, SilentRunner terminates the child process tree with exit code 124.
+- All other settings retain their default behavior described in the previous example.
 
-    SilentRunner.exe --timeout-ms 5000 "medium_running_task.cmd"
+------------------------------------------------------------------------
+
+### 3. Controlling parent output
+
+Keep child stdout/stderr out of parent output during execution and emit it
+only if the child process fails:
+
+```text
+SilentRunner.exe --stdout-emit failure --stderr-emit failure task.cmd
+```
+
+- Child stdout and stderr are not streamed to parent stdout/stderr while
+  `task.cmd` is running.
+- Output is buffered in memory in the execution timeline during execution.
+- If the child process fails, the buffered stdout/stderr is replayed to
+  parent stdout/stderr after execution completes.
+- If the child process succeeds, no child stdout/stderr is emitted to the
+  parent.
+- SilentRunner diagnostics remain part of the combined stderr stream.
+- All other settings retain their default behavior described in the first
+  example.
+
+------------------------------------------------------------------------
+
+### 4. Adding persistent logging
+
+Stream child output to the parent while also recording it in persistent
+log files:
+
+```text
+SilentRunner.exe --stdout-dir "D:\Logs" --stderr-dir "D:\Logs" task.cmd
+```
+
+- Child stdout is streamed to parent stdout.
+- Child stderr and SilentRunner diagnostics are streamed to parent stderr.
+- Child stdout is also written to a persistent TXT stdout log.
+- Child stderr and SilentRunner diagnostics are also written to a persistent
+  combined stderr TXT log.
+- While execution is running, the log file names contain the `running` state.
+  After execution completes, they are renamed to contain `success` or `failure`
+  according to the final execution result.
+- The log files are retained after execution using the default `always`
+  retention policy.
+- All other settings retain their default behavior described in the first
+  example.
+
+------------------------------------------------------------------------
+
+### 5. Advanced persistent logging
+
+Record child stdout, combined stderr, child stderr, and SilentRunner diagnostics
+to persistent TXT and JSONL log files:
+
+```text
+SilentRunner.exe ^
+  --stdout-dir "D:\Logs" ^
+  --stdout-dir-jsonl "D:\Logs" ^
+  --stderr-dir "D:\Logs" ^
+  --stderr-dir-jsonl "D:\Logs" ^
+  --stderr-dir-child "D:\Logs" ^
+  --stderr-dir-child-jsonl "D:\Logs" ^
+  --stderr-dir-sr "D:\Logs" ^
+  --stderr-dir-sr-jsonl "D:\Logs" ^
+  task.cmd
+```
+
+- Child stdout is recorded independently in TXT and JSONL formats.
+- The combined stderr stream is recorded independently in TXT and JSONL formats.
+- Child stderr is also recorded separately in TXT and JSONL formats.
+- SilentRunner diagnostics are also recorded separately in TXT and JSONL formats.
+- All persistent log destinations may be enabled at the same time.
+- Parent stdout/stderr emission keeps its default streaming behavior.
+- Log retention keeps its default `always` policy.
+
+------------------------------------------------------------------------
+
+### 6. Failure-only diagnostic replay from persistent logs
+
+Keep SilentRunner diagnostics out of parent stderr during execution, persist
+them as JSONL, and replay them to the parent only if execution fails:
+
+```text
+SilentRunner.exe ^
+  --stderr-emit-sr failure ^
+  --stderr-dir-sr-jsonl "D:\Logs" ^
+  --stderr-dir-sr-keep-log failure ^
+  task.cmd
+```
+
+- SilentRunner diagnostics are not streamed to parent stderr while `task.cmd`
+  is running.
+- SilentRunner diagnostics are written to a persistent JSONL log.
+- The persistent log is used as the replay source instead of the in-memory
+  execution timeline buffer.
+- If execution fails, the diagnostics are replayed from the JSONL log to
+  parent stderr after execution completes.
+- If execution succeeds, no SilentRunner diagnostics are emitted to parent
+  stderr.
+- The JSONL diagnostic log is retained only on failure. The
+  `--stderr-dir-sr-keep-log` policy applies to both TXT and JSONL logs for
+  the SilentRunner diagnostic stream.
+- Child stdout keeps its default streaming behavior to parent stdout.
+
+------------------------------------------------------------------------
+
+### 7. Execution ID and post-execution hooks
+
+Assign a custom execution ID and run a different hook depending on the final
+execution result:
+
+```text
+SilentRunner.exe ^
+  --id-prefix nightly- ^
+  --id-base backup ^
+  --id-suffix timestamp+pid ^
+  --run-on-success "D:\Hooks\backup-success.cmd" ^
+  --run-on-failure "D:\Hooks\backup-failure.cmd" ^
+  backup.cmd "D:\Data" --incremental
+```
+
+`backup.cmd`:
+
+```text
+@echo off
+set "SOURCE=%~1"
+set "MODE=%~2"
+
+echo Backing up %SOURCE%...
+echo Mode: %MODE%
+```
+
+- The execution ID is built from the configured prefix, base, and
+  `timestamp+pid` suffix.¨
+- `backup.cmd` is the child script; `"D:\Data"` and `--incremental` are passed to
+  it as child arguments.
+- `backup-success.cmd` runs after a successful execution.
+- `backup-failure.cmd` runs after a failed execution.
+- Only the hook corresponding to the final execution result is executed.
+- The hook receives execution metadata through SilentRunner environment
+  variables, including the execution ID and execution result. Use `--help`
+  for the complete list of available environment variables.
+- The hook runs in the same configured process environment as the child
+  process.
+- Hook arguments are not supported.
+- Child stdout/stderr and all other settings retain their default behavior
+  described in the first example.
+
+------------------------------------------------------------------------
+
+### 8. Raw command execution
+
+Execute a complete command using raw `cmd.exe` shell syntax:
+
+```text
+SilentRunner.exe -c "echo Starting... & task1.exe | task2.exe"
+```
+
+- The entire quoted string after `-c` is treated as a single raw command.
+- Shell operators such as `&` and `|` are interpreted by `cmd.exe`.
+- Unlike Script/Executable mode, the command is not separated into a script or
+  executable path and individual child arguments.
+- All other settings retain their default behavior described in the first
+  example.
 
 ------------------------------------------------------------------------
 
