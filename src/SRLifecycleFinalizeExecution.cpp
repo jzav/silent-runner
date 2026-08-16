@@ -951,9 +951,13 @@ int FinalizeExecution(
             { L"SILENTRUNNER_EXIT_CODE", std::to_wstring(exitCode) },
             { L"SILENTRUNNER_EXECUTION_ID", prepared.executionId },
             { L"SILENTRUNNER_STDOUT_LOG", stdoutLogPathForHook },
+            { L"SILENTRUNNER_STDOUT_JSONL_LOG", stdoutJsonlFinalLogAvailable ? stdoutJsonlLogPathForFinal : L"" },
             { L"SILENTRUNNER_STDERR_LOG", stderrLogPathForHook },
+            { L"SILENTRUNNER_STDERR_JSONL_LOG", stderrJsonlFinalLogAvailable ? stderrJsonlLogPathForFinal : L"" },
             { L"SILENTRUNNER_STDERR_CHILD_LOG", stderrChildLogPathForHook },
-            { L"SILENTRUNNER_STDERR_SR_LOG", stderrSrLogPathForHook }
+            { L"SILENTRUNNER_STDERR_CHILD_JSONL_LOG", stderrChildJsonlFinalLogAvailable ? stderrChildJsonlLogPathForFinal : L"" },
+            { L"SILENTRUNNER_STDERR_SR_LOG", stderrSrLogPathForHook },
+            { L"SILENTRUNNER_STDERR_SR_JSONL_LOG", stderrSrJsonlFinalLogAvailable ? stderrSrJsonlLogPathForFinal : L"" }
         };
 
         DWORD hookGle = 0;
