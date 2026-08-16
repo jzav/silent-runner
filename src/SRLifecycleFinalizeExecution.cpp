@@ -163,9 +163,9 @@ int FinalizeExecution(
     ExecutionTimeline* executionTimelineOrNull
 ) {
     // Finalization is best-effort and must not short-circuit on controlled
-    // cleanup/log/hook failures. Such failures may downgrade exitCode to 255
-    // and clear hook-visible log paths, but the hook attempt, phase end marker,
-    // final "SilentRunner ends" log, and close/detach cleanup must still run.
+    // cleanup/log failures. Such failures may downgrade exitCode to 255
+    // and clear hook-visible log paths. The selected post-execution hook is
+    // started only after routing, workers, and prepared log writers are finalized.
     
     bool noDiagnosticChannel = false;
 
@@ -946,34 +946,23 @@ int FinalizeExecution(
     const std::wstring& hookPath = hookSuccess ? opt.runOnSuccess : opt.runOnFailure;
     const wchar_t* hookType = hookSuccess ? L"success" : L"failure";
 
+    const std::vector<SRRunHook::EnvironmentVariable> hookEnvironment{
+        { L"SILENTRUNNER_EXIT_CODE", std::to_wstring(exitCode) },
+        { L"SILENTRUNNER_EXECUTION_ID", prepared.executionId },
+        { L"SILENTRUNNER_STDOUT_LOG", stdoutLogPathForHook },
+        { L"SILENTRUNNER_STDOUT_JSONL_LOG", stdoutJsonlFinalLogAvailable ? stdoutJsonlLogPathForFinal : L"" },
+        { L"SILENTRUNNER_STDERR_LOG", stderrLogPathForHook },
+        { L"SILENTRUNNER_STDERR_JSONL_LOG", stderrJsonlFinalLogAvailable ? stderrJsonlLogPathForFinal : L"" },
+        { L"SILENTRUNNER_STDERR_CHILD_LOG", stderrChildLogPathForHook },
+        { L"SILENTRUNNER_STDERR_CHILD_JSONL_LOG", stderrChildJsonlFinalLogAvailable ? stderrChildJsonlLogPathForFinal : L"" },
+        { L"SILENTRUNNER_STDERR_SR_LOG", stderrSrLogPathForHook },
+        { L"SILENTRUNNER_STDERR_SR_JSONL_LOG", stderrSrJsonlFinalLogAvailable ? stderrSrJsonlLogPathForFinal : L"" }
+    };
     if (!hookPath.empty()) {
-        const std::vector<SRRunHook::EnvironmentVariable> hookEnvironment{
-            { L"SILENTRUNNER_EXIT_CODE", std::to_wstring(exitCode) },
-            { L"SILENTRUNNER_EXECUTION_ID", prepared.executionId },
-            { L"SILENTRUNNER_STDOUT_LOG", stdoutLogPathForHook },
-            { L"SILENTRUNNER_STDOUT_JSONL_LOG", stdoutJsonlFinalLogAvailable ? stdoutJsonlLogPathForFinal : L"" },
-            { L"SILENTRUNNER_STDERR_LOG", stderrLogPathForHook },
-            { L"SILENTRUNNER_STDERR_JSONL_LOG", stderrJsonlFinalLogAvailable ? stderrJsonlLogPathForFinal : L"" },
-            { L"SILENTRUNNER_STDERR_CHILD_LOG", stderrChildLogPathForHook },
-            { L"SILENTRUNNER_STDERR_CHILD_JSONL_LOG", stderrChildJsonlFinalLogAvailable ? stderrChildJsonlLogPathForFinal : L"" },
-            { L"SILENTRUNNER_STDERR_SR_LOG", stderrSrLogPathForHook },
-            { L"SILENTRUNNER_STDERR_SR_JSONL_LOG", stderrSrJsonlFinalLogAvailable ? stderrSrJsonlLogPathForFinal : L"" }
-        };
-
-        DWORD hookGle = 0;
-        DWORD hookPid = 0;
-
-        if (SRRunHook::RunHookDetached(hookPath, opt.cwd, hookEnvironment, hookGle, hookPid)) {
+        for (const SRRunHook::EnvironmentVariable& variable : hookEnvironment) {
             lifecycleDiag.DebugLine(
                 std::wstring(L"Run-on-") + hookType +
-                L" hook started; pid=" + std::to_wstring(hookPid) +
-                L" path=" + hookPath
-            );
-        } else {
-            lifecycleDiag.ErrorLine(
-                std::wstring(L"Run-on-") + hookType +
-                L" hook start failed; path=" + hookPath +
-                L" " + ErrorHelpers::FormatGle(hookGle)
+                L" hook environment " + variable.name + L"=" + variable.value
             );
         }
     }
@@ -1049,5 +1038,29 @@ int FinalizeExecution(
         prepared.parentEmitWorker->DrainAndStop();
     }
     ClosePreparedRuntimeFiles(prepared);
+    if (!hookPath.empty()) {
+        DWORD hookGle = 0;
+        DWORD hookPid = 0;
+    
+        if (!SRRunHook::RunHookDetached(
+                hookPath,
+                opt.cwd,
+                hookEnvironment,
+                hookGle,
+                hookPid
+            )) {
+            lifecycleDiag.ProbeLine(
+                std::wstring(L"[RUN-HOOK] Run-on-") + hookType +
+                L" hook start failed; path=" + hookPath +
+                L" " + ErrorHelpers::FormatGle(hookGle)
+            );
+        } else {
+            lifecycleDiag.ProbeLine(
+                std::wstring(L"[RUN-HOOK] Run-on-") + hookType +
+                L" hook started; pid=" + std::to_wstring(hookPid) +
+                L" path=" + hookPath
+            );
+        }
+    }
     return exitCode;
 }
