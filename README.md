@@ -105,11 +105,6 @@ Options:
 -   `--utf8` or `--utf-8`
 -   `--timeout-ms <ms>`
 
-Examples:
-``` text
-SilentRunner.exe --cwd "D:\Work" task.cmd
-```
-
 ------------------------------------------------------------------------
 
 ### Execution ID
@@ -141,14 +136,16 @@ emitted.
 
 Emission modes:
 
--   `never` -- Never emit the selected stream to the parent.
+-   `never` -- Never emit the selected stream to the parent. When used
+    with `--stderr-emit`, this disables the default parent diagnostic
+    channel. Unless another SilentRunner diagnostic channel, such as
+    `--stderr-dir`, is available, SilentRunner terminates before
+    starting the child process with exit code 254.
 -   `stream` -- Emit child stdout/stderr to the parent as it is produced (default).
 -   `end` -- Emit the buffered output after the child process
     finishes.
--   `success` -- Emit the buffered output only if the child process
-    exits successfully.
--   `failure` -- Emit the buffered output only if the child process
-    fails.
+-   `success` -- Emit the buffered output only if execution succeeds.
+-   `failure` -- Emit the buffered output only if execution fails.
 
 Options:
 
@@ -186,8 +183,9 @@ the execution ID, which is described above.
 
 While execution is in progress, log file names include the running state.
 After execution completes, they are renamed to reflect the final execution
-result: success or failure.
-For example: my-execution_stdout_running.log → my-execution_stdout_success.log or my-execution_stdout_failure.log.
+result: `success` or `failure`.
+For example: `my-execution_stdout_running.log` →
+`my-execution_stdout_success.log` or `my-execution_stdout_failure.log`.
 
 Options:
 
@@ -211,12 +209,14 @@ Each stdout and stderr log target has its own retention policy. JSONL
 log files use the same retention policy as the corresponding TXT log
 stream.
 
+Logs removed by a retention policy are deleted permanently and are not
+moved to the Windows Recycle Bin.
+
 Supported modes:
 
 -   `always` -- Always keep the log file (default).
--   `success` -- Keep the log file only if the child process exits
-    successfully.
--   `failure` -- Keep the log file only if the child process fails.
+-   `success` -- Keep the log file only if execution succeeds.
+-   `failure` -- Keep the log file only if execution fails.
 
 Options:
 
@@ -230,7 +230,8 @@ Options:
 ### Buffering
 
 Controls how much output may be buffered in memory for delayed parent
-replay (`end`, `success`, or `failure` emission modes). By default, buffer limits are 0 (unlimited).
+replay (`end`, `success`, or `failure` emission modes). By default,
+buffer limits are 0 (unlimited).
 
 Buffering is only used when parent stdout/stderr emission is delayed. When
 output is streamed to the parent process, these limits are not used.
@@ -263,6 +264,15 @@ execution ID, execution result, and log file locations.
 The complete list of currently available environment variables can be displayed
 using `SilentRunner --help`. Requests for additional environment variables are
 welcome.
+
+Post-execution hooks are started as detached processes without inherited
+standard handles. The hook and programs started by it therefore cannot
+rely on the original SilentRunner parent stdout or stderr handles.
+
+If a hook starts another SilentRunner instance, that instance must have an
+available diagnostic channel. For example, persistent stderr logging can be
+enabled with `--stderr-dir`; otherwise, if no diagnostic channel is available,
+the nested SilentRunner terminates with exit code 254.
 
 Options:
 
@@ -348,7 +358,7 @@ SilentRunner.exe --cwd "D:\Work" --utf8 --timeout-ms 5000 task.cmd
 
 ```text
 @echo off
-echo Příliš žluťoučký kůň
+echo Příliš žluťoučký kůň úpěl ďábelské ódy
 echo こんにちは
 ```
 
@@ -462,47 +472,86 @@ SilentRunner.exe ^
 
 ------------------------------------------------------------------------
 
-### 7. Execution ID and post-execution hooks
+### 7. Execution ID, structured diagnostics, and post-execution hooks
 
-Assign a custom execution ID and run a different hook depending on the final
-execution result:
+Run a data-processing task with a custom execution ID, persist structured
+SilentRunner diagnostics, and process them through chained post-execution
+hooks:
 
 ```text
 SilentRunner.exe ^
-  --id-prefix nightly- ^
-  --id-base backup ^
+  --id-prefix processing ^
+  --id-base data ^
   --id-suffix timestamp+pid ^
-  --run-on-success "D:\Hooks\backup-success.cmd" ^
-  --run-on-failure "D:\Hooks\backup-failure.cmd" ^
-  backup.cmd "D:\Data" --incremental
+  --stderr-dir-sr-jsonl "D:\Logs" ^
+  --debug ^
+  --run-on-success "D:\Hooks\filter-execution-data.cmd" ^
+  process-data.cmd "D:\Input" --mode fast
 ```
 
-`backup.cmd`:
+`process-data.cmd`:
 
 ```text
 @echo off
 set "SOURCE=%~1"
-set "MODE=%~2"
+set "MODE=%~3"
 
-echo Backing up %SOURCE%...
+echo Processing %SOURCE%...
 echo Mode: %MODE%
 ```
 
+`filter-execution-data.cmd`:
+
+```text
+@echo off
+
+pathTo\SilentRunner.exe ^
+  --stdout-dir "%TEMP%" ^
+  --stderr-dir "%TEMP%" ^
+  --run-on-success "%~dp0store-execution-data.cmd" ^
+  "%~dp0jq.exe" -c "select(.message | startswith(\"[JOB]\"))" ^
+  "%SILENTRUNNER_STDERR_SR_JSONL_LOG%"
+```
+
+`store-execution-data.cmd`:
+
+```text
+@echo off
+
+set "FILTERED_DATA=%SILENTRUNNER_STDOUT_LOG%"
+
+rem Store the filtered data in SQLite or elsewhere.
+...
+```
+
 - The execution ID is built from the configured prefix, base, and
-  `timestamp+pid` suffix.¨
-- `backup.cmd` is the child script; `"D:\Data"` and `--incremental` are passed to
-  it as child arguments.
-- `backup-success.cmd` runs after a successful execution.
-- `backup-failure.cmd` runs after a failed execution.
-- Only the hook corresponding to the final execution result is executed.
-- The hook receives execution metadata through SilentRunner environment
-  variables, including the execution ID and execution result. Use `--help`
-  for the complete list of available environment variables.
-- The hook runs in the same configured process environment as the child
-  process.
-- Hook arguments are not supported.
-- Child stdout/stderr and all other settings retain their default behavior
-  described in the first example.
+  `timestamp+pid` suffix and identifies the original execution and its log files.
+- `process-data.cmd` is the child script; `"D:\Input"` and `--mode fast` are
+  passed to it as child arguments.
+- SilentRunner diagnostics are recorded in a persistent JSONL log.
+- Debug diagnostics are enabled, including child process lifecycle information.
+- `filter-execution-data.cmd` runs after a successful execution.
+- Hooks receive execution metadata through SilentRunner environment variables,
+  including the execution ID, execution result, and retained log file locations.
+- Use `--help` for the complete list of available environment variables.
+- `filter-execution-data.cmd` uses `SILENTRUNNER_STDERR_SR_JSONL_LOG` to access
+  the retained SilentRunner diagnostic JSONL log.
+- [`jq`](https://jqlang.org/) is an external command-line tool for processing
+  JSON data. Here it filters the structured diagnostic log to retain only
+  records whose `message` starts with `[JOB]`. `[JOB]` identifies process
+  lifecycle diagnostics generated from Windows Job Object events.
+- `--stderr-dir "%TEMP%"` provides a persistent diagnostic channel for the
+  nested SilentRunner. Since post-execution hooks do not inherit standard
+  handles, without an available diagnostic channel the nested SilentRunner
+  would terminate before starting `jq` with exit code 254.
+- The nested SilentRunner starts a separate execution with its own execution ID
+  and captures the filtered `jq` output using its TXT stdout log. Since `jq -c`
+  already produces one JSON object per line, this preserves the filtered JSONL
+  data directly.
+- After `jq` completes successfully, the nested SilentRunner runs
+  `store-execution-data.cmd`. Its `SILENTRUNNER_STDOUT_LOG` environment variable
+  provides the path to the filtered data produced by `jq`.
+- `store-execution-data.cmd` can then store the filtered data in SQLite or another destination.
 
 ------------------------------------------------------------------------
 
@@ -530,7 +579,7 @@ Prebuilt binary is included in `bin/`. Release builder is included in
 
 ------------------------------------------------------------------------
 
-# Acknowledgements
+## Acknowledgements
 
 Developed in C++ with a focus on a minimal, self-contained Windows
 binary without external dependencies, using direct WinAPI process
