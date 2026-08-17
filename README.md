@@ -136,16 +136,16 @@ emitted.
 
 Emission modes:
 
+-   `stream` -- Emit child stdout/stderr to the parent stdout/stderr as it is produced (default).
+-   `end` -- Emit the buffered output after the child process
+    finishes.
+-   `success` -- Emit the buffered output only if execution succeeds.
+-   `failure` -- Emit the buffered output only if execution fails.
 -   `never` -- Never emit the selected stream to the parent. When used
     with `--stderr-emit`, this disables the default parent diagnostic
     channel. Unless another SilentRunner diagnostic channel, such as
     `--stderr-dir`, is available, SilentRunner terminates before
     starting the child process with exit code 254.
--   `stream` -- Emit child stdout/stderr to the parent as it is produced (default).
--   `end` -- Emit the buffered output after the child process
-    finishes.
--   `success` -- Emit the buffered output only if execution succeeds.
--   `failure` -- Emit the buffered output only if execution fails.
 
 Options:
 
