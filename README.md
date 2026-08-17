@@ -586,7 +586,7 @@ binary without external dependencies, using the Windows API directly.
 The project uses
 [Snapshot Toolset](https://github.com/jzav/snapshot-toolset) to provide
 anchored project snapshots for ChatGPT-assisted patch generation and application.
-ChatGPT also assists with documentation. Contributions, bug reports, and
+ChatGPT also assists with design and documentation. Contributions, bug reports, and
 security notes are welcome.
 
 ------------------------------------------------------------------------
