@@ -582,9 +582,12 @@ Prebuilt binary is included in `bin/`. Release builder is included in
 ## Acknowledgements
 
 Developed in C++ with a focus on a minimal, self-contained Windows
-binary without external dependencies, using direct WinAPI process
-handling. The code and documentation were created with assistance from
-ChatGPT. Contributions, bug reports, and security notes are welcome.
+binary without external dependencies, using the Windows API directly.
+The project uses
+[Snapshot Toolset](https://github.com/jzav/snapshot-toolset) to provide
+anchored project snapshots for ChatGPT-assisted patch generation and application.
+ChatGPT also assists with documentation. Contributions, bug reports, and
+security notes are welcome.
 
 ------------------------------------------------------------------------
 
