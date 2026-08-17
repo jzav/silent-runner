@@ -95,6 +95,11 @@ By default, the child process inherits SilentRunner's current working
 directory, receives `NUL` as its standard input, uses the system's
 default console code page, and runs without a time limit.
 
+The configured working directory controls the working directory in which the
+child process and run hooks execute. It does not change the base directory used
+to resolve relative paths in SilentRunner path options; those paths are resolved
+relative to SilentRunner's inherited working directory.
+
 These options allow the working directory, standard input handling,
 console code page, and execution timeout to be customized.
 
@@ -257,6 +262,10 @@ Runs an external program after execution without arguments.
 
 Hooks execute in the same process environment as the child process,
 including the configured working directory and environment variables.
+The hook path itself is resolved before execution relative to SilentRunner's
+inherited working directory, not relative to the directory specified by
+`--cwd`.
+
 SilentRunner also provides additional execution-specific environment
 variables, allowing hooks to access execution metadata such as the
 execution ID, execution result, and log file locations.
