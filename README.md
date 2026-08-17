@@ -584,7 +584,8 @@ SilentRunner.exe -c "echo Starting... & task1.exe | task2.exe"
 ## Build
 
 Prebuilt binary is included in `bin/`. Release builder is included in
-`scripts/`.
+`scripts/`. A GUI tester for running and inspecting SilentRunner commands
+is included in `tools/`.
 
 ------------------------------------------------------------------------
 
