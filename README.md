@@ -8,7 +8,9 @@ diagnostics**.
 SilentRunner is designed for unattended and automated execution
 scenarios such as scripting, CI/CD pipelines, and scheduled tasks, while
 retaining detailed control over process execution, output, and
-diagnostics.
+diagnostics. Execution results (success | failure) can be independently
+used to control parent stdout/stderr emission, log retention,
+and post-execution actions.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightblue)
@@ -22,14 +24,15 @@ Key capabilities include:
 -   Independent routing of child stdout, child stderr, and SilentRunner diagnostics
     to parent stdout/stderr and persistent logs.
 -   Immediate or delayed emission to parent stdout/stderr,
-    with delayed output optionally replayed from buffer or persistent logs at the
-    end of execution, on child success, or on child failure.
+    with delayed output optionally replayed from buffer or persistent logs
+    `at the end of execution`, `on child success`, or `on child failure`.
 -   Persistent TXT and JSONL logging with configurable retention
-    policies.
+    policies (`always` | `success` | `failure`) and the execution result
+    recorded in log filenames.
 -   Configurable execution IDs for log naming and workflow integration.
--   Post-execution hooks with execution metadata exposed through
+-   Post-execution hooks (`on success` | `on failure`) with execution metadata exposed through
     environment variables.
--   Configurable working directory, standard input, UTF-8 mode, and
+-   Configurable environment: working directory, standard input, UTF-8 mode, and
     execution timeout.
 -   Multiple diagnostic levels ranging from normal execution messages to
     detailed debugging and verbose execution summaries.
