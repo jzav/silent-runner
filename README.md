@@ -25,7 +25,7 @@ Key capabilities include:
     to parent stdout/stderr and persistent logs.
 -   Immediate or delayed emission to parent stdout/stderr,
     with delayed output optionally replayed from buffer or persistent logs
-    `at the end of execution`, `on child success`, or `on child failure`.
+    `at the end of execution`, `on execution success`, or `on execution failure`.
 -   Persistent TXT and JSONL logging with configurable retention
     policies (`always` | `success` | `failure`) and the execution result
     recorded in log filenames.
@@ -145,8 +145,7 @@ emitted.
 Emission modes:
 
 -   `stream` -- Emit child stdout/stderr to the parent stdout/stderr as it is produced (default).
--   `end` -- Emit the buffered output after the child process
-    finishes.
+-   `end` -- Emit the buffered output after the execution finishes.
 -   `success` -- Emit the buffered output only if execution succeeds.
 -   `failure` -- Emit the buffered output only if execution fails.
 -   `never` -- Never emit the selected stream to the parent. When used
@@ -384,20 +383,20 @@ echo こんにちは
 ### 3. Controlling parent output
 
 Keep child stdout/stderr out of parent output during execution and emit it
-only if the child process fails:
+only if the execution fails:
 
 ```text
 SilentRunner.exe --stdout-emit failure --stderr-emit failure task.cmd
 ```
 
-- Child stdout and stderr are not streamed to parent stdout/stderr while
-  `task.cmd` is running.
-- Output is buffered in memory in the execution timeline during execution.
-- If the child process fails, the buffered stdout/stderr is replayed to
+- Child stdout and stderr and SilentRunner diagnostics are not streamed to parent
+  stdout/stderr while `task.cmd` is running.
+- Child stdout/stderr and SilentRunner diagnostics are buffered in memory in the
+  execution timeline during execution.
+- If the execution fails, the buffered stdout/stderr is replayed to
   parent stdout/stderr after execution completes.
-- If the child process succeeds, no child stdout/stderr is emitted to the
+- If the execution succeeds, no child stdout/stderr is emitted to the
   parent.
-- SilentRunner diagnostics remain part of the combined stderr stream.
 - All other settings retain their default behavior described in the first
   example.
 
