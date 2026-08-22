@@ -8,7 +8,7 @@ diagnostics**.
 SilentRunner is designed for unattended and automated execution
 scenarios such as scripting, CI/CD pipelines, and scheduled tasks, while
 retaining detailed control over process execution, output, and
-diagnostics. Execution results (`success` | `failure`) can be independently
+diagnostics. Execution results can be independently
 used to control parent stdout/stderr emission, log retention,
 and post-execution actions.
 
