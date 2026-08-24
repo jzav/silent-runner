@@ -158,7 +158,7 @@ Options:
 
 -   `--stdout-emit <mode>` -- Controls emission of the child process
     stdout.
--   `--stderr-emit <mode>` -- Controls emission of the combined stderr
+-   `--stderr-emit <mode>` -- Controls emission of the mixed stderr
     view: child stderr and SilentRunner diagnostics.
 -   `--stderr-emit-child <mode>` -- Controls emission of child stderr
     only.
@@ -180,9 +180,9 @@ For example, output may be streamed to the parent process while also
 being recorded as TXT and/or JSONL logs.
 
 Unlike the parent stderr routing options, all stderr log destinations
-may be enabled at the same time. This allows combined stderr, child
-stderr, and SilentRunner diagnostics (described below) to be captured
-independently in parallel.
+may be enabled at the same time. This allows child stderr and SilentRunner
+diagnostics (described below) to be logged both separately and as a
+mixed stderr stream in parallel.
 
 Each execution creates a new set of log files. SilentRunner never
 appends output to an existing log file. Log file names are derived from
@@ -415,7 +415,7 @@ SilentRunner.exe --stdout-dir "D:\Logs" --stderr-dir "D:\Logs" task.cmd
 - Child stderr and SilentRunner diagnostics are streamed to parent stderr.
 - Child stdout is also written to a persistent TXT stdout log.
 - Child stderr and SilentRunner diagnostics are also written to a persistent
-  combined stderr TXT log.
+  mixed stderr TXT log.
 - While execution is running, the log file names contain the `running` state.
   After execution completes, they are renamed to contain `success` or `failure`
   according to the final execution result.
@@ -428,7 +428,7 @@ SilentRunner.exe --stdout-dir "D:\Logs" --stderr-dir "D:\Logs" task.cmd
 
 ### 5. Advanced persistent logging
 
-Record child stdout, combined stderr, child stderr, and SilentRunner diagnostics
+Record child stdout, child stderr, and SilentRunner diagnostics
 to persistent TXT and JSONL log files:
 
 ```text
@@ -445,7 +445,8 @@ SilentRunner.exe ^
 ```
 
 - Child stdout is recorded independently in TXT and JSONL formats.
-- The combined stderr stream is recorded independently in TXT and JSONL formats.
+- The mixed stderr stream, combining child stderr and SR diagnostics, is
+  recorded independently in TXT and JSONL formats.
 - Child stderr is also recorded separately in TXT and JSONL formats.
 - SilentRunner diagnostics are also recorded separately in TXT and JSONL formats.
 - All persistent log destinations may be enabled at the same time.
