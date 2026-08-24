@@ -126,8 +126,10 @@ The execution ID is composed as:
 
 `id-prefix + id-base + id-suffix`
 
-All three components are optional and may be used independently. If none
-is specified, the execution ID defaults to timestamp+pid (UTC).
+All three components are optional and may be used independently.
+The execution ID is formed from the specified components in this order:
+id-prefix + id-base + id-suffix.
+If none is specified, the execution ID defaults to timestamp+pid (UTC).
 
 Options:
 
