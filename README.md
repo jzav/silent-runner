@@ -126,9 +126,6 @@ The execution ID is composed as:
 
 `id-prefix + id-base + id-suffix`
 
-By default, SilentRunner uses `timestamp+pid` (UTC) as the suffix,
-providing a unique identifier for each execution.
-
 All three components are optional and may be used independently. If none
 is specified, the execution ID defaults to timestamp+pid (UTC).
 
