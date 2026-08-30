@@ -29,7 +29,10 @@ void SRLogGatewayStdout::RouteChildBytes(const char* p, size_t n) {
         SR::ReplayPayloadStorage replayPayloadStorage =
             SR::ReplayPayloadStorage::NotNeeded;
 
-        if (parentEmitPolicy_ && parentEmitPolicy_->NeedsStdoutReplayBuffer()) {
+        if (parentEmitPolicy_ &&
+            (parentEmitPolicy_->NeedsStdoutReplayBuffer() ||
+             parentEmitPolicy_->NeedsStderrInclStdoutReplayBuffer())) {
+
             const SR::BufferUsage usage =
                 executionTimeline_->GetCachedBufferUsage();
 

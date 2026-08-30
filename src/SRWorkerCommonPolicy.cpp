@@ -83,15 +83,19 @@ bool SRWorkerCommonPolicy::Init(
 
     const bool fileSinkNeedsParsingToken =
         !opt.stderrDir.empty() ||
-        !opt.stderrSrDir.empty();
+        !opt.stderrSrDir.empty() ||
+        !opt.stderrSrAndChildInclStdoutDir.empty();
+
 
     const bool parentEmitNeedsParsingToken =
         opt.stderrEmit != SR::EmitMode::Never &&
         (
             opt.stderrEmitSource ==
-                SR::StderrEmitSource::Mixed ||
+                SR::StderrEmitSource::SrAndChild ||
             opt.stderrEmitSource ==
-                SR::StderrEmitSource::SilentRunner
+                SR::StderrEmitSource::Sr ||
+            opt.stderrEmitSource ==
+                SR::StderrEmitSource::SrAndChildInclStdout
         );
 
     const bool needsParsingToken =

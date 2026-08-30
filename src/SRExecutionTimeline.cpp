@@ -1156,8 +1156,8 @@ bool ExecutionTimeline::ReplayToParent(
         SR::GetAllDelayedFilter filter;
 
         switch (parameters.stderrParentReplayParameters.target) {
-            case SR::JobTarget::StderrMixedParent:
-                filter.stderrMixedParent = true;
+            case SR::JobTarget::StderrSrAndChildParent:
+                filter.stderrSrAndChildParent = true;
                 break;
 
             case SR::JobTarget::StderrChildParent:
@@ -1167,6 +1167,10 @@ bool ExecutionTimeline::ReplayToParent(
             case SR::JobTarget::StderrSrParent:
                 filter.stderrSrParent = true;
                 break;
+            case SR::JobTarget::StderrSrAndChildInclStdoutParent:
+                filter.stderrSrAndChildInclStdoutParent = true;
+                break;
+
 
             default:
                 return false;

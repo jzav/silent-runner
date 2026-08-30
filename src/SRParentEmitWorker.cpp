@@ -77,8 +77,11 @@ bool SRParentEmitWorker::Init(
         domain_ = WorkerDomain{};
     }
 
-    stderrMixedParentLastWrittenPayloadType_.reset();
-    stderrMixedParentAtLineStart_ = true;
+    stderrSrAndChildParentLastWrittenPayloadType_.reset();
+    stderrSrAndChildParentAtLineStart_ = true;
+    stderrSrAndChildInclStdoutParentLastWrittenPayloadType_.reset();
+    stderrSrAndChildInclStdoutParentAtLineStart_ = true;
+
 
     {
         std::lock_guard<std::mutex> lock(parentEmitPolicyMutex_);
@@ -620,50 +623,74 @@ bool SRParentEmitWorker::TryEmitParentTarget_(
         return false;
     }
 
-    if (targetConfig.headerParsingTokenEnabled &&
-
-        targetConfig.target == SR::JobTarget::StderrMixedParent) {
-
-        stderrMixedParentLastWrittenPayloadType_ = job.payloadType;
-
-        // Update the mixed-parent line-boundary state after the payload has been
-        // emitted successfully.
-        switch (job.payloadType) {
-            case SR::JobPayloadType::SrDiag:
-                stderrMixedParentAtLineStart_ = true;
+    if (targetConfig.headerParsingTokenEnabled) {
+        std::optional<SR::JobPayloadType>* lastWrittenPayloadType = nullptr;
+        bool* atLineStart = nullptr;
+    
+        switch (targetConfig.target) {
+            case SR::JobTarget::StderrSrAndChildParent:
+                lastWrittenPayloadType =
+                    &stderrSrAndChildParentLastWrittenPayloadType_;
+                atLineStart =
+                    &stderrSrAndChildParentAtLineStart_;
                 break;
-
-            case SR::JobPayloadType::ChildStderr:
-                stderrMixedParentAtLineStart_ =
-                    job.childStderr.bytes.empty() ||
-                    job.childStderr.bytes.back() == '\n';
+    
+            case SR::JobTarget::StderrSrAndChildInclStdoutParent:
+                lastWrittenPayloadType =
+                    &stderrSrAndChildInclStdoutParentLastWrittenPayloadType_;
+                atLineStart =
+                    &stderrSrAndChildInclStdoutParentAtLineStart_;
                 break;
-
-            case SR::JobPayloadType::ChildStdout:
+    
+            default:
                 break;
         }
+    
+        if (lastWrittenPayloadType && atLineStart) {
+            *lastWrittenPayloadType = job.payloadType;
+    
+            switch (job.payloadType) {
+                case SR::JobPayloadType::SrDiag:
+                    *atLineStart = true;
+                    break;
+    
+                case SR::JobPayloadType::ChildStderr:
+                    *atLineStart =
+                        job.childStderr.bytes.empty() ||
+                        job.childStderr.bytes.back() == '\n';
+                    break;
+    
+                case SR::JobPayloadType::ChildStdout:
+                    *atLineStart =
+                        job.childStdout.bytes.empty() ||
+                        job.childStdout.bytes.back() == '\n';
+                    break;
+            }
+        }
     }
+
 
     return true;
 }
 
 // Builds the complete byte sequence for one parent-target emission.
 //
-// For parseable mixed-stderr output, this method applies the same segment
-// framing contract as the file-sink TXT path:
-// - decides whether a segment header is required,
-// - obtains the header text from SRPhaseTimelineEntryFormatter,
-// - inserts a separating LF when the previous child payload did not end at a
-//   line boundary,
-// - appends the original diagnostic or child payload bytes.
-//
-// For non-parseable parent targets, child payload bytes are forwarded unchanged.
-//
-// This method only constructs bytes. The caller performs the actual parent
-// handle write and updates framing state after a successful emission.
-//
-// Keep mixed-TXT header selection, LF separation, and payload ordering aligned
-// with SRFileSinkWorker::TryWriteTxtTarget_().
+    // For parseable combined stderr parent output, this method applies the same
+    // segment framing contract as the file-sink TXT path:
+    // - decides whether a segment header is required,
+    // - obtains the header text from SRPhaseTimelineEntryFormatter,
+    // - inserts a separating LF when the previous child payload did not end at a
+    //   line boundary,
+    // - appends the original diagnostic or child payload bytes.
+    //
+    // For non-parseable parent targets, child payload bytes are forwarded unchanged.
+    //
+    // This method only constructs bytes. The caller performs the actual parent
+    // handle write and updates framing state after a successful emission.
+    //
+    // Keep combined stderr TXT header selection, LF separation, and payload ordering
+    // aligned with SRFileSinkWorker::TryWriteTxtTarget_().
+
 bool SRParentEmitWorker::BuildPayloadBytes_(
     const SR::PendingJob& job,
     const WriteConfigSnapshot& writeConfig,
@@ -678,6 +705,35 @@ bool SRParentEmitWorker::BuildPayloadBytes_(
 
         const std::string& parsingToken = writeConfig.parsingToken;
         bool headerRequired = false;
+        std::optional<SR::JobPayloadType>* lastWrittenPayloadType = nullptr;
+        bool* atLineStart = nullptr;
+    
+        switch (targetConfig.target) {
+            case SR::JobTarget::StderrSrAndChildParent:
+                lastWrittenPayloadType =
+                    &stderrSrAndChildParentLastWrittenPayloadType_;
+                atLineStart =
+                    &stderrSrAndChildParentAtLineStart_;
+                break;
+    
+            case SR::JobTarget::StderrSrAndChildInclStdoutParent:
+                lastWrittenPayloadType =
+                    &stderrSrAndChildInclStdoutParentLastWrittenPayloadType_;
+                atLineStart =
+                    &stderrSrAndChildInclStdoutParentAtLineStart_;
+                break;
+    
+            default:
+                break;
+        }
+    
+        const bool startsNewSegment =
+            lastWrittenPayloadType &&
+            (
+                !lastWrittenPayloadType->has_value() ||
+                lastWrittenPayloadType->value() != job.payloadType
+            );
+
         std::string header;
 
         // Determine whether this payload starts a new TXT segment and build the
@@ -693,14 +749,8 @@ bool SRParentEmitWorker::BuildPayloadBytes_(
                 break;
 
             case SR::JobPayloadType::ChildStderr:
-                headerRequired =
-                    targetConfig.target == SR::JobTarget::StderrMixedParent &&
+                headerRequired = startsNewSegment;
 
-                    (
-                        !stderrMixedParentLastWrittenPayloadType_ ||
-                        *stderrMixedParentLastWrittenPayloadType_ !=
-                            SR::JobPayloadType::ChildStderr
-                    );
 
                 if (headerRequired) {
                     header =
@@ -712,15 +762,24 @@ bool SRParentEmitWorker::BuildPayloadBytes_(
                 break;
 
             case SR::JobPayloadType::ChildStdout:
+                headerRequired = startsNewSegment;
+    
+                if (headerRequired) {
+                    header =
+                        SR::SRPhaseTimelineEntryFormatter::FormatChildStdoutTxtHeader(
+                            job.childStdout,
+                            parsingToken
+                        );
+                }
                 break;
+
         }
 
         if (headerRequired) {
-            if (targetConfig.target == SR::JobTarget::StderrMixedParent &&
-
-                !stderrMixedParentAtLineStart_) {
+            if (atLineStart && !*atLineStart) {
                 bytesOut.push_back('\n');
             }
+
 
             bytesOut.insert(
                 bytesOut.end(),
@@ -757,6 +816,11 @@ bool SRParentEmitWorker::BuildPayloadBytes_(
                 return true;
 
             case SR::JobPayloadType::ChildStdout:
+                bytesOut.insert(
+                    bytesOut.end(),
+                    job.childStdout.bytes.begin(),
+                    job.childStdout.bytes.end()
+                );
                 return true;
         }
 

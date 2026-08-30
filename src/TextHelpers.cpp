@@ -1,5 +1,6 @@
 #include "TextHelpers.h"
 
+#include <climits>
 #include <limits>
 #include <utility>
 
@@ -369,6 +370,28 @@ bool TryParseUInt64Text_(
 
 
 namespace TextHelpers {
+bool EqualsOrdinalIgnoreCase(
+    std::wstring_view value,
+    std::wstring_view expected
+) noexcept {
+    if (value.size() > static_cast<std::size_t>(INT_MAX) ||
+        expected.size() > static_cast<std::size_t>(INT_MAX)) {
+        return false;
+    }
+
+    if (value.empty() || expected.empty()) {
+        return value.empty() && expected.empty();
+    }
+
+    return CompareStringOrdinal(
+        value.data(),
+        static_cast<int>(value.size()),
+        expected.data(),
+        static_cast<int>(expected.size()),
+        TRUE
+    ) == CSTR_EQUAL;
+}
+
 bool StartsWith(
     std::string_view text,
     std::string_view prefix

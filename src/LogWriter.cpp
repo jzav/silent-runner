@@ -42,7 +42,7 @@ bool FileWriter::CreateNewFile(const std::wstring& path, DWORD* outGle) {
 // Reopens an existing log file for append.
 //
 // Used after *_running.log has been renamed to its final success/failure name
-// so final diagnostics can continue writing to the kept stderr log.
+// so final diagnostics can continue writing to the kept log.
 
 bool FileWriter::OpenAppendFile(const std::wstring& path, DWORD* outGle) {
     if (outGle) *outGle = 0;

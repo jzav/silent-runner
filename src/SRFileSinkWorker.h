@@ -48,29 +48,35 @@ public:
         bool stdoutTxtEnabled,
         LogWriter::FileWriter* stdoutTxtWriter,
         const std::wstring& stdoutTxtRunningPath,
-        bool stderrMixedTxtEnabled,
-        LogWriter::FileWriter* stderrMixedTxtWriter,
-        const std::wstring& stderrMixedTxtRunningPath,
+        bool stderrSrAndChildTxtEnabled,
+        LogWriter::FileWriter* stderrSrAndChildTxtWriter,
+        const std::wstring& stderrSrAndChildTxtRunningPath,
         bool stderrChildTxtEnabled,
         LogWriter::FileWriter* stderrChildTxtWriter,
         const std::wstring& stderrChildTxtRunningPath,
         bool stderrSrTxtEnabled,
         LogWriter::FileWriter* stderrSrTxtWriter,
-        const std::wstring& stderrSrTxtRunningPath
+        const std::wstring& stderrSrTxtRunningPath,
+        bool stderrSrAndChildInclStdoutTxtEnabled,
+        LogWriter::FileWriter* stderrSrAndChildInclStdoutTxtWriter,
+        const std::wstring& stderrSrAndChildInclStdoutTxtRunningPath
     );
     void AttachJsonlWriters(
         bool stdoutJsonlEnabled,
         LogWriter::FileWriter* stdoutJsonlWriter,
         const std::wstring& stdoutJsonlRunningPath,
-        bool stderrMixedJsonlEnabled,
-        LogWriter::FileWriter* stderrMixedJsonlWriter,
-        const std::wstring& stderrMixedJsonlRunningPath,
+        bool stderrSrAndChildJsonlEnabled,
+        LogWriter::FileWriter* stderrSrAndChildJsonlWriter,
+        const std::wstring& stderrSrAndChildJsonlRunningPath,
         bool stderrChildJsonlEnabled,
         LogWriter::FileWriter* stderrChildJsonlWriter,
         const std::wstring& stderrChildJsonlRunningPath,
         bool stderrSrJsonlEnabled,
         LogWriter::FileWriter* stderrSrJsonlWriter,
-        const std::wstring& stderrSrJsonlRunningPath
+        const std::wstring& stderrSrJsonlRunningPath,
+        bool stderrSrAndChildInclStdoutJsonlEnabled,
+        LogWriter::FileWriter* stderrSrAndChildInclStdoutJsonlWriter,
+        const std::wstring& stderrSrAndChildInclStdoutJsonlRunningPath
     );
 
     bool EnqueuePendingJobs(const SR::PendingJobs& jobs);
@@ -116,13 +122,15 @@ private:
             SR::kFileSinkTargetConfigCount
         > targetConfigs{{
             FileTargetConfig{SR::JobTarget::StdoutTxt},
-            FileTargetConfig{SR::JobTarget::StderrMixedTxt},
+            FileTargetConfig{SR::JobTarget::StderrSrAndChildTxt},
             FileTargetConfig{SR::JobTarget::StderrChildTxt},
             FileTargetConfig{SR::JobTarget::StderrSrTxt},
             FileTargetConfig{SR::JobTarget::StdoutJsonl},
-            FileTargetConfig{SR::JobTarget::StderrMixedJsonl},
+            FileTargetConfig{SR::JobTarget::StderrSrAndChildJsonl},
             FileTargetConfig{SR::JobTarget::StderrChildJsonl},
-            FileTargetConfig{SR::JobTarget::StderrSrJsonl}
+            FileTargetConfig{SR::JobTarget::StderrSrJsonl},
+            FileTargetConfig{SR::JobTarget::StderrSrAndChildInclStdoutJsonl},
+            FileTargetConfig{SR::JobTarget::StderrSrAndChildInclStdoutTxt}
         }};
 
         WorkerConfig config;
@@ -133,29 +141,35 @@ private:
         bool stdoutTxtEnabled,
         LogWriter::FileWriter* stdoutTxtWriter,
         const std::wstring& stdoutTxtRunningPath,
-        bool stderrMixedTxtEnabled,
-        LogWriter::FileWriter* stderrMixedTxtWriter,
-        const std::wstring& stderrMixedTxtRunningPath,
+        bool stderrSrAndChildTxtEnabled,
+        LogWriter::FileWriter* stderrSrAndChildTxtWriter,
+        const std::wstring& stderrSrAndChildTxtRunningPath,
         bool stderrChildTxtEnabled,
         LogWriter::FileWriter* stderrChildTxtWriter,
         const std::wstring& stderrChildTxtRunningPath,
         bool stderrSrTxtEnabled,
         LogWriter::FileWriter* stderrSrTxtWriter,
-        const std::wstring& stderrSrTxtRunningPath
+        const std::wstring& stderrSrTxtRunningPath,
+        bool stderrSrAndChildInclStdoutTxtEnabled,
+        LogWriter::FileWriter* stderrSrAndChildInclStdoutTxtWriter,
+        const std::wstring& stderrSrAndChildInclStdoutTxtRunningPath
     );
     void AttachJsonlWritersLocked_(
         bool stdoutJsonlEnabled,
         LogWriter::FileWriter* stdoutJsonlWriter,
         const std::wstring& stdoutJsonlRunningPath,
-        bool stderrMixedJsonlEnabled,
-        LogWriter::FileWriter* stderrMixedJsonlWriter,
-        const std::wstring& stderrMixedJsonlRunningPath,
+        bool stderrSrAndChildJsonlEnabled,
+        LogWriter::FileWriter* stderrSrAndChildJsonlWriter,
+        const std::wstring& stderrSrAndChildJsonlRunningPath,
         bool stderrChildJsonlEnabled,
         LogWriter::FileWriter* stderrChildJsonlWriter,
         const std::wstring& stderrChildJsonlRunningPath,
         bool stderrSrJsonlEnabled,
         LogWriter::FileWriter* stderrSrJsonlWriter,
-        const std::wstring& stderrSrJsonlRunningPath
+        const std::wstring& stderrSrJsonlRunningPath,
+        bool stderrSrAndChildInclStdoutJsonlEnabled,
+        LogWriter::FileWriter* stderrSrAndChildInclStdoutJsonlWriter,
+        const std::wstring& stderrSrAndChildInclStdoutJsonlRunningPath
     );
     
     void ThreadMain_();
@@ -192,8 +206,12 @@ private:
     WorkerDomain domain_;
 
     std::optional<SR::JobPayloadType>
-        stderrMixedTxtLastWrittenPayloadType_;
-    bool stderrMixedTxtAtLineStart_ = true;
+        stderrSrAndChildTxtLastWrittenPayloadType_;
+    bool stderrSrAndChildTxtAtLineStart_ = true;
+    std::optional<SR::JobPayloadType>
+        stderrSrAndChildInclStdoutTxtLastWrittenPayloadType_;
+    bool stderrSrAndChildInclStdoutTxtAtLineStart_ = true;
+
 
     mutable std::mutex pendingJobsMutex_;
     SR::PendingJobs pendingJobs_;

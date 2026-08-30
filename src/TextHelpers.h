@@ -9,6 +9,11 @@
 
 
 namespace TextHelpers {
+bool EqualsOrdinalIgnoreCase(
+    std::wstring_view value,
+    std::wstring_view expected
+) noexcept;
+
 bool StartsWith(
     std::string_view text,
     std::string_view prefix

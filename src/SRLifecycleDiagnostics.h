@@ -73,7 +73,7 @@ private:
     bool debugEnabled_ = false;
     bool verboseEnabled_ = false;
     SR::EmitMode emitMode_ = SR::EmitMode::Stream;
-    SR::StderrEmitSource stderrEmitSource_ = SR::StderrEmitSource::Mixed;
+    SR::StderrEmitSource stderrEmitSource_ = SR::StderrEmitSource::SrAndChild;
     ExecutionTimeline* executionTimeline_ = nullptr;
     std::wstring probeLogPath_;
 

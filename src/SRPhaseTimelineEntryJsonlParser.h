@@ -12,7 +12,7 @@ namespace SR {
 //
 // Responsibilities:
 // - Parse one complete JSONL record into the corresponding schema data.
-// - Parse mixed-stderr TXT segment headers into the corresponding schema data.
+// - Parse stderr-sr-and-child TXT segment headers into the corresponding schema data.
 // - Maintain the parser side of the field contract defined by
 //   SRPhaseTimelineEntrySchema.
 //
@@ -23,7 +23,7 @@ namespace SR {
 // - Assign synthetic event order numbers for chunked TXT replay.
 //
 // JSONL records contain both metadata and payload representation in one
-// physical line. Mixed TXT output stores metadata in a header line followed by
+// physical line. stderr-sr-and-child TXT output stores metadata in a header line followed by
 // separately framed payload bytes; therefore TXT parsing intentionally stops
 // at the segment header.
 class SRPhaseTimelineEntryParser {

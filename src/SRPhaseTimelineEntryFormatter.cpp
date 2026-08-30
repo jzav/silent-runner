@@ -217,6 +217,39 @@ std::string FormatSrDiagTxtHeader_(
     return header;
 }
 
+std::string FormatChildStdoutTxtHeader_(
+    const SRPhaseTimelineEntrySchemaData::ChildStdoutData& data
+) {
+    std::string header;
+    header.reserve(256 + data.parsingToken.size());
+
+#define SR_APPEND_TXT_FIELD_( \
+    member, \
+    fieldName, \
+    jsonEnabled, \
+    jsonFormatter, \
+    jsonParser, \
+    txtEnabled, \
+    txtFormatter, \
+    txtParser \
+) \
+    AppendTxtField_<txtEnabled>( \
+        header, \
+        fieldName, \
+        txtFormatter, \
+        data, \
+        member \
+    );
+
+    SR_PHASE_TIMELINE_CHILD_STDOUT_SCHEMA_FIELD_TABLE(
+        SR_APPEND_TXT_FIELD_
+    )
+
+#undef SR_APPEND_TXT_FIELD_
+
+    return header;
+}
+
 std::string FormatChildStderrTxtHeader_(
     const SRPhaseTimelineEntrySchemaData::ChildStderrData& data
 ) {
@@ -260,6 +293,16 @@ std::string SRPhaseTimelineEntryFormatter::FormatSrDiagTxtHeader(
     SRPhaseTimelineEntrySchemaData::SrDiagData data(entry);
     data.parsingToken = parsingToken;
     return FormatSrDiagTxtHeader_(data);
+}
+
+
+std::string SRPhaseTimelineEntryFormatter::FormatChildStdoutTxtHeader(
+    const ChildStdoutEntry& entry,
+    const std::string& parsingToken
+) {
+    SRPhaseTimelineEntrySchemaData::ChildStdoutData data(entry);
+    data.parsingToken = parsingToken;
+    return FormatChildStdoutTxtHeader_(data);
 }
 
 

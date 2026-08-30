@@ -33,6 +33,9 @@ struct SRPreparedRuntime {
     std::wstring stderrSrRunningName;
     std::wstring stderrSrSuccessName;
     std::wstring stderrSrFailureName;
+    std::wstring stderrSrAndChildInclStdoutRunningName;
+    std::wstring stderrSrAndChildInclStdoutSuccessName;
+    std::wstring stderrSrAndChildInclStdoutFailureName;
     std::wstring stdoutJsonlRunningName;
     std::wstring stderrJsonlRunningName;
     std::wstring stdoutJsonlSuccessName;
@@ -45,6 +48,9 @@ struct SRPreparedRuntime {
     std::wstring stderrSrJsonlRunningName;
     std::wstring stderrSrJsonlSuccessName;
     std::wstring stderrSrJsonlFailureName;
+    std::wstring stderrSrAndChildInclStdoutJsonlRunningName;
+    std::wstring stderrSrAndChildInclStdoutJsonlSuccessName;
+    std::wstring stderrSrAndChildInclStdoutJsonlFailureName;
     std::wstring probeLogName;
 
 
@@ -55,10 +61,12 @@ struct SRPreparedRuntime {
     LogWriter::FileWriter stderrLogWriter;
     LogWriter::FileWriter stderrChildLogWriter;
     LogWriter::FileWriter stderrSrLogWriter;
+    LogWriter::FileWriter stderrSrAndChildInclStdoutLogWriter;
     LogWriter::FileWriter stdoutJsonlWriter;
     LogWriter::FileWriter stderrJsonlWriter;
     LogWriter::FileWriter stderrChildJsonlWriter;
     LogWriter::FileWriter stderrSrJsonlWriter;
+    LogWriter::FileWriter stderrSrAndChildInclStdoutJsonlWriter;
     HandleHelpers::StdHandleWriteProbeResult stdoutStdHandleProbe;
     HandleHelpers::StdHandleWriteProbeResult stderrStdHandleProbe;
 

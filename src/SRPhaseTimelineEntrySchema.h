@@ -159,9 +159,9 @@
         TextHelpers::AppendJsonStringField, \
         TextHelpers::TryParseJsonStringField, \
         \
-        false, \
-        nullptr, \
-        nullptr \
+        true, \
+        TextHelpers::AppendTxtUpperStringField, \
+        TextHelpers::TryParseTxtStringField \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::phase, \
@@ -171,9 +171,9 @@
         TextHelpers::AppendJsonWideStringField, \
         TextHelpers::TryParseJsonWideStringField, \
         \
-        false, \
-        nullptr, \
-        nullptr \
+        true, \
+        TextHelpers::AppendTxtUpperWideStringField, \
+        TextHelpers::TryParseTxtWideStringField \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::phaseOrderNo, \
@@ -183,9 +183,9 @@
         TextHelpers::AppendJsonUInt64Field, \
         TextHelpers::TryParseJsonUInt64Field, \
         \
-        false, \
-        nullptr, \
-        nullptr \
+        true, \
+        TextHelpers::AppendTxtUInt64Field, \
+        TextHelpers::TryParseTxtUInt64Field \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::eventOrderNo, \
@@ -195,9 +195,9 @@
         TextHelpers::AppendJsonUInt64Field, \
         TextHelpers::TryParseJsonUInt64Field, \
         \
-        false, \
-        nullptr, \
-        nullptr \
+        true, \
+        TextHelpers::AppendTxtUInt64Field, \
+        TextHelpers::TryParseTxtUInt64Field \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::timestampUtc, \
@@ -207,9 +207,9 @@
         TextHelpers::AppendJsonWideStringField, \
         TextHelpers::TryParseJsonWideStringField, \
         \
-        false, \
-        nullptr, \
-        nullptr \
+        true, \
+        TextHelpers::AppendTxtWideStringField, \
+        TextHelpers::TryParseTxtWideStringField \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::payloadDropped, \
@@ -219,9 +219,9 @@
         TextHelpers::AppendJsonBoolField, \
         TextHelpers::TryParseJsonBoolField, \
         \
-        false, \
-        nullptr, \
-        nullptr \
+        true, \
+        TextHelpers::AppendTxtUpperBoolField, \
+        TextHelpers::TryParseTxtBoolField \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::payloadByteCount, \
@@ -231,9 +231,9 @@
         TextHelpers::AppendJsonUInt64Field, \
         TextHelpers::TryParseJsonUInt64Field, \
         \
-        false, \
-        nullptr, \
-        nullptr \
+        true, \
+        TextHelpers::AppendTxtUInt64Field, \
+        TextHelpers::TryParseTxtUInt64Field \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::payloadBase64, \
@@ -246,6 +246,18 @@
         false, \
         nullptr, \
         nullptr \
+    ) \
+    X( \
+        &SRPhaseTimelineEntrySchemaData::ChildStdoutData::parsingToken, \
+        "parsingToken", \
+        \
+        false, \
+        nullptr, \
+        nullptr, \
+        \
+        true, \
+        TextHelpers::AppendTxtStringField, \
+        TextHelpers::TryParseTxtStringField \
     )
 
 #define SR_PHASE_TIMELINE_CHILD_STDERR_SCHEMA_FIELD_TABLE(X) \

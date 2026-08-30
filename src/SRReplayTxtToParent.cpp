@@ -469,60 +469,18 @@ bool SRReplayTxtToParent::TryParseCandidateHeader_(
     const bool valid = std::visit(
         [this, target](const auto& data) -> bool {
             using Data = std::decay_t<decltype(data)>;
-
-            if constexpr (
-                std::is_same_v<
-                    Data,
-                    SR::SRPhaseTimelineEntrySchemaData::ChildStdoutData
-                >
-            ) {
+    
+            SR::TimelineEntryKey key;
+            if (!TryBuildPendingJobKey_(
+                    data.phase,
+                    data.phaseOrderNo,
+                    data.eventOrderNo,
+                    key
+                )) {
                 if (diagnostics_) {
                     diagnostics_->ErrorLine(
-                        std::wstring(L"Failed to validate TXT replay candidate header; reason=child-stdout-not-supported") +
-                        L"; target=" +
-                        SR::JobTargetNameToString(target)
-                    );
-                }
-                return false;
-            } else {
-                SR::TimelineEntryKey key;
-
-                if (!TryBuildPendingJobKey_(
-                        data.phase,
-                        data.phaseOrderNo,
-                        data.eventOrderNo,
-                        key
-                    )) {
-                    if (diagnostics_) {
-                        diagnostics_->ErrorLine(
-                            std::wstring(L"Failed to validate TXT replay candidate header; reason=pending-job-key") +
-                            L"; phase=" +
-                            data.phase +
-                            L"; phaseOrderNo=" +
-                            std::to_wstring(data.phaseOrderNo) +
-                            L"; eventOrderNo=" +
-                            std::to_wstring(data.eventOrderNo)
-                        );
-                    }
-                    return false;
-                }
-
-                if (data.parsingToken != parsingToken_) {
-                    if (diagnostics_) {
-                        diagnostics_->ErrorLine(
-                            std::wstring(L"Failed to validate TXT replay candidate header; reason=parsing-token-mismatch") +
-                            L"; expectedParsingToken=" +
-                            FileHelpers::Utf8ToWide(parsingToken_) +
-                            L"; actualParsingToken=" +
-                            FileHelpers::Utf8ToWide(data.parsingToken)
-                        );
-                    }
-                    return false;
-                }
-
-                if (diagnostics_) {
-                    diagnostics_->ProbeLine(
-                        L"Validated TXT replay header identity; phase=" +
+                        std::wstring(L"Failed to validate TXT replay candidate header; reason=pending-job-key") +
+                        L"; phase=" +
                         data.phase +
                         L"; phaseOrderNo=" +
                         std::to_wstring(data.phaseOrderNo) +
@@ -530,31 +488,67 @@ bool SRReplayTxtToParent::TryParseCandidateHeader_(
                         std::to_wstring(data.eventOrderNo)
                     );
                 }
-
-                if constexpr (
-                    std::is_same_v<
-                        Data,
-                        SR::SRPhaseTimelineEntrySchemaData::SrDiagData
-                    >
-                ) {
-                    SR::DiagnosticSeverity severity;
-
-                    return
-                        SR::TryParseDiagnosticSeverityUppercase(
-                            data.severity,
-                            severity
-                        ) &&
-                        SR::CanRouteJobPayloadTypeToTarget(
-                            SR::JobPayloadType::SrDiag,
-                            target
-                        );
-                } else {
-                    return SR::CanRouteJobPayloadTypeToTarget(
-                        SR::JobPayloadType::ChildStderr,
-                        target
+                return false;
+            }
+    
+            if (data.parsingToken != parsingToken_) {
+                if (diagnostics_) {
+                    diagnostics_->ErrorLine(
+                        std::wstring(L"Failed to validate TXT replay candidate header; reason=parsing-token-mismatch") +
+                        L"; expectedParsingToken=" +
+                        FileHelpers::Utf8ToWide(parsingToken_) +
+                        L"; actualParsingToken=" +
+                        FileHelpers::Utf8ToWide(data.parsingToken)
                     );
                 }
+                return false;
             }
+    
+            if (diagnostics_) {
+                diagnostics_->ProbeLine(
+                    L"Validated TXT replay header identity; phase=" +
+                    data.phase +
+                    L"; phaseOrderNo=" +
+                    std::to_wstring(data.phaseOrderNo) +
+                    L"; eventOrderNo=" +
+                    std::to_wstring(data.eventOrderNo)
+                );
+            }
+    
+            if constexpr (
+                std::is_same_v<
+                    Data,
+                    SR::SRPhaseTimelineEntrySchemaData::SrDiagData
+                >
+            ) {
+                SR::DiagnosticSeverity severity;
+    
+                return
+                    SR::TryParseDiagnosticSeverityUppercase(
+                        data.severity,
+                        severity
+                    ) &&
+                    SR::CanRouteJobPayloadTypeToTarget(
+                        SR::JobPayloadType::SrDiag,
+                        target
+                    );
+            } else if constexpr (
+                std::is_same_v<
+                    Data,
+                    SR::SRPhaseTimelineEntrySchemaData::ChildStdoutData
+                >
+            ) {
+                return SR::CanRouteJobPayloadTypeToTarget(
+                    SR::JobPayloadType::ChildStdout,
+                    target
+                );
+            } else {
+                return SR::CanRouteJobPayloadTypeToTarget(
+                    SR::JobPayloadType::ChildStderr,
+                    target
+                );
+            }
+
         },
         schemaData
     );
@@ -584,84 +578,95 @@ bool SRReplayTxtToParent::TryBuildPendingJob_(
         [&](const auto& data) -> bool {
             using Data = std::decay_t<decltype(data)>;
 
+            SR::TimelineEntryKey key;
+            if (!TryBuildPendingJobKey_(
+                    data.phase,
+                    data.phaseOrderNo,
+                    segmentContext.nextEventOrderNo++,
+                    key
+                )) {
+                return false;
+            }
+    
+            job = SR::PendingJob{};
+            job.origin = SR::JobOrigin::TxtReplay;
+            job.key = key;
+    
+            const SR::ReplayPayloadStorage replayPayloadStorage =
+                ReplayPayloadStorageFromSchemaData_(
+                    data.payloadDropped
+                );
+    
             if constexpr (
+                std::is_same_v<
+                    Data,
+                    SR::SRPhaseTimelineEntrySchemaData::SrDiagData
+                >
+            ) {
+                SR::DiagnosticSeverity severity;
+                if (!SR::TryParseDiagnosticSeverityUppercase(
+                        data.severity,
+                        severity
+                    )) {
+                    return false;
+                }
+    
+                const std::size_t messageSize =
+                    pendingPayloadBuffer.size();
+    
+                job.payloadType = SR::JobPayloadType::SrDiag;
+                job.srDiag.key = key;
+                job.srDiag.timestampUtc = data.timestampUtc;
+                job.srDiag.severity = severity;
+                job.srDiag.message = FileHelpers::Utf8ToWide(
+                    std::string(
+                        pendingPayloadBuffer.begin(),
+                        pendingPayloadBuffer.end()
+                    )
+                );
+                job.srDiag.payloadByteCount =
+                    data.payloadDropped
+                        ? data.payloadByteCount
+                        : static_cast<uint64_t>(messageSize);
+                job.srDiag.replayPayloadStorage =
+                    replayPayloadStorage;
+            } else if constexpr (
                 std::is_same_v<
                     Data,
                     SR::SRPhaseTimelineEntrySchemaData::ChildStdoutData
                 >
             ) {
-                return false;
+                job.payloadType = SR::JobPayloadType::ChildStdout;
+                job.childStdout.key = key;
+                job.childStdout.timestampUtc = data.timestampUtc;
+                job.childStdout.bytes =
+                    std::move(pendingPayloadBuffer);
+                job.childStdout.payloadByteCount =
+                    data.payloadDropped
+                        ? data.payloadByteCount
+                        : static_cast<uint64_t>(
+                            job.childStdout.bytes.size()
+                        );
+                job.childStdout.replayPayloadStorage =
+                    replayPayloadStorage;
             } else {
-                SR::TimelineEntryKey key;
-                if (!TryBuildPendingJobKey_(
-                        data.phase,
-                        data.phaseOrderNo,
-                        segmentContext.nextEventOrderNo++,
-                        key
-                    )) {
-                    return false;
-                }
-
-                job = SR::PendingJob{};
-                job.origin = SR::JobOrigin::TxtReplay;
-                job.key = key;
-
-                const SR::ReplayPayloadStorage replayPayloadStorage =
-                    ReplayPayloadStorageFromSchemaData_(
-                        data.payloadDropped
-                    );
-
-                if constexpr (
-                    std::is_same_v<
-                        Data,
-                        SR::SRPhaseTimelineEntrySchemaData::SrDiagData
-                    >
-                ) {
-                    SR::DiagnosticSeverity severity;
-                    if (!SR::TryParseDiagnosticSeverityUppercase(
-                            data.severity,
-                            severity
-                        )) {
-                        return false;
-                    }
-
-                    const std::size_t messageSize =
-                        pendingPayloadBuffer.size();
-
-                    job.payloadType = SR::JobPayloadType::SrDiag;
-                    job.srDiag.key = key;
-                    job.srDiag.timestampUtc = data.timestampUtc;
-                    job.srDiag.severity = severity;
-                    job.srDiag.message = FileHelpers::Utf8ToWide(
-                        std::string(
-                            pendingPayloadBuffer.begin(),
-                            pendingPayloadBuffer.end()
-                        )
-                    );
-                    job.srDiag.payloadByteCount =
-                        data.payloadDropped
-                            ? data.payloadByteCount
-                            : static_cast<uint64_t>(messageSize);
-                    job.srDiag.replayPayloadStorage =
-                        replayPayloadStorage;
-                } else {
-                    job.payloadType = SR::JobPayloadType::ChildStderr;
-                    job.childStderr.key = key;
-                    job.childStderr.timestampUtc = data.timestampUtc;
-                    job.childStderr.bytes =
-                        std::move(pendingPayloadBuffer);
-                    job.childStderr.payloadByteCount =
-                        data.payloadDropped
-                            ? data.payloadByteCount
-                            : static_cast<uint64_t>(
-                                job.childStderr.bytes.size()
-                            );
-                    job.childStderr.replayPayloadStorage =
-                        replayPayloadStorage;
-                }
-
-                return true;
+                job.payloadType = SR::JobPayloadType::ChildStderr;
+                job.childStderr.key = key;
+                job.childStderr.timestampUtc = data.timestampUtc;
+                job.childStderr.bytes =
+                    std::move(pendingPayloadBuffer);
+                job.childStderr.payloadByteCount =
+                    data.payloadDropped
+                        ? data.payloadByteCount
+                        : static_cast<uint64_t>(
+                            job.childStderr.bytes.size()
+                        );
+                job.childStderr.replayPayloadStorage =
+                    replayPayloadStorage;
             }
+    
+            return true;
+
         },
         segmentContext.schemaData
     );
@@ -673,11 +678,13 @@ bool SRReplayTxtToParent::FlushPendingPayload_(
     ReplayBatchContext& batchContext,
     std::vector<char>& pendingPayloadBuffer
 ) {
+    const bool payloadEmpty = pendingPayloadBuffer.empty();
+
+
     const bool skipEmptyPayload = std::visit(
         [&](const auto& data) -> bool {
             return
-                pendingPayloadBuffer.empty() &&
-                !data.payloadDropped;
+                payloadEmpty && !data.payloadDropped;
         },
         segmentContext.schemaData
     );
@@ -715,6 +722,9 @@ SRReplayTxtToParent::ChunkUntilSeparator_(
 
     const bool chunkedSegment =
         std::holds_alternative<
+            SR::SRPhaseTimelineEntrySchemaData::ChildStdoutData
+        >(segmentContext.schemaData) ||
+        std::holds_alternative<
             SR::SRPhaseTimelineEntrySchemaData::ChildStderrData
         >(segmentContext.schemaData) ||
         std::holds_alternative<
@@ -728,8 +738,22 @@ SRReplayTxtToParent::ChunkUntilSeparator_(
             HeaderResultState::NotHeader &&
         payloadPosition < currentBuffer_.size() &&
         currentBuffer_[payloadPosition] == kLf) {
-        pendingPayloadBuffer.push_back(kLf);
+        const bool srDiagSegment =
+            std::holds_alternative<
+                SR::SRPhaseTimelineEntrySchemaData::SrDiagData
+            >(segmentContext.schemaData);
+    
+        const bool terminatingSrDiagLf =
+            srDiagSegment &&
+            payloadPosition + 1 == currentBuffer_.size() &&
+            nextBuffer_.empty();
+    
+        if (!terminatingSrDiagLf) {
+            pendingPayloadBuffer.push_back(kLf);
+        }
+    
         ++payloadPosition;
+
 
         if (chunkedSegment &&
             pendingPayloadBuffer.size() ==
@@ -1015,12 +1039,6 @@ bool SRReplayTxtToParent::ReplayHeaderedTxt_(
             );
         }
 
-        if (headerContinuesInNextBuffer &&
-            nextBuffer_.empty() &&
-            nextHeaderResult.state ==
-                HeaderResultState::NeedsNext) {
-            continue;
-        }
 
         if (nextHeaderResult.state ==
             HeaderResultState::NotHeader) {
@@ -1075,23 +1093,19 @@ bool SRReplayTxtToParent::ReplayHeaderedTxt_(
         segmentContext = std::move(nextSegmentContext);
     }
 
-    if (pendingPayloadBuffer.size() == 1 && pendingPayloadBuffer.front() == '\n') {
-        pendingPayloadBuffer.clear();
-    } else {
-        if (!FlushPendingPayload_(
-            segmentContext,
-            batchContext,
-            pendingPayloadBuffer
-        )) {
-            reader.Close();
-            if (diagnostics_) {
-                diagnostics_->ErrorLine(
-                    L"Failed to enqueue TXT replay job: " +
-                    parameters.path
-                );
-            }
-            return false;
+    if (!FlushPendingPayload_(
+        segmentContext,
+        batchContext,
+        pendingPayloadBuffer
+    )) {
+        reader.Close();
+        if (diagnostics_) {
+            diagnostics_->ErrorLine(
+                L"Failed to enqueue TXT replay job: " +
+                parameters.path
+            );
         }
+        return false;
     }
 
     reader.Close();

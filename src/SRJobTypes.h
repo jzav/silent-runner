@@ -25,17 +25,20 @@ namespace SR {
 #define SR_JOB_TARGET_TABLE(X) \
     /* Columns: name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled */ \
     X(StdoutParent, "StdoutParent", Stdout, None, Parent, SRParentEmitWorker, 0, false) \
-    X(StderrMixedParent, "StderrMixedParent", Stderr, Mixed, Parent, SRParentEmitWorker, 1, true) \
+    X(StderrSrAndChildParent, "StderrSrAndChildParent", Stderr, SrAndChild, Parent, SRParentEmitWorker, 1, true) \
     X(StderrChildParent, "StderrChildParent", Stderr, Child, Parent, SRParentEmitWorker, 2, false) \
     X(StderrSrParent, "StderrSrParent", Stderr, Sr, Parent, SRParentEmitWorker, 3, true) \
+    X(StderrSrAndChildInclStdoutParent, "StderrSrAndChildInclStdoutParent", Stderr, SrAndChildInclStdout, Parent, SRParentEmitWorker, 4, true) \
     X(StdoutTxt, "StdoutTxt", Stdout, None, Txt, SRFileSinkWorker, 0, false) \
-    X(StderrMixedTxt, "StderrMixedTxt", Stderr, Mixed, Txt, SRFileSinkWorker, 1, true) \
+    X(StderrSrAndChildTxt, "StderrSrAndChildTxt", Stderr, SrAndChild, Txt, SRFileSinkWorker, 1, true) \
     X(StderrChildTxt, "StderrChildTxt", Stderr, Child, Txt, SRFileSinkWorker, 2, false) \
     X(StderrSrTxt, "StderrSrTxt", Stderr, Sr, Txt, SRFileSinkWorker, 3, true) \
+    X(StderrSrAndChildInclStdoutTxt, "StderrSrAndChildInclStdoutTxt", Stderr, SrAndChildInclStdout, Txt, SRFileSinkWorker, 9, true) \
     X(StdoutJsonl, "StdoutJsonl", Stdout, None, Jsonl, SRFileSinkWorker, 4, false) \
-    X(StderrMixedJsonl, "StderrMixedJsonl", Stderr, Mixed, Jsonl, SRFileSinkWorker, 5, false) \
+    X(StderrSrAndChildJsonl, "StderrSrAndChildJsonl", Stderr, SrAndChild, Jsonl, SRFileSinkWorker, 5, false) \
     X(StderrChildJsonl, "StderrChildJsonl", Stderr, Child, Jsonl, SRFileSinkWorker, 6, false) \
-    X(StderrSrJsonl, "StderrSrJsonl", Stderr, Sr, Jsonl, SRFileSinkWorker, 7, false)
+    X(StderrSrJsonl, "StderrSrJsonl", Stderr, Sr, Jsonl, SRFileSinkWorker, 7, false) \
+    X(StderrSrAndChildInclStdoutJsonl, "StderrSrAndChildInclStdoutJsonl", Stderr, SrAndChildInclStdout, Jsonl, SRFileSinkWorker, 8, false)
 
 
 
@@ -61,7 +64,7 @@ static inline constexpr JobTarget RetrieveStderrJobTarget(
 #undef SR_X_STDERR_EMIT_SOURCE_PARENT_TARGET
     }
 
-    return JobTarget::StderrMixedParent;
+    return JobTarget::StderrSrAndChildParent;
 }
 
 
@@ -123,7 +126,8 @@ static inline const wchar_t* JobTargetNameToString(JobTarget target) noexcept {
 
 enum class JobTargetChannel {
     None,
-    Mixed,
+    SrAndChild,
+    SrAndChildInclStdout,
     Child,
     Sr
 };
@@ -333,20 +337,29 @@ static inline std::vector<JobTarget> RetrieveJobTargets(
     
 #define SR_JOB_TARGET_PAYLOAD_TYPE_TABLE(X) \
     X(StdoutParent, ChildStdout) \
-    X(StderrMixedParent, ChildStderr) \
-    X(StderrMixedParent, SrDiag) \
+    X(StderrSrAndChildParent, ChildStderr) \
+    X(StderrSrAndChildParent, SrDiag) \
     X(StderrChildParent, ChildStderr) \
     X(StderrSrParent, SrDiag) \
+    X(StderrSrAndChildInclStdoutParent, ChildStdout) \
+    X(StderrSrAndChildInclStdoutParent, ChildStderr) \
+    X(StderrSrAndChildInclStdoutParent, SrDiag) \
     X(StdoutTxt, ChildStdout) \
-    X(StderrMixedTxt, ChildStderr) \
-    X(StderrMixedTxt, SrDiag) \
+    X(StderrSrAndChildTxt, ChildStderr) \
+    X(StderrSrAndChildTxt, SrDiag) \
     X(StderrChildTxt, ChildStderr) \
     X(StderrSrTxt, SrDiag) \
+    X(StderrSrAndChildInclStdoutTxt, ChildStdout) \
+    X(StderrSrAndChildInclStdoutTxt, ChildStderr) \
+    X(StderrSrAndChildInclStdoutTxt, SrDiag) \
     X(StdoutJsonl, ChildStdout) \
-    X(StderrMixedJsonl, ChildStderr) \
-    X(StderrMixedJsonl, SrDiag) \
+    X(StderrSrAndChildJsonl, ChildStderr) \
+    X(StderrSrAndChildJsonl, SrDiag) \
     X(StderrChildJsonl, ChildStderr) \
-    X(StderrSrJsonl, SrDiag)
+    X(StderrSrJsonl, SrDiag) \
+    X(StderrSrAndChildInclStdoutJsonl, ChildStdout) \
+    X(StderrSrAndChildInclStdoutJsonl, ChildStderr) \
+    X(StderrSrAndChildInclStdoutJsonl, SrDiag)
 
 enum class JobPayloadType {
 #define SR_X_ENUM_JOB_PAYLOAD_TYPE(name, text) name,

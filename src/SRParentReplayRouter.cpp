@@ -7,27 +7,6 @@
 
 namespace {
 
-bool ShouldReplayForExecutionResult_(
-    SR::EmitMode emitMode,
-    bool executionSucceeded
-) noexcept {
-    switch (emitMode) {
-        case SR::EmitMode::End:
-            return true;
-
-        case SR::EmitMode::Success:
-            return executionSucceeded;
-
-        case SR::EmitMode::Failure:
-            return !executionSucceeded;
-
-        case SR::EmitMode::Stream:
-        case SR::EmitMode::Never:
-            return false;
-    }
-
-    return false;
-}
 
 void SelectPersistentReplaySource_(
     const std::wstring& txtPath,
@@ -323,10 +302,11 @@ bool SRParentReplayRouter::BuildStdoutReplayParameters_(
     const SR::EmitMode emitMode =
         policySnapshot.stdoutEmitMode;
     const bool shouldReplay =
-        ShouldReplayForExecutionResult_(
+        SR::ShouldReplayForExecutionResult(
             emitMode,
             executionSucceeded
         );
+
 
     if (lifecycleDiag_) {
         lifecycleDiag_->ProbeLine(
@@ -386,10 +366,11 @@ bool SRParentReplayRouter::BuildStderrReplayParameters_(
     const SR::EmitMode emitMode =
         policySnapshot.stderrEmitMode;
     const bool shouldReplay =
-        ShouldReplayForExecutionResult_(
+        SR::ShouldReplayForExecutionResult(
             emitMode,
             executionSucceeded
         );
+
 
     if (lifecycleDiag_) {
         lifecycleDiag_->ProbeLine(
@@ -414,10 +395,10 @@ bool SRParentReplayRouter::BuildStderrReplayParameters_(
         parameters.source = SR::ParentReplaySource::Timeline;
     } else {
         switch (parameters.target) {
-            case SR::JobTarget::StderrMixedParent:
+            case SR::JobTarget::StderrSrAndChildParent:
                 SelectPersistentReplaySource_(
-                    logPaths.stderrMixedTxt,
-                    logPaths.stderrMixedJsonl,
+                    logPaths.stderrSrAndChildTxt,
+                    logPaths.stderrSrAndChildJsonl,
                     parameters
                 );
                 break;
@@ -437,6 +418,14 @@ bool SRParentReplayRouter::BuildStderrReplayParameters_(
                     parameters
                 );
                 break;
+            case SR::JobTarget::StderrSrAndChildInclStdoutParent:
+                SelectPersistentReplaySource_(
+                    logPaths.stderrSrAndChildInclStdoutTxt,
+                    logPaths.stderrSrAndChildInclStdoutJsonl,
+                    parameters
+                );
+                break;
+
 
             default:
                 if (lifecycleDiag_) {

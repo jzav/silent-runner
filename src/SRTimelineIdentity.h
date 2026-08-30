@@ -38,9 +38,11 @@ using TimelineEntryKeyLocationPairs =
 
 struct GetAllDelayedFilter {
     bool stdoutParent = false;
-    bool stderrMixedParent = false;
+    bool stderrSrAndChildParent = false;
     bool stderrChildParent = false;
     bool stderrSrParent = false;
+    bool stderrSrAndChildInclStdoutParent = false;
+
 };
 
 

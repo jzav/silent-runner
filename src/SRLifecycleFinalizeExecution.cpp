@@ -33,7 +33,7 @@ bool FlushPreparedRuntimeFiles(
         DWORD gle = 0;
         if (!prepared.stderrLogWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
-                L"FlushFileBuffers(stderr log) failed; " + ErrorHelpers::FormatGle(gle)
+                L"FlushFileBuffers(stderr-sr-and-child log) failed; " + ErrorHelpers::FormatGle(gle)
             );
             return false;
         }
@@ -42,7 +42,7 @@ bool FlushPreparedRuntimeFiles(
         DWORD gle = 0;
         if (!prepared.stderrChildLogWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
-                L"FlushFileBuffers(stderr child log) failed; " + ErrorHelpers::FormatGle(gle)
+                L"FlushFileBuffers(stderr-child log) failed; " + ErrorHelpers::FormatGle(gle)
             );
             return false;
         }
@@ -52,7 +52,16 @@ bool FlushPreparedRuntimeFiles(
         DWORD gle = 0;
         if (!prepared.stderrSrLogWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
-                L"FlushFileBuffers(stderr SilentRunner log) failed; " + ErrorHelpers::FormatGle(gle)
+                L"FlushFileBuffers(stderr-sr log) failed; " + ErrorHelpers::FormatGle(gle)
+            );
+            return false;
+        }
+    }
+    if (prepared.stderrSrAndChildInclStdoutLogWriter.IsOpen()) {
+        DWORD gle = 0;
+        if (!prepared.stderrSrAndChildInclStdoutLogWriter.Flush(&gle)) {
+            lifecycleDiag.ErrorLine(
+                L"FlushFileBuffers(stderr-sr-and-child-incl-stdout log) failed; " + ErrorHelpers::FormatGle(gle)
             );
             return false;
         }
@@ -72,7 +81,7 @@ bool FlushPreparedRuntimeFiles(
         DWORD gle = 0;
         if (!prepared.stderrJsonlWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
-                L"FlushFileBuffers(stderr JSONL log) failed; " + ErrorHelpers::FormatGle(gle)
+                L"FlushFileBuffers(stderr-sr-and-child JSONL log) failed; " + ErrorHelpers::FormatGle(gle)
             );
             return false;
         }
@@ -81,7 +90,7 @@ bool FlushPreparedRuntimeFiles(
         DWORD gle = 0;
         if (!prepared.stderrChildJsonlWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
-                L"FlushFileBuffers(stderr child JSONL log) failed; " + ErrorHelpers::FormatGle(gle)
+                L"FlushFileBuffers(stderr-child JSONL log) failed; " + ErrorHelpers::FormatGle(gle)
             );
             return false;
         }
@@ -91,7 +100,16 @@ bool FlushPreparedRuntimeFiles(
         DWORD gle = 0;
         if (!prepared.stderrSrJsonlWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
-                L"FlushFileBuffers(stderr SilentRunner JSONL log) failed; " + ErrorHelpers::FormatGle(gle)
+                L"FlushFileBuffers(stderr-sr JSONL log) failed; " + ErrorHelpers::FormatGle(gle)
+            );
+            return false;
+        }
+    }
+    if (prepared.stderrSrAndChildInclStdoutJsonlWriter.IsOpen()) {
+        DWORD gle = 0;
+        if (!prepared.stderrSrAndChildInclStdoutJsonlWriter.Flush(&gle)) {
+            lifecycleDiag.ErrorLine(
+                L"FlushFileBuffers(stderr-sr-and-child-incl-stdout JSONL log) failed; " + ErrorHelpers::FormatGle(gle)
             );
             return false;
         }
@@ -127,6 +145,9 @@ void ClosePreparedRuntimeFiles(
     if (prepared.stderrSrLogWriter.IsOpen()) {
         prepared.stderrSrLogWriter.Close();
     }
+    if (prepared.stderrSrAndChildInclStdoutLogWriter.IsOpen()) {
+        prepared.stderrSrAndChildInclStdoutLogWriter.Close();
+    }
     if (prepared.stdoutJsonlWriter.IsOpen()) {
         prepared.stdoutJsonlWriter.Close();
     }
@@ -138,6 +159,9 @@ void ClosePreparedRuntimeFiles(
     }
     if (prepared.stderrSrJsonlWriter.IsOpen()) {
         prepared.stderrSrJsonlWriter.Close();
+    }
+    if (prepared.stderrSrAndChildInclStdoutJsonlWriter.IsOpen()) {
+        prepared.stderrSrAndChildInclStdoutJsonlWriter.Close();
     }
 }
 
@@ -243,20 +267,59 @@ int FinalizeExecution(
             replayPolicySnapshot.stderrEmitMode
         );
 
+    const bool executionSucceededBeforeReplay =
+        IsSuccess_(exitCode);
+
+    const bool stdoutReplayRequested =
+        SR::ShouldReplayForExecutionResult(
+            replayPolicySnapshot.stdoutEmitMode,
+            executionSucceededBeforeReplay
+        );
+
+    const bool stderrReplayRequested =
+        SR::ShouldReplayForExecutionResult(
+            replayPolicySnapshot.stderrEmitMode,
+            executionSucceededBeforeReplay
+        );
+
     const bool parentReplayRequested =
-        stdoutBufferedEmitMode ||
-        stderrBufferedEmitMode;
+        stdoutReplayRequested ||
+        stderrReplayRequested;
+
+    const bool persistentReplaySyncNeeded =
+        (stdoutReplayRequested &&
+         !replayPolicySnapshot.needsStdoutReplayBuffer) ||
+        (stderrReplayRequested &&
+         !replayPolicySnapshot.needsStderrReplayBuffer);
+
+    const bool timelineReplaySyncNeeded =
+        (stdoutReplayRequested &&
+         replayPolicySnapshot.needsStdoutReplayBuffer) ||
+        (stderrReplayRequested &&
+         replayPolicySnapshot.needsStderrReplayBuffer);
 
     if (!noDiagnosticChannel && parentReplayRequested) {
         bool fileSinkPausedForReplay = false;
 
-        if (prepared.fileSinkWorker) {
+        if (persistentReplaySyncNeeded && prepared.fileSinkWorker) {
             fileSinkPausedForReplay =
                 prepared.fileSinkWorker->Drain() &&
                 prepared.fileSinkWorker->PauseAfterCurrentJob();
         }
 
-        if (!FlushPreparedRuntimeFiles(prepared, lifecycleDiag)) {
+        if (timelineReplaySyncNeeded && prepared.parentEmitWorker) {
+            prepared.parentEmitWorker->Drain();
+        }
+
+        if ((persistentReplaySyncNeeded || timelineReplaySyncNeeded) &&
+            executionTimelineOrNull) {
+            if (!executionTimelineOrNull->HarvestCompletedJobs()) {
+                SetInternalFailureExitCode_(exitCode);
+            }
+        }
+
+        if (persistentReplaySyncNeeded &&
+            !FlushPreparedRuntimeFiles(prepared, lifecycleDiag)) {
             SetInternalFailureExitCode_(exitCode);
         }
         if (stdoutBufferedEmitMode) {
@@ -349,10 +412,12 @@ int FinalizeExecution(
     std::wstring stderrLogPathForHook;
     std::wstring stderrChildLogPathForHook;
     std::wstring stderrSrLogPathForHook;
+    std::wstring stderrSrAndChildInclStdoutLogPathForHook;
     std::wstring stdoutJsonlLogPathForFinal;
     std::wstring stderrJsonlLogPathForFinal;
     std::wstring stderrChildJsonlLogPathForFinal;
     std::wstring stderrSrJsonlLogPathForFinal;
+    std::wstring stderrSrAndChildInclStdoutJsonlLogPathForFinal;
 
 
     bool fileSinkPausedForLogFinalization = false;
@@ -367,10 +432,12 @@ int FinalizeExecution(
     bool stderrFinalLogAvailable = false;
     bool stderrChildFinalLogAvailable = false;
     bool stderrSrFinalLogAvailable = false;
+    bool stderrSrAndChildInclStdoutFinalLogAvailable = false;
     bool stdoutJsonlFinalLogAvailable = false;
     bool stderrJsonlFinalLogAvailable = false;
     bool stderrChildJsonlFinalLogAvailable = false;
     bool stderrSrJsonlFinalLogAvailable = false;
+    bool stderrSrAndChildInclStdoutJsonlFinalLogAvailable = false;
 
     if (!opt.stdoutDir.empty() && !logPaths.running.stdoutTxt.empty()) {
         if (LogWriter::ShouldKeepLogFile(opt.stdoutDirKeepLog, logFinalizationSuccess)) {
@@ -418,21 +485,21 @@ int FinalizeExecution(
         }
     }
 
-    if (!opt.stderrDir.empty() && !logPaths.running.stderrMixedTxt.empty()) {
+    if (!opt.stderrDir.empty() && !logPaths.running.stderrSrAndChildTxt.empty()) {
         if (LogWriter::ShouldKeepLogFile(opt.stderrDirKeepLog, logFinalizationSuccess)) {
 
             stderrLogPathForHook = DetermineFinalLogPath_(
                 logFinalizationSuccess,
 
-                logPaths.success.stderrMixedTxt,
-                logPaths.failure.stderrMixedTxt
+                logPaths.success.stderrSrAndChildTxt,
+                logPaths.failure.stderrSrAndChildTxt
             );
             lifecycleDiag.DebugLine(
-                L"Will rename stderr log; from=" + logPaths.running.stderrMixedTxt +
+                L"Will rename stderr-sr-and-child log; from=" + logPaths.running.stderrSrAndChildTxt +
                 L" to=" + stderrLogPathForHook
             );
             DWORD gle = 0;
-            if (LogWriter::TryRenameLogFile(logPaths.running.stderrMixedTxt, stderrLogPathForHook, &gle)) {
+            if (LogWriter::TryRenameLogFile(logPaths.running.stderrSrAndChildTxt, stderrLogPathForHook, &gle)) {
                 stderrFinalLogAvailable = true;
                 lifecycleDiag.InfoLine(
                     L"STDERR_LOG_FINAL=" + stderrLogPathForHook
@@ -440,24 +507,24 @@ int FinalizeExecution(
             } else {
                 SetInternalFailureExitCode_(exitCode);
                 lifecycleDiag.ErrorLine(
-                    L"Failed to rename stderr log; from=" + logPaths.running.stderrMixedTxt +
+                    L"Failed to rename stderr-sr-and-child log; from=" + logPaths.running.stderrSrAndChildTxt +
                     L" to=" + stderrLogPathForHook + L" " + ErrorHelpers::FormatGle(gle)
                 );
                 stderrLogPathForHook.clear();
             }
         } else {
             lifecycleDiag.DebugLine(
-                L"Will delete stderr log; path=" + logPaths.running.stderrMixedTxt
+                L"Will delete stderr-sr-and-child log; path=" + logPaths.running.stderrSrAndChildTxt
             );
             DWORD gle = 0;
-            if (LogWriter::TryDeleteLogFile(logPaths.running.stderrMixedTxt, &gle)) {
+            if (LogWriter::TryDeleteLogFile(logPaths.running.stderrSrAndChildTxt, &gle)) {
                 lifecycleDiag.InfoLine(
-                    L"STDERR_LOG_REMOVED=" + logPaths.running.stderrMixedTxt
+                    L"STDERR_LOG_REMOVED=" + logPaths.running.stderrSrAndChildTxt
                 );
             } else {
                 SetInternalFailureExitCode_(exitCode);
                 lifecycleDiag.ErrorLine(
-                    L"Failed to delete stderr log; path=" + logPaths.running.stderrMixedTxt +
+                    L"Failed to delete stderr-sr-and-child log; path=" + logPaths.running.stderrSrAndChildTxt +
                     L" " + ErrorHelpers::FormatGle(gle)
                 );
             }
@@ -474,7 +541,7 @@ int FinalizeExecution(
                 logPaths.failure.stderrChildTxt
             );
             lifecycleDiag.DebugLine(
-                L"Will rename stderr child log; from=" + logPaths.running.stderrChildTxt +
+                L"Will rename stderr-child log; from=" + logPaths.running.stderrChildTxt +
                 L" to=" + stderrChildLogPathForHook
             );
             DWORD gle = 0;
@@ -486,14 +553,14 @@ int FinalizeExecution(
             } else {
                 SetInternalFailureExitCode_(exitCode);
                 lifecycleDiag.ErrorLine(
-                    L"Failed to rename stderr child log; from=" + logPaths.running.stderrChildTxt +
+                    L"Failed to rename stderr-child log; from=" + logPaths.running.stderrChildTxt +
                     L" to=" + stderrChildLogPathForHook + L" " + ErrorHelpers::FormatGle(gle)
                 );
                 stderrChildLogPathForHook.clear();
             }
         } else {
             lifecycleDiag.DebugLine(
-                L"Will delete stderr child log; path=" + logPaths.running.stderrChildTxt
+                L"Will delete stderr-child log; path=" + logPaths.running.stderrChildTxt
             );
             DWORD gle = 0;
             if (LogWriter::TryDeleteLogFile(logPaths.running.stderrChildTxt, &gle)) {
@@ -503,7 +570,7 @@ int FinalizeExecution(
             } else {
                 SetInternalFailureExitCode_(exitCode);
                 lifecycleDiag.ErrorLine(
-                    L"Failed to delete stderr child log; path=" + logPaths.running.stderrChildTxt +
+                    L"Failed to delete stderr-child log; path=" + logPaths.running.stderrChildTxt +
                     L" " + ErrorHelpers::FormatGle(gle)
                 );
             }
@@ -520,7 +587,7 @@ int FinalizeExecution(
                 logPaths.failure.stderrSrTxt
             );
             lifecycleDiag.DebugLine(
-                L"Will rename stderr SilentRunner log; from=" + logPaths.running.stderrSrTxt +
+                L"Will rename stderr-sr log; from=" + logPaths.running.stderrSrTxt +
                 L" to=" + stderrSrLogPathForHook
             );
             DWORD gle = 0;
@@ -532,14 +599,14 @@ int FinalizeExecution(
             } else {
                 SetInternalFailureExitCode_(exitCode);
                 lifecycleDiag.ErrorLine(
-                    L"Failed to rename stderr SilentRunner log; from=" + logPaths.running.stderrSrTxt +
+                    L"Failed to rename stderr-sr log; from=" + logPaths.running.stderrSrTxt +
                     L" to=" + stderrSrLogPathForHook + L" " + ErrorHelpers::FormatGle(gle)
                 );
                 stderrSrLogPathForHook.clear();
             }
         } else {
             lifecycleDiag.DebugLine(
-                L"Will delete stderr SilentRunner log; path=" + logPaths.running.stderrSrTxt
+                L"Will delete stderr-sr log; path=" + logPaths.running.stderrSrTxt
             );
             DWORD gle = 0;
             if (LogWriter::TryDeleteLogFile(logPaths.running.stderrSrTxt, &gle)) {
@@ -549,7 +616,58 @@ int FinalizeExecution(
             } else {
                 SetInternalFailureExitCode_(exitCode);
                 lifecycleDiag.ErrorLine(
-                    L"Failed to delete stderr SilentRunner log; path=" + logPaths.running.stderrSrTxt +
+                    L"Failed to delete stderr-sr log; path=" + logPaths.running.stderrSrTxt +
+                    L" " + ErrorHelpers::FormatGle(gle)
+                );
+            }
+        }
+    }
+    if (!opt.stderrSrAndChildInclStdoutDir.empty() && !logPaths.running.stderrSrAndChildInclStdoutTxt.empty()) {
+        if (LogWriter::ShouldKeepLogFile(opt.stderrSrAndChildInclStdoutDirKeepLog, logFinalizationSuccess)) {
+            stderrSrAndChildInclStdoutLogPathForHook = DetermineFinalLogPath_(
+                logFinalizationSuccess,
+                logPaths.success.stderrSrAndChildInclStdoutTxt,
+                logPaths.failure.stderrSrAndChildInclStdoutTxt
+            );
+            lifecycleDiag.DebugLine(
+                L"Will rename stderr-sr-and-child-incl-stdout log; from=" + logPaths.running.stderrSrAndChildInclStdoutTxt +
+                L" to=" + stderrSrAndChildInclStdoutLogPathForHook
+            );
+            DWORD gle = 0;
+            if (LogWriter::TryRenameLogFile(
+                    logPaths.running.stderrSrAndChildInclStdoutTxt,
+                    stderrSrAndChildInclStdoutLogPathForHook,
+                    &gle
+                )) {
+                stderrSrAndChildInclStdoutFinalLogAvailable = true;
+                lifecycleDiag.InfoLine(
+                    L"STDERR_INCL_STDOUT_LOG_FINAL=" + stderrSrAndChildInclStdoutLogPathForHook
+                );
+            } else {
+                SetInternalFailureExitCode_(exitCode);
+                lifecycleDiag.ErrorLine(
+                    L"Failed to rename stderr-sr-and-child-incl-stdout log; from=" +
+                    logPaths.running.stderrSrAndChildInclStdoutTxt +
+                    L" to=" + stderrSrAndChildInclStdoutLogPathForHook +
+                    L" " + ErrorHelpers::FormatGle(gle)
+                );
+                stderrSrAndChildInclStdoutLogPathForHook.clear();
+            }
+        } else {
+            lifecycleDiag.DebugLine(
+                L"Will delete stderr-sr-and-child-incl-stdout log; path=" +
+                logPaths.running.stderrSrAndChildInclStdoutTxt
+            );
+            DWORD gle = 0;
+            if (LogWriter::TryDeleteLogFile(logPaths.running.stderrSrAndChildInclStdoutTxt, &gle)) {
+                lifecycleDiag.InfoLine(
+                    L"STDERR_INCL_STDOUT_LOG_REMOVED=" + logPaths.running.stderrSrAndChildInclStdoutTxt
+                );
+            } else {
+                SetInternalFailureExitCode_(exitCode);
+                lifecycleDiag.ErrorLine(
+                    L"Failed to delete stderr-sr-and-child-incl-stdout log; path=" +
+                    logPaths.running.stderrSrAndChildInclStdoutTxt +
                     L" " + ErrorHelpers::FormatGle(gle)
                 );
             }
@@ -601,21 +719,21 @@ int FinalizeExecution(
         }
     }
 
-    if (!opt.stderrJsonlDir.empty() && !logPaths.running.stderrMixedJsonl.empty()) {
+    if (!opt.stderrJsonlDir.empty() && !logPaths.running.stderrSrAndChildJsonl.empty()) {
         if (LogWriter::ShouldKeepLogFile(opt.stderrDirKeepLog, logFinalizationSuccess)) {
 
             stderrJsonlLogPathForFinal = DetermineFinalLogPath_(
                 logFinalizationSuccess,
 
-                logPaths.success.stderrMixedJsonl,
-                logPaths.failure.stderrMixedJsonl
+                logPaths.success.stderrSrAndChildJsonl,
+                logPaths.failure.stderrSrAndChildJsonl
             );
             lifecycleDiag.DebugLine(
-                L"Will rename stderr JSONL log; from=" + logPaths.running.stderrMixedJsonl +
+                L"Will rename stderr-sr-and-child JSONL log; from=" + logPaths.running.stderrSrAndChildJsonl +
                 L" to=" + stderrJsonlLogPathForFinal
             );
             DWORD gle = 0;
-            if (LogWriter::TryRenameLogFile(logPaths.running.stderrMixedJsonl, stderrJsonlLogPathForFinal, &gle)) {
+            if (LogWriter::TryRenameLogFile(logPaths.running.stderrSrAndChildJsonl, stderrJsonlLogPathForFinal, &gle)) {
                 stderrJsonlFinalLogAvailable = true;
                 lifecycleDiag.InfoLine(
                     L"STDERR_JSONL_LOG_FINAL=" + stderrJsonlLogPathForFinal
@@ -623,24 +741,24 @@ int FinalizeExecution(
             } else {
                 SetInternalFailureExitCode_(exitCode);
                 lifecycleDiag.ErrorLine(
-                    L"Failed to rename stderr JSONL log; from=" + logPaths.running.stderrMixedJsonl +
+                    L"Failed to rename stderr-sr-and-child JSONL log; from=" + logPaths.running.stderrSrAndChildJsonl +
                     L" to=" + stderrJsonlLogPathForFinal + L" " + ErrorHelpers::FormatGle(gle)
                 );
                 stderrJsonlLogPathForFinal.clear();
             }
         } else {
             lifecycleDiag.DebugLine(
-                L"Will delete stderr JSONL log; path=" + logPaths.running.stderrMixedJsonl
+                L"Will delete stderr-sr-and-child JSONL log; path=" + logPaths.running.stderrSrAndChildJsonl
             );
             DWORD gle = 0;
-            if (LogWriter::TryDeleteLogFile(logPaths.running.stderrMixedJsonl, &gle)) {
+            if (LogWriter::TryDeleteLogFile(logPaths.running.stderrSrAndChildJsonl, &gle)) {
                 lifecycleDiag.InfoLine(
-                    L"STDERR_JSONL_LOG_REMOVED=" + logPaths.running.stderrMixedJsonl
+                    L"STDERR_JSONL_LOG_REMOVED=" + logPaths.running.stderrSrAndChildJsonl
                 );
             } else {
                 SetInternalFailureExitCode_(exitCode);
                 lifecycleDiag.ErrorLine(
-                    L"Failed to delete stderr JSONL log; path=" + logPaths.running.stderrMixedJsonl +
+                    L"Failed to delete stderr-sr-and-child JSONL log; path=" + logPaths.running.stderrSrAndChildJsonl +
                     L" " + ErrorHelpers::FormatGle(gle)
                 );
             }
@@ -657,7 +775,7 @@ int FinalizeExecution(
                 logPaths.failure.stderrChildJsonl
             );
             lifecycleDiag.DebugLine(
-                L"Will rename stderr child JSONL log; from=" + logPaths.running.stderrChildJsonl +
+                L"Will rename stderr-child JSONL log; from=" + logPaths.running.stderrChildJsonl +
                 L" to=" + stderrChildJsonlLogPathForFinal
             );
             DWORD gle = 0;
@@ -669,14 +787,14 @@ int FinalizeExecution(
             } else {
                 SetInternalFailureExitCode_(exitCode);
                 lifecycleDiag.ErrorLine(
-                    L"Failed to rename stderr child JSONL log; from=" + logPaths.running.stderrChildJsonl +
+                    L"Failed to rename stderr-child JSONL log; from=" + logPaths.running.stderrChildJsonl +
                     L" to=" + stderrChildJsonlLogPathForFinal + L" " + ErrorHelpers::FormatGle(gle)
                 );
                 stderrChildJsonlLogPathForFinal.clear();
             }
         } else {
             lifecycleDiag.DebugLine(
-                L"Will delete stderr child JSONL log; path=" + logPaths.running.stderrChildJsonl
+                L"Will delete stderr-child JSONL log; path=" + logPaths.running.stderrChildJsonl
             );
             DWORD gle = 0;
             if (LogWriter::TryDeleteLogFile(logPaths.running.stderrChildJsonl, &gle)) {
@@ -686,7 +804,7 @@ int FinalizeExecution(
             } else {
                 SetInternalFailureExitCode_(exitCode);
                 lifecycleDiag.ErrorLine(
-                    L"Failed to delete stderr child JSONL log; path=" + logPaths.running.stderrChildJsonl +
+                    L"Failed to delete stderr-child JSONL log; path=" + logPaths.running.stderrChildJsonl +
                     L" " + ErrorHelpers::FormatGle(gle)
                 );
             }
@@ -702,7 +820,7 @@ int FinalizeExecution(
                 logPaths.failure.stderrSrJsonl
             );
             lifecycleDiag.DebugLine(
-                L"Will rename stderr SilentRunner JSONL log; from=" + logPaths.running.stderrSrJsonl +
+                L"Will rename stderr-sr JSONL log; from=" + logPaths.running.stderrSrJsonl +
                 L" to=" + stderrSrJsonlLogPathForFinal
             );
             DWORD gle = 0;
@@ -714,14 +832,14 @@ int FinalizeExecution(
             } else {
                 SetInternalFailureExitCode_(exitCode);
                 lifecycleDiag.ErrorLine(
-                    L"Failed to rename stderr SilentRunner JSONL log; from=" + logPaths.running.stderrSrJsonl +
+                    L"Failed to rename stderr-sr JSONL log; from=" + logPaths.running.stderrSrJsonl +
                     L" to=" + stderrSrJsonlLogPathForFinal + L" " + ErrorHelpers::FormatGle(gle)
                 );
                 stderrSrJsonlLogPathForFinal.clear();
             }
         } else {
             lifecycleDiag.DebugLine(
-                L"Will delete stderr SilentRunner JSONL log; path=" + logPaths.running.stderrSrJsonl
+                L"Will delete stderr-sr JSONL log; path=" + logPaths.running.stderrSrJsonl
             );
             DWORD gle = 0;
             if (LogWriter::TryDeleteLogFile(logPaths.running.stderrSrJsonl, &gle)) {
@@ -731,7 +849,61 @@ int FinalizeExecution(
             } else {
                 SetInternalFailureExitCode_(exitCode);
                 lifecycleDiag.ErrorLine(
-                    L"Failed to delete stderr SilentRunner JSONL log; path=" + logPaths.running.stderrSrJsonl +
+                    L"Failed to delete stderr-sr JSONL log; path=" + logPaths.running.stderrSrJsonl +
+                    L" " + ErrorHelpers::FormatGle(gle)
+                );
+            }
+        }
+    }
+    if (!opt.stderrSrAndChildInclStdoutJsonlDir.empty() && !logPaths.running.stderrSrAndChildInclStdoutJsonl.empty()) {
+        if (LogWriter::ShouldKeepLogFile(opt.stderrSrAndChildInclStdoutDirKeepLog, logFinalizationSuccess)) {
+            stderrSrAndChildInclStdoutJsonlLogPathForFinal = DetermineFinalLogPath_(
+                logFinalizationSuccess,
+                logPaths.success.stderrSrAndChildInclStdoutJsonl,
+                logPaths.failure.stderrSrAndChildInclStdoutJsonl
+            );
+            lifecycleDiag.DebugLine(
+                L"Will rename stderr-sr-and-child-incl-stdout JSONL log; from=" +
+                logPaths.running.stderrSrAndChildInclStdoutJsonl +
+                L" to=" + stderrSrAndChildInclStdoutJsonlLogPathForFinal
+            );
+            DWORD gle = 0;
+            if (LogWriter::TryRenameLogFile(
+                    logPaths.running.stderrSrAndChildInclStdoutJsonl,
+                    stderrSrAndChildInclStdoutJsonlLogPathForFinal,
+                    &gle
+                )) {
+                stderrSrAndChildInclStdoutJsonlFinalLogAvailable = true;
+                lifecycleDiag.InfoLine(
+                    L"STDERR_INCL_STDOUT_JSONL_LOG_FINAL=" +
+                    stderrSrAndChildInclStdoutJsonlLogPathForFinal
+                );
+            } else {
+                SetInternalFailureExitCode_(exitCode);
+                lifecycleDiag.ErrorLine(
+                    L"Failed to rename stderr-sr-and-child-incl-stdout JSONL log; from=" +
+                    logPaths.running.stderrSrAndChildInclStdoutJsonl +
+                    L" to=" + stderrSrAndChildInclStdoutJsonlLogPathForFinal +
+                    L" " + ErrorHelpers::FormatGle(gle)
+                );
+                stderrSrAndChildInclStdoutJsonlLogPathForFinal.clear();
+            }
+        } else {
+            lifecycleDiag.DebugLine(
+                L"Will delete stderr-sr-and-child-incl-stdout JSONL log; path=" +
+                logPaths.running.stderrSrAndChildInclStdoutJsonl
+            );
+            DWORD gle = 0;
+            if (LogWriter::TryDeleteLogFile(logPaths.running.stderrSrAndChildInclStdoutJsonl, &gle)) {
+                lifecycleDiag.InfoLine(
+                    L"STDERR_INCL_STDOUT_JSONL_LOG_REMOVED=" +
+                    logPaths.running.stderrSrAndChildInclStdoutJsonl
+                );
+            } else {
+                SetInternalFailureExitCode_(exitCode);
+                lifecycleDiag.ErrorLine(
+                    L"Failed to delete stderr-sr-and-child-incl-stdout JSONL log; path=" +
+                    logPaths.running.stderrSrAndChildInclStdoutJsonl +
                     L" " + ErrorHelpers::FormatGle(gle)
                 );
             }
@@ -760,12 +932,12 @@ int FinalizeExecution(
         DWORD gle = 0;
         if (prepared.stderrLogWriter.OpenAppendFile(stderrLogPathForHook, &gle)) {
             lifecycleDiag.DebugLine(
-                L"Reopened stderr log for append OK; path=" + stderrLogPathForHook
+                L"Reopened stderr-sr-and-child log for append OK; path=" + stderrLogPathForHook
             );
         } else {
             SetInternalFailureExitCode_(exitCode);
             lifecycleDiag.ErrorLine(
-                L"Failed to reopen stderr log for append; path=" +
+                L"Failed to reopen stderr-sr-and-child log for append; path=" +
                 stderrLogPathForHook + L" " + ErrorHelpers::FormatGle(gle)
             );
             stderrLogPathForHook.clear();
@@ -776,12 +948,12 @@ int FinalizeExecution(
         DWORD gle = 0;
         if (prepared.stderrChildLogWriter.OpenAppendFile(stderrChildLogPathForHook, &gle)) {
             lifecycleDiag.DebugLine(
-                L"Reopened stderr child log for append OK; path=" + stderrChildLogPathForHook
+                L"Reopened stderr-child log for append OK; path=" + stderrChildLogPathForHook
             );
         } else {
             SetInternalFailureExitCode_(exitCode);
             lifecycleDiag.ErrorLine(
-                L"Failed to reopen stderr child log for append; path=" +
+                L"Failed to reopen stderr-child log for append; path=" +
                 stderrChildLogPathForHook + L" " + ErrorHelpers::FormatGle(gle)
             );
             stderrChildLogPathForHook.clear();
@@ -793,15 +965,33 @@ int FinalizeExecution(
         DWORD gle = 0;
         if (prepared.stderrSrLogWriter.OpenAppendFile(stderrSrLogPathForHook, &gle)) {
             lifecycleDiag.DebugLine(
-                L"Reopened stderr SilentRunner log for append OK; path=" + stderrSrLogPathForHook
+                L"Reopened stderr-sr log for append OK; path=" + stderrSrLogPathForHook
             );
         } else {
             SetInternalFailureExitCode_(exitCode);
             lifecycleDiag.ErrorLine(
-                L"Failed to reopen stderr SilentRunner log for append; path=" +
+                L"Failed to reopen stderr-sr log for append; path=" +
                 stderrSrLogPathForHook + L" " + ErrorHelpers::FormatGle(gle)
             );
             stderrSrLogPathForHook.clear();
+        }
+    }
+    if (stderrSrAndChildInclStdoutFinalLogAvailable) {
+        DWORD gle = 0;
+        if (prepared.stderrSrAndChildInclStdoutLogWriter.OpenAppendFile(stderrSrAndChildInclStdoutLogPathForHook, &gle)) {
+            lifecycleDiag.DebugLine(
+                L"Reopened stderr-sr-and-child-incl-stdout log for append OK; path=" +
+                stderrSrAndChildInclStdoutLogPathForHook
+            );
+        } else {
+            SetInternalFailureExitCode_(exitCode);
+            lifecycleDiag.ErrorLine(
+                L"Failed to reopen stderr-sr-and-child-incl-stdout log for append; path=" +
+                stderrSrAndChildInclStdoutLogPathForHook +
+                L" " + ErrorHelpers::FormatGle(gle)
+            );
+            stderrSrAndChildInclStdoutLogPathForHook.clear();
+            stderrSrAndChildInclStdoutFinalLogAvailable = false;
         }
     }
     if (stdoutJsonlFinalLogAvailable) {
@@ -825,12 +1015,12 @@ int FinalizeExecution(
         DWORD gle = 0;
         if (prepared.stderrJsonlWriter.OpenAppendFile(stderrJsonlLogPathForFinal, &gle)) {
             lifecycleDiag.DebugLine(
-                L"Reopened stderr JSONL log for append OK; path=" + stderrJsonlLogPathForFinal
+                L"Reopened stderr-sr-and-child JSONL log for append OK; path=" + stderrJsonlLogPathForFinal
             );
         } else {
             SetInternalFailureExitCode_(exitCode);
             lifecycleDiag.ErrorLine(
-                L"Failed to reopen stderr JSONL log for append; path=" +
+                L"Failed to reopen stderr-sr-and-child JSONL log for append; path=" +
                 stderrJsonlLogPathForFinal + L" " + ErrorHelpers::FormatGle(gle)
             );
             stderrJsonlLogPathForFinal.clear();
@@ -842,12 +1032,12 @@ int FinalizeExecution(
         DWORD gle = 0;
         if (prepared.stderrChildJsonlWriter.OpenAppendFile(stderrChildJsonlLogPathForFinal, &gle)) {
             lifecycleDiag.DebugLine(
-                L"Reopened stderr child JSONL log for append OK; path=" + stderrChildJsonlLogPathForFinal
+                L"Reopened stderr-child JSONL log for append OK; path=" + stderrChildJsonlLogPathForFinal
             );
         } else {
             SetInternalFailureExitCode_(exitCode);
             lifecycleDiag.ErrorLine(
-                L"Failed to reopen stderr child JSONL log for append; path=" +
+                L"Failed to reopen stderr-child JSONL log for append; path=" +
                 stderrChildJsonlLogPathForFinal + L" " + ErrorHelpers::FormatGle(gle)
             );
             stderrChildJsonlLogPathForFinal.clear();
@@ -859,16 +1049,37 @@ int FinalizeExecution(
         DWORD gle = 0;
         if (prepared.stderrSrJsonlWriter.OpenAppendFile(stderrSrJsonlLogPathForFinal, &gle)) {
             lifecycleDiag.DebugLine(
-                L"Reopened stderr SilentRunner JSONL log for append OK; path=" + stderrSrJsonlLogPathForFinal
+                L"Reopened stderr-sr JSONL log for append OK; path=" + stderrSrJsonlLogPathForFinal
             );
         } else {
             SetInternalFailureExitCode_(exitCode);
             lifecycleDiag.ErrorLine(
-                L"Failed to reopen stderr SilentRunner JSONL log for append; path=" +
+                L"Failed to reopen stderr-sr JSONL log for append; path=" +
                 stderrSrJsonlLogPathForFinal + L" " + ErrorHelpers::FormatGle(gle)
             );
             stderrSrJsonlLogPathForFinal.clear();
             stderrSrJsonlFinalLogAvailable = false;
+        }
+    }
+    if (stderrSrAndChildInclStdoutJsonlFinalLogAvailable) {
+        DWORD gle = 0;
+        if (prepared.stderrSrAndChildInclStdoutJsonlWriter.OpenAppendFile(
+                stderrSrAndChildInclStdoutJsonlLogPathForFinal,
+                &gle
+            )) {
+            lifecycleDiag.DebugLine(
+                L"Reopened stderr-sr-and-child-incl-stdout JSONL log for append OK; path=" +
+                stderrSrAndChildInclStdoutJsonlLogPathForFinal
+            );
+        } else {
+            SetInternalFailureExitCode_(exitCode);
+            lifecycleDiag.ErrorLine(
+                L"Failed to reopen stderr-sr-and-child-incl-stdout JSONL log for append; path=" +
+                stderrSrAndChildInclStdoutJsonlLogPathForFinal +
+                L" " + ErrorHelpers::FormatGle(gle)
+            );
+            stderrSrAndChildInclStdoutJsonlLogPathForFinal.clear();
+            stderrSrAndChildInclStdoutJsonlFinalLogAvailable = false;
         }
     }
 
@@ -886,7 +1097,10 @@ int FinalizeExecution(
             stderrChildLogPathForHook,
             stderrSrFinalLogAvailable && prepared.stderrSrLogWriter.IsOpen(),
             prepared.stderrSrLogWriter.IsOpen() ? &prepared.stderrSrLogWriter : nullptr,
-            stderrSrLogPathForHook
+            stderrSrLogPathForHook,
+            stderrSrAndChildInclStdoutFinalLogAvailable && prepared.stderrSrAndChildInclStdoutLogWriter.IsOpen(),
+            prepared.stderrSrAndChildInclStdoutLogWriter.IsOpen() ? &prepared.stderrSrAndChildInclStdoutLogWriter : nullptr,
+            stderrSrAndChildInclStdoutLogPathForHook
         );
         prepared.fileSinkWorker->AttachJsonlWriters(
             stdoutJsonlFinalLogAvailable && prepared.stdoutJsonlWriter.IsOpen(),
@@ -900,7 +1114,10 @@ int FinalizeExecution(
             stderrChildJsonlLogPathForFinal,
             stderrSrJsonlFinalLogAvailable && prepared.stderrSrJsonlWriter.IsOpen(),
             prepared.stderrSrJsonlWriter.IsOpen() ? &prepared.stderrSrJsonlWriter : nullptr,
-            stderrSrJsonlLogPathForFinal
+            stderrSrJsonlLogPathForFinal,
+            stderrSrAndChildInclStdoutJsonlFinalLogAvailable && prepared.stderrSrAndChildInclStdoutJsonlWriter.IsOpen(),
+            prepared.stderrSrAndChildInclStdoutJsonlWriter.IsOpen() ? &prepared.stderrSrAndChildInclStdoutJsonlWriter : nullptr,
+            stderrSrAndChildInclStdoutJsonlLogPathForFinal
         );
         prepared.fileSinkWorker->Resume();
     }
@@ -988,7 +1205,9 @@ int FinalizeExecution(
             { L"SILENTRUNNER_STDERR_CHILD_LOG", stderrChildFinalLogAvailable ? stderrChildLogPathForHook : L"" },
             { L"SILENTRUNNER_STDERR_CHILD_JSONL_LOG", stderrChildJsonlFinalLogAvailable ? stderrChildJsonlLogPathForFinal : L"" },
             { L"SILENTRUNNER_STDERR_SR_LOG", stderrSrFinalLogAvailable ? stderrSrLogPathForHook : L"" },
-            { L"SILENTRUNNER_STDERR_SR_JSONL_LOG", stderrSrJsonlFinalLogAvailable ? stderrSrJsonlLogPathForFinal : L"" }
+            { L"SILENTRUNNER_STDERR_SR_JSONL_LOG", stderrSrJsonlFinalLogAvailable ? stderrSrJsonlLogPathForFinal : L"" },
+            { L"SILENTRUNNER_STDERR_INCL_STDOUT_LOG", stderrSrAndChildInclStdoutFinalLogAvailable ? stderrSrAndChildInclStdoutLogPathForHook : L"" },
+            { L"SILENTRUNNER_STDERR_INCL_STDOUT_JSONL_LOG", stderrSrAndChildInclStdoutJsonlFinalLogAvailable ? stderrSrAndChildInclStdoutJsonlLogPathForFinal : L"" }
         };
         for (const SRRunHook::EnvironmentVariable& variable : hookEnvironment) {
             lifecycleDiag.ProbeLine(

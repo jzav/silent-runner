@@ -140,15 +140,19 @@ void PhaseTimeline::GetAllDelayed(
                     (filter.stdoutParent &&
                      jobResults.At(SR::JobTarget::StdoutParent).state ==
                          SR::JobState::Delayed) ||
-                    (filter.stderrMixedParent &&
-                     jobResults.At(SR::JobTarget::StderrMixedParent).state ==
+                    (filter.stderrSrAndChildParent &&
+                     jobResults.At(SR::JobTarget::StderrSrAndChildParent).state ==
                          SR::JobState::Delayed) ||
                     (filter.stderrChildParent &&
                      jobResults.At(SR::JobTarget::StderrChildParent).state ==
                          SR::JobState::Delayed) ||
                     (filter.stderrSrParent &&
                      jobResults.At(SR::JobTarget::StderrSrParent).state ==
+                         SR::JobState::Delayed) ||
+                    (filter.stderrSrAndChildInclStdoutParent &&
+                     jobResults.At(SR::JobTarget::StderrSrAndChildInclStdoutParent).state ==
                          SR::JobState::Delayed);
+
 
                 if (!matchesFilter) {
                     return;

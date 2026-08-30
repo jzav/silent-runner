@@ -165,8 +165,11 @@ Options:
     only.
 -   `--stderr-emit-sr <mode>` -- Controls emission of SilentRunner
     diagnostics only.
+-   `--stderr-emit-incl-stdout <mode>` -- Controls emission of the combined
+    stderr view including child stdout: child stdout, child stderr, and
+    SilentRunner diagnostics.
 
-The three stderr emit options are mutually exclusive.
+The four stderr emit options are mutually exclusive.
 
 ------------------------------------------------------------------------
 
@@ -182,8 +185,9 @@ being recorded as TXT and/or JSONL logs.
 
 Unlike the parent stderr routing options, all stderr log destinations
 may be enabled at the same time. This allows child stderr and SilentRunner
-diagnostics (described below) to be logged both separately and as a
-mixed stderr stream in parallel.
+diagnostics (described below) to be logged separately, as a mixed stderr
+stream, and as a combined chronological stream including child stdout.
+
 
 Each execution creates a new set of log files. SilentRunner never
 appends output to an existing log file. Log file names are derived from
@@ -205,6 +209,8 @@ Options:
 -   `--stderr-dir-child-jsonl <dir>`
 -   `--stderr-dir-sr <dir>`
 -   `--stderr-dir-sr-jsonl <dir>`
+-   `--stderr-dir-incl-stdout <dir>`
+-   `--stderr-dir-incl-stdout-jsonl <dir>`
 
 ------------------------------------------------------------------------
 
@@ -232,6 +238,7 @@ Options:
 -   `--stderr-dir-keep-log <mode>`
 -   `--stderr-dir-child-keep-log <mode>`
 -   `--stderr-dir-sr-keep-log <mode>`
+-   `--stderr-dir-incl-stdout-keep-log <mode>`
 
 ------------------------------------------------------------------------
 
@@ -300,7 +307,9 @@ Controls the level of SilentRunner diagnostics.
 Informational, error, and fatal diagnostics are enabled by default.
 Their parent emission and persistent logging follow the SilentRunner
 diagnostic routing configured through the stderr Output Routing and
-Persistent Logging options.
+Persistent Logging options. SilentRunner diagnostics may be routed
+independently, together with child stderr, or as part of the combined
+chronological stream including child stdout.
 
 If no SilentRunner diagnostic channel is available (neither parent
 emission nor persistent logging) before the child process starts,
@@ -442,7 +451,9 @@ SilentRunner.exe ^
   --stderr-dir-child-jsonl "D:\Logs" ^
   --stderr-dir-sr "D:\Logs" ^
   --stderr-dir-sr-jsonl "D:\Logs" ^
-  task.cmd
+  --stderr-dir-incl-stdout "D:\Logs" ^
+  --stderr-dir-incl-stdout-jsonl "D:\Logs" ^
+  pathTo\task.cmd
 ```
 
 - Child stdout is recorded independently in TXT and JSONL formats.
@@ -450,6 +461,8 @@ SilentRunner.exe ^
   recorded independently in TXT and JSONL formats.
 - Child stderr is also recorded separately in TXT and JSONL formats.
 - SilentRunner diagnostics are also recorded separately in TXT and JSONL formats.
+- The combined chronological stream including child stdout, child stderr, and
+  SilentRunner diagnostics is also recorded in TXT and JSONL formats.
 - All persistent log destinations may be enabled at the same time.
 - Parent stdout/stderr emission keeps its default streaming behavior.
 - Log retention keeps its default `always` policy.

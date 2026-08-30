@@ -241,8 +241,8 @@ SRRuntimeResult RunHiddenWithRouting(
     if (!logPaths.running.stdoutTxt.empty()) {
         diag.InfoLine(L"STDOUT_LOG_FILE=" + logPaths.running.stdoutTxt);
     }
-    if (!logPaths.running.stderrMixedTxt.empty()) {
-        diag.InfoLine(L"STDERR_LOG_FILE=" + logPaths.running.stderrMixedTxt);
+    if (!logPaths.running.stderrSrAndChildTxt.empty()) {
+        diag.InfoLine(L"STDERR_LOG_FILE=" + logPaths.running.stderrSrAndChildTxt);
     }
     if (!logPaths.running.stderrChildTxt.empty()) {
         diag.InfoLine(L"STDERR_CHILD_LOG_FILE=" + logPaths.running.stderrChildTxt);
@@ -486,7 +486,7 @@ SRRuntimeResult RunHiddenWithRouting(
     // - This helper must be called on every path that starts reader threads before
     //   returning from RunHiddenWithRouting.
     // - Reader failures are reported through runtime diagnostics, which means they
-    //   may appear in the mixed stderr timeline.
+    //   may appear in the stderr-sr-and-child timeline.
     auto JoinReadersAndFailIfNeeded = [&](const wchar_t* context) -> bool {
         if (stdoutReaderThread.joinable()) stdoutReaderThread.join();
         if (stderrReaderThread.joinable()) stderrReaderThread.join();
@@ -606,7 +606,14 @@ SRRuntimeResult RunHiddenWithRouting(
             }
             diag.DebugLine(
                 L"[TIMELINE] Timeline entries are shared by SR diagnostics, child stdout and child stderr. "
-                L"Some logs may be hidden by stream filtering like debug/verbose or mixed/sr/child."
+                L"Individual outputs may contain only a subset of timeline entries due to stream filtering "
+                L"(stderr-sr-and-child/stderr-sr/stderr-child/stderr-sr-and-child-incl-stdout) or diagnostic-level "
+                L"filtering (debug/verbose). TXT output groups consecutive child stdout or child stderr events into "
+                L"a single segment because child stream events are not line-aware and per-event headers could split "
+                L"raw output within a line. The segment header identifies the first event in that segment; therefore, "
+                L"gaps in eventOrderNo values visible in TXT headers do not necessarily indicate missing timeline events. "
+                L"JSONL output preserves each timeline event as a separate record and provides the complete "
+                L"event-level representation."
             );
             diag.DebugLine(L"[JOB] ResumeThread OK; Child process started.");
             result.childStarted = true;

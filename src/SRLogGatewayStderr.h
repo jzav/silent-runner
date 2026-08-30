@@ -2,9 +2,9 @@
 // -------------------
  // Responsibility:
  // - Serialize and route logical STDERR views:
- //   - mixed stderr: child stderr bytes plus SilentRunner diagnostics
- //   - child stderr: only child stderr bytes
- //   - SilentRunner stderr: only SilentRunner diagnostic lines
+ //   - stderr-sr-and-child: child stderr bytes plus SilentRunner diagnostics
+ //   - stderr-child: only child stderr bytes
+ //   - stderr-sr: only SilentRunner diagnostic lines
  // - Use one active parent/replay view selected by StderrEmitSource.
 
 //
@@ -80,7 +80,7 @@ private:
     std::unique_ptr<std::mutex> mutex_;
 
     SR::EmitMode emitMode_ = SR::EmitMode::Stream;
-    SR::StderrEmitSource emitSource_ = SR::StderrEmitSource::Mixed;
+    SR::StderrEmitSource emitSource_ = SR::StderrEmitSource::SrAndChild;
     const SRParentEmitPolicy* parentEmitPolicy_ = nullptr;
 
     SRBufferLimiter* bufferLimit_ = nullptr;

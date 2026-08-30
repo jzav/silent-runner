@@ -1,7 +1,6 @@
 #include "ArgumentParser.h"
 
-#include <climits>  // INT_MAX
-#include <cwchar>   // wcstoull, wcslen
+#include <cwchar>   // wcstoull
 #include <cwctype>  // iswspace
 
 #include "CmdBuilder.h"
@@ -11,99 +10,6 @@
 
 namespace ArgumentParser {
 
-static bool EqualsOrdinalIgnoreCase_(const std::wstring& value, const wchar_t* expected) noexcept {
-    if (!expected) return false;
-
-    const size_t expectedLength = std::wcslen(expected);
-    if (value.size() > static_cast<size_t>(INT_MAX) ||
-        expectedLength > static_cast<size_t>(INT_MAX)) {
-        return false;
-    }
-
-    return CompareStringOrdinal(
-        value.data(),
-        static_cast<int>(value.size()),
-        expected,
-        static_cast<int>(expectedLength),
-        TRUE
-    ) == CSTR_EQUAL;
-}
-
-static bool TryParseIdSuffixModeIgnoreCase_(
-    const std::wstring& value,
-    SR::IdSuffixMode& out
-) noexcept {
-    const SR::IdSuffixModeInfo* infos = SR::IdSuffixModeInfos();
-    const std::size_t count = SR::IdSuffixModeInfoCount();
-
-    for (std::size_t i = 0; i < count; ++i) {
-        const SR::IdSuffixModeInfo& info = infos[i];
-
-        if (info.cliAllowed &&
-            EqualsOrdinalIgnoreCase_(value, info.text)) {
-            out = info.mode;
-            return true;
-        }
-    }
-
-    return false;
-}
-
-
-
-static bool TryParseEmitModeIgnoreCase_(
-    const std::wstring& value,
-    SR::EmitMode& out
-) noexcept {
-    if (EqualsOrdinalIgnoreCase_(value, L"stream")) {
-        out = SR::EmitMode::Stream;
-        return true;
-    }
-
-    if (EqualsOrdinalIgnoreCase_(value, L"never")) {
-        out = SR::EmitMode::Never;
-        return true;
-    }
-
-    if (EqualsOrdinalIgnoreCase_(value, L"end")) {
-        out = SR::EmitMode::End;
-        return true;
-    }
-
-    if (EqualsOrdinalIgnoreCase_(value, L"success")) {
-        out = SR::EmitMode::Success;
-        return true;
-    }
-
-    if (EqualsOrdinalIgnoreCase_(value, L"failure")) {
-        out = SR::EmitMode::Failure;
-        return true;
-    }
-
-    return false;
-}
-
-static bool TryParseKeepLogModeIgnoreCase_(
-    const std::wstring& value,
-    SR::KeepLogMode& out
-) noexcept {
-    if (EqualsOrdinalIgnoreCase_(value, L"always")) {
-        out = SR::KeepLogMode::Always;
-        return true;
-    }
-
-    if (EqualsOrdinalIgnoreCase_(value, L"success")) {
-        out = SR::KeepLogMode::Success;
-        return true;
-    }
-
-    if (EqualsOrdinalIgnoreCase_(value, L"failure")) {
-        out = SR::KeepLogMode::Failure;
-        return true;
-    }
-
-    return false;
-}
 
 static bool SplitKeyValue(const std::wstring& arg, std::wstring& keyOut, std::wstring& valOut) {
     size_t eq = arg.find(L'=');
@@ -214,7 +120,6 @@ static bool ValidateSROptionPathArgument(
 
     return true;
 }
-
 
 // Validates --cwd as a child/hook working directory option.
 //
@@ -329,9 +234,9 @@ static void FinalizeReplayPolicyOptions(SR::Options& opt) {
     opt.hasReplayablePersistentStdoutJsonlSource =
         !opt.stdoutJsonlDir.empty();
 
-    opt.hasReplayablePersistentStderrMixedTxtSource =
+    opt.hasReplayablePersistentStderrSrAndChildTxtSource =
         !opt.stderrDir.empty();
-    opt.hasReplayablePersistentStderrMixedJsonlSource =
+    opt.hasReplayablePersistentStderrSrAndChildJsonlSource =
         !opt.stderrJsonlDir.empty();
 
     opt.hasReplayablePersistentStderrChildTxtSource =
@@ -343,6 +248,10 @@ static void FinalizeReplayPolicyOptions(SR::Options& opt) {
         !opt.stderrSrDir.empty();
     opt.hasReplayablePersistentStderrSrJsonlSource =
         !opt.stderrSrJsonlDir.empty();
+    opt.hasReplayablePersistentStderrSrAndChildInclStdoutTxtSource =
+        !opt.stderrSrAndChildInclStdoutDir.empty();
+    opt.hasReplayablePersistentStderrSrAndChildInclStdoutJsonlSource =
+        !opt.stderrSrAndChildInclStdoutJsonlDir.empty();
 }
 
 static bool HasReplayablePersistentStdoutSource_(const SR::Options& opt) noexcept {
@@ -353,15 +262,18 @@ static bool HasReplayablePersistentStdoutSource_(const SR::Options& opt) noexcep
 
 static bool HasReplayablePersistentStderrSource_(const SR::Options& opt) noexcept {
     return
-        (opt.stderrEmitSource == SR::StderrEmitSource::Mixed &&
-         (opt.hasReplayablePersistentStderrMixedTxtSource ||
-          opt.hasReplayablePersistentStderrMixedJsonlSource)) ||
+        (opt.stderrEmitSource == SR::StderrEmitSource::SrAndChild &&
+         (opt.hasReplayablePersistentStderrSrAndChildTxtSource ||
+          opt.hasReplayablePersistentStderrSrAndChildJsonlSource)) ||
         (opt.stderrEmitSource == SR::StderrEmitSource::Child &&
          (opt.hasReplayablePersistentStderrChildTxtSource ||
           opt.hasReplayablePersistentStderrChildJsonlSource)) ||
-        (opt.stderrEmitSource == SR::StderrEmitSource::SilentRunner &&
+        (opt.stderrEmitSource == SR::StderrEmitSource::Sr &&
          (opt.hasReplayablePersistentStderrSrTxtSource ||
-          opt.hasReplayablePersistentStderrSrJsonlSource));
+          opt.hasReplayablePersistentStderrSrJsonlSource)) ||
+        (opt.stderrEmitSource == SR::StderrEmitSource::SrAndChildInclStdout &&
+         (opt.hasReplayablePersistentStderrSrAndChildInclStdoutTxtSource ||
+          opt.hasReplayablePersistentStderrSrAndChildInclStdoutJsonlSource));
 }
 
 static bool NeedsStdoutReplayBuffer_(const SR::Options& opt) noexcept {
@@ -385,9 +297,10 @@ static void AppendUnboundedBufferedReplayDebugMessages(SR::Options& opt) {
         opt.stdoutMaxBufferBytes == 0 &&
         !hasTotalLimit) {
         opt.parserDebugMessages.push_back(
-            L"Stdout buffering is enabled without a stdout log file and without a buffer limit.\n"
+            L"Stdout buffering is enabled without a replayable stdout log file and without a buffer limit.\n"
             L"  EMIT_MODE=end/success/failure may buffer stdout in RAM until replay.\n"
-            L"  Consider using --stdout-dir, --stdout-dir-jsonl, --stdout-max-buffer-bytes, or --std-total-max-buffer-bytes."
+            L"  For replayable stdout logging, consider using --stdout-dir or --stdout-dir-jsonl.\n"
+            L"  Otherwise, consider using --stdout-max-buffer-bytes or --std-total-max-buffer-bytes."
         );
     }
 
@@ -396,9 +309,11 @@ static void AppendUnboundedBufferedReplayDebugMessages(SR::Options& opt) {
         !hasTotalLimit) {
         const wchar_t* sourceName = SR::StderrEmitSourceToString(opt.stderrEmitSource);
         const wchar_t* dirArg =
-            (opt.stderrEmitSource == SR::StderrEmitSource::Mixed) ? L"--stderr-dir or --stderr-dir-jsonl" :
+            (opt.stderrEmitSource == SR::StderrEmitSource::SrAndChild) ? L"--stderr-dir or --stderr-dir-jsonl" :
             (opt.stderrEmitSource == SR::StderrEmitSource::Child) ? L"--stderr-dir-child or --stderr-dir-child-jsonl" :
-            L"--stderr-dir-sr or --stderr-dir-sr-jsonl";
+            (opt.stderrEmitSource == SR::StderrEmitSource::Sr) ? L"--stderr-dir-sr or --stderr-dir-sr-jsonl" :
+            (opt.stderrEmitSource == SR::StderrEmitSource::SrAndChildInclStdout) ? L"--stderr-dir-incl-stdout or --stderr-dir-incl-stdout-jsonl" :
+            L"<unknown stderr emit source>";
 
         opt.parserDebugMessages.push_back(
             std::wstring(L"Stderr buffering is enabled for ") + sourceName +
@@ -461,10 +376,12 @@ std::wstring BuildUsageText() {
         L"      SILENTRUNNER_STDOUT_LOG, SILENTRUNNER_STDOUT_JSONL_LOG,\n"
         L"      SILENTRUNNER_STDERR_LOG, SILENTRUNNER_STDERR_JSONL_LOG,\n"
         L"      SILENTRUNNER_STDERR_CHILD_LOG, SILENTRUNNER_STDERR_CHILD_JSONL_LOG,\n"
-        L"      SILENTRUNNER_STDERR_SR_LOG, SILENTRUNNER_STDERR_SR_JSONL_LOG.\n"
+        L"      SILENTRUNNER_STDERR_SR_LOG, SILENTRUNNER_STDERR_SR_JSONL_LOG,\n"
+        L"      SILENTRUNNER_STDERR_INCL_STDOUT_LOG, SILENTRUNNER_STDERR_INCL_STDOUT_JSONL_LOG.\n"
         L"      Log environment variables are empty if the corresponding log is not kept after execution\n"
         L"      (see --stdout-dir-keep-log, --stderr-dir-keep-log,\n"
-        L"      --stderr-dir-child-keep-log, --stderr-dir-sr-keep-log).\n"
+        L"      --stderr-dir-child-keep-log, --stderr-dir-sr-keep-log,\n"
+        L"      --stderr-dir-incl-stdout-keep-log).\n"
         L"      The success hook runs only when the child exit code is 0.\n"
         L"      The failure hook runs only when the child exit code is non-zero.\n"
         L"      Run hooks are started detached. SilentRunner logs only whether the hook process\n"
@@ -483,12 +400,14 @@ std::wstring BuildUsageText() {
         L"  --stdout-emit <mode>\n"
         L"      Control how stdout is emitted to the parent.\n"
         L"  --stderr-emit <mode>\n"
-        L"      Emit the combined stderr view to the parent (SilentRunner diagnostics plus child stderr).\n"
+        L"      Emit stderr-sr-and-child to the parent (SilentRunner diagnostics plus child stderr).\n"
         L"  --stderr-emit-child <mode>\n"
-        L"      Emit only child stderr to the parent.\n"
+        L"      Emit stderr-child to the parent (child stderr only).\n"
         L"  --stderr-emit-sr <mode>\n"
-        L"      Emit only SilentRunner diagnostics to the parent.\n"
-        L"      The three stderr emit options are mutually exclusive.\n"
+        L"      Emit stderr-sr to the parent (SilentRunner diagnostics only).\n"
+        L"  --stderr-emit-incl-stdout <mode>\n"
+        L"      Emit stderr-sr-and-child-incl-stdout to the parent (SilentRunner diagnostics plus child stderr and stdout).\n"
+        L"      The four stderr emit options are mutually exclusive.\n"
         L"\n"
         L"  --stdout-max-buffer-bytes <bytes>\n"
         L"  --stderr-max-buffer-bytes <bytes>\n"
@@ -499,23 +418,27 @@ std::wstring BuildUsageText() {
         L"\n"
         L"  --stdout-dir <dir>\n"
         L"  --stderr-dir <dir>\n"
-        L"      Write stdout/stderr to log files.\n"
-        L"      The stderr log is the combined stderr view: SilentRunner diagnostics plus child stderr.\n"
+        L"      Write stdout and stderr-sr-and-child to log files.\n"
+        L"      stderr-sr-and-child contains SilentRunner diagnostics plus child stderr.\n"
         L"      The directory is created automatically if it does not exist.\n"
         L"      Buffering is not needed for End/Success/Failure emit modes when log files are used.\n"
         L"  --stderr-dir-child <dir>\n"
-        L"      Write only child stderr bytes to log files.\n"
+        L"      Write stderr-child to log files (child stderr only).\n"
         L"  --stderr-dir-sr <dir>\n"
-        L"      Write only SilentRunner diagnostics to stderr log files.\n"
+        L"      Write stderr-sr to log files (SilentRunner diagnostics only).\n"
+        L"  --stderr-dir-incl-stdout <dir>\n"
+        L"      Write stderr-sr-and-child-incl-stdout to log files.\n"
         L"  --stdout-dir-jsonl <dir>\n"
         L"  --stderr-dir-jsonl <dir>\n"
         L"  --stderr-dir-child-jsonl <dir>\n"
         L"  --stderr-dir-sr-jsonl <dir>\n"
+        L"  --stderr-dir-incl-stdout-jsonl <dir>\n"
         L"      Write structured JSONL output events to log files.\n"
         L"  --stdout-dir-keep-log <mode>\n"
         L"  --stderr-dir-keep-log <mode>\n"
         L"  --stderr-dir-child-keep-log <mode>\n"
         L"  --stderr-dir-sr-keep-log <mode>\n"
+        L"  --stderr-dir-incl-stdout-keep-log <mode>\n"
         L"      Control when log files are kept or deleted.\n"
         L"      JSONL outputs share the same keep-log policy as the corresponding TXT stream.\n"
         L"\n"
@@ -540,8 +463,6 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
     bool verboseSeen = false;
     bool probeDirSeen = false;
 
-
-
     bool inheritStdinSeen = false;
     bool utf8Seen = false;
     bool timeoutMsSeen = false;
@@ -554,15 +475,19 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
     bool stderrDirSeen = false;
     bool stderrChildDirSeen = false;
     bool stderrSrDirSeen = false;
+    bool stderrSrAndChildInclStdoutDirSeen = false;
     bool stdoutJsonlDirSeen = false;
     bool stderrJsonlDirSeen = false;
     bool stderrChildJsonlDirSeen = false;
     bool stderrSrJsonlDirSeen = false;
+    bool stderrSrAndChildInclStdoutJsonlDirSeen = false;
 
     bool stdoutEmitSeen = false;
     bool stderrEmitSeen = false;
     bool stderrChildEmitSeen = false;
     bool stderrSrEmitSeen = false;
+    bool stderrSrAndChildInclStdoutEmitSeen = false;
+
     bool stdoutMaxBufferBytesSeen = false;
     bool stderrMaxBufferBytesSeen = false;
     bool stdTotalMaxBufferBytesSeen = false;
@@ -571,6 +496,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
     bool stderrDirKeepLogSeen = false;
     bool stderrChildDirKeepLogSeen = false;
     bool stderrSrDirKeepLogSeen = false;
+    bool stderrSrAndChildInclStdoutDirKeepLogSeen = false;
 
     auto need_value = [&](const std::wstring& key) -> bool {
         if (i + 1 >= argc) {
@@ -598,7 +524,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
     for (int i = 1; i < argc; i++) {
         std::wstring arg = argv[i];
 
-        if (EqualsOrdinalIgnoreCase_(arg, L"--help")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(arg, L"--help")) {
             opt.showHelp = true;
             return true;
         }
@@ -639,7 +565,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
         }
 
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--debug")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--debug")) {
             if (debugSeen) {
                 err = L"Duplicate --debug";
                 return false;
@@ -648,7 +574,8 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             opt.debug = true;
             continue;
         }
-        if (EqualsOrdinalIgnoreCase_(key, L"--verbose")) {
+
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--verbose")) {
             if (verboseSeen) {
                 err = L"Duplicate --verbose";
                 return false;
@@ -659,7 +586,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--probe-dir")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--probe-dir")) {
             if (probeDirSeen) {
                 err = L"Duplicate --probe-dir";
                 return false;
@@ -674,7 +601,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--inherit-stdin")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--inherit-stdin")) {
             if (inheritStdinSeen) {
                 err = L"Duplicate --inherit-stdin";
                 return false;
@@ -683,7 +610,8 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             opt.inheritStdin = true;
             continue;
         }
-        if (EqualsOrdinalIgnoreCase_(key, L"--utf8") || EqualsOrdinalIgnoreCase_(key, L"--utf-8")) {
+
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--utf8") || TextHelpers::EqualsOrdinalIgnoreCase(key, L"--utf-8")) {
             if (utf8Seen) {
                 err = L"Duplicate --utf8 or --utf-8";
                 return false;
@@ -693,7 +621,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--timeout-ms")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--timeout-ms")) {
             if (timeoutMsSeen) {
                 err = L"Duplicate --timeout-ms";
                 return false;
@@ -711,7 +639,8 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             opt.timeoutMs = (uint32_t)x;
             continue;
         }
-        if (EqualsOrdinalIgnoreCase_(key, L"--cwd")) {
+
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--cwd")) {
             if (cwdSeen) {
                 err = L"Duplicate --cwd";
                 return false;
@@ -726,7 +655,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--run-on-success")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--run-on-success")) {
             if (runOnSuccessSeen) {
                 err = L"Duplicate --run-on-success";
                 return false;
@@ -742,7 +671,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--run-on-failure")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--run-on-failure")) {
             if (runOnFailureSeen) {
                 err = L"Duplicate --run-on-failure";
                 return false;
@@ -758,8 +687,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-
-        if (EqualsOrdinalIgnoreCase_(key, L"--stdout-dir")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stdout-dir")) {
             if (stdoutDirSeen) {
                 err = L"Duplicate --stdout-dir";
                 return false;
@@ -774,7 +702,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-dir")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-dir")) {
             if (stderrDirSeen) {
                 err = L"Duplicate --stderr-dir";
                 return false;
@@ -788,7 +716,8 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             opt.stderrDir = val;
             continue;
         }
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-dir-child")) {
+
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-dir-child")) {
             if (stderrChildDirSeen) {
                 err = L"Duplicate --stderr-dir-child";
                 return false;
@@ -803,7 +732,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
         
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-dir-sr")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-dir-sr")) {
             if (stderrSrDirSeen) {
                 err = L"Duplicate --stderr-dir-sr";
                 return false;
@@ -817,7 +746,23 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             opt.stderrSrDir = val;
             continue;
         }
-        if (EqualsOrdinalIgnoreCase_(key, L"--stdout-dir-jsonl")) {
+
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-dir-incl-stdout")) {
+            if (stderrSrAndChildInclStdoutDirSeen) {
+                err = L"Duplicate --stderr-dir-incl-stdout";
+                return false;
+            }
+            stderrSrAndChildInclStdoutDirSeen = true;
+            if (val.empty()) {
+                if (!need_value(L"--stderr-dir-incl-stdout")) return false;
+                val = argv[++i];
+            }
+            if (!ValidateSROptionPathArgument(val, L"--stderr-dir-incl-stdout", err)) return false;
+            opt.stderrSrAndChildInclStdoutDir = val;
+            continue;
+        }
+
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stdout-dir-jsonl")) {
             if (stdoutJsonlDirSeen) {
                 err = L"Duplicate --stdout-dir-jsonl";
                 return false;
@@ -832,7 +777,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
         
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-dir-jsonl")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-dir-jsonl")) {
             if (stderrJsonlDirSeen) {
                 err = L"Duplicate --stderr-dir-jsonl";
                 return false;
@@ -847,7 +792,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
         
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-dir-child-jsonl")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-dir-child-jsonl")) {
             if (stderrChildJsonlDirSeen) {
                 err = L"Duplicate --stderr-dir-child-jsonl";
                 return false;
@@ -862,7 +807,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
         
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-dir-sr-jsonl")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-dir-sr-jsonl")) {
             if (stderrSrJsonlDirSeen) {
                 err = L"Duplicate --stderr-dir-sr-jsonl";
                 return false;
@@ -876,14 +821,27 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             opt.stderrSrJsonlDir = val;
             continue;
         }
+
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-dir-incl-stdout-jsonl")) {
+            if (stderrSrAndChildInclStdoutJsonlDirSeen) {
+                err = L"Duplicate --stderr-dir-incl-stdout-jsonl";
+                return false;
+            }
+            stderrSrAndChildInclStdoutJsonlDirSeen = true;
+            if (val.empty()) {
+                if (!need_value(L"--stderr-dir-incl-stdout-jsonl")) return false;
+                val = argv[++i];
+            }
+            if (!ValidateSROptionPathArgument(val, L"--stderr-dir-incl-stdout-jsonl", err)) return false;
+            opt.stderrSrAndChildInclStdoutJsonlDir = val;
+            continue;
+        }
         
-
-
-        if (EqualsOrdinalIgnoreCase_(key, L"--id")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--id")) {
             return set_id_error();
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--id-prefix")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--id-prefix")) {
             if (idPrefixSeen) {
                 err = L"Duplicate --id-prefix";
                 return false;
@@ -897,7 +855,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--id-base")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--id-base")) {
             if (idBaseSeen) {
                 err = L"Duplicate --id-base";
                 return false;
@@ -911,7 +869,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--id-suffix")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--id-suffix")) {
             if (idSuffixSeen) {
                 err = L"Duplicate --id-suffix";
                 return false;
@@ -927,7 +885,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             }
 
             SR::IdSuffixMode suffixMode = SR::IdSuffixMode::None;
-            if (!TryParseIdSuffixModeIgnoreCase_(val, suffixMode)) {
+            if (!SR::TryParseIdSuffixModeIgnoreCase(val, suffixMode)) {
                 err =
                     L"Invalid value for --id-suffix. Allowed values:\n"
                     L"  timestamp\n"
@@ -940,7 +898,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--stdout-max-buffer-bytes")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stdout-max-buffer-bytes")) {
             if (stdoutMaxBufferBytesSeen) {
                 err = L"Duplicate --stdout-max-buffer-bytes";
                 return false;
@@ -959,7 +917,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-max-buffer-bytes")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-max-buffer-bytes")) {
             if (stderrMaxBufferBytesSeen) {
                 err = L"Duplicate --stderr-max-buffer-bytes";
                 return false;
@@ -978,7 +936,7 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--std-total-max-buffer-bytes")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--std-total-max-buffer-bytes")) {
             if (stdTotalMaxBufferBytesSeen) {
                 err = L"Duplicate --std-total-max-buffer-bytes";
                 return false;
@@ -997,13 +955,13 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--stdout-emit")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stdout-emit")) {
             if (stdoutEmitSeen) { err = L"Duplicate --stdout-emit"; return false; }
             stdoutEmitSeen = true;
             if (val.empty()) { if (!need_value(L"--stdout-emit")) return false; val = argv[++i]; }
             if (val.empty()) { err = L"Missing value for --stdout-emit"; return false; }
             SR::EmitMode m;
-            if (!TryParseEmitModeIgnoreCase_(val, m) || !(SR::EmitModeStreamMask(m) & SR::STDOUT)) {
+            if (!SR::TryParseEmitModeIgnoreCase(val, m) || !(SR::EmitModeStreamMask(m) & SR::STDOUT)) {
                 err = L"Invalid value for --stdout-emit. Allowed values:\n";
                 SR::AppendEmitModeHelpForStdout(err);
                 TrimTrailingNewlines(err);
@@ -1013,38 +971,40 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-emit")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-emit")) {
             if (stderrEmitSeen) { err = L"Duplicate --stderr-emit"; return false; }
-            if (stderrChildEmitSeen || stderrSrEmitSeen) {
-                err = L"--stderr-emit must not be combined with --stderr-emit-child or --stderr-emit-sr";
+            if (stderrChildEmitSeen || stderrSrEmitSeen || stderrSrAndChildInclStdoutEmitSeen) {
+                err = L"--stderr-emit must not be combined with --stderr-emit-child, --stderr-emit-sr, or --stderr-emit-incl-stdout";
                 return false;
+
             }
             stderrEmitSeen = true;
             if (val.empty()) { if (!need_value(L"--stderr-emit")) return false; val = argv[++i]; }
             if (val.empty()) { err = L"Missing value for --stderr-emit"; return false; }
             SR::EmitMode m;
-            if (!TryParseEmitModeIgnoreCase_(val, m) || !(SR::EmitModeStreamMask(m) & SR::STDERR)) {
+            if (!SR::TryParseEmitModeIgnoreCase(val, m) || !(SR::EmitModeStreamMask(m) & SR::STDERR)) {
                 err = L"Invalid value for --stderr-emit. Allowed values:\n";
                 SR::AppendEmitModeHelpForStderr(err);
                 TrimTrailingNewlines(err);
                 return false;
             }
             opt.stderrEmit = m;
-            opt.stderrEmitSource = SR::StderrEmitSource::Mixed;
+            opt.stderrEmitSource = SR::StderrEmitSource::SrAndChild;
             continue;
         }
         
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-emit-child")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-emit-child")) {
             if (stderrChildEmitSeen) { err = L"Duplicate --stderr-emit-child"; return false; }
-            if (stderrEmitSeen || stderrSrEmitSeen) {
-                err = L"--stderr-emit-child must not be combined with --stderr-emit or --stderr-emit-sr";
+            if (stderrEmitSeen || stderrSrEmitSeen || stderrSrAndChildInclStdoutEmitSeen) {
+                err = L"--stderr-emit-child must not be combined with --stderr-emit, --stderr-emit-sr, or --stderr-emit-incl-stdout";
                 return false;
+
             }
             stderrChildEmitSeen = true;
             if (val.empty()) { if (!need_value(L"--stderr-emit-child")) return false; val = argv[++i]; }
             if (val.empty()) { err = L"Missing value for --stderr-emit-child"; return false; }
             SR::EmitMode m;
-            if (!TryParseEmitModeIgnoreCase_(val, m) || !(SR::EmitModeStreamMask(m) & SR::STDERR)) {
+            if (!SR::TryParseEmitModeIgnoreCase(val, m) || !(SR::EmitModeStreamMask(m) & SR::STDERR)) {
                 err = L"Invalid value for --stderr-emit-child. Allowed values:\n";
                 SR::AppendEmitModeHelpForStderr(err);
                 TrimTrailingNewlines(err);
@@ -1055,35 +1015,56 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
         
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-emit-sr")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-emit-sr")) {
             if (stderrSrEmitSeen) { err = L"Duplicate --stderr-emit-sr"; return false; }
-            if (stderrEmitSeen || stderrChildEmitSeen) {
-                err = L"--stderr-emit-sr must not be combined with --stderr-emit or --stderr-emit-child";
+            if (stderrEmitSeen || stderrChildEmitSeen || stderrSrAndChildInclStdoutEmitSeen) {
+                err = L"--stderr-emit-sr must not be combined with --stderr-emit, --stderr-emit-child, or --stderr-emit-incl-stdout";
                 return false;
+
             }
             stderrSrEmitSeen = true;
             if (val.empty()) { if (!need_value(L"--stderr-emit-sr")) return false; val = argv[++i]; }
             if (val.empty()) { err = L"Missing value for --stderr-emit-sr"; return false; }
             SR::EmitMode m;
-            if (!TryParseEmitModeIgnoreCase_(val, m) || !(SR::EmitModeStreamMask(m) & SR::STDERR)) {
+            if (!SR::TryParseEmitModeIgnoreCase(val, m) || !(SR::EmitModeStreamMask(m) & SR::STDERR)) {
                 err = L"Invalid value for --stderr-emit-sr. Allowed values:\n";
                 SR::AppendEmitModeHelpForStderr(err);
                 TrimTrailingNewlines(err);
                 return false;
             }
             opt.stderrEmit = m;
-            opt.stderrEmitSource = SR::StderrEmitSource::SilentRunner;
+            opt.stderrEmitSource = SR::StderrEmitSource::Sr;
             continue;
         }
 
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-emit-incl-stdout")) {
+            if (stderrSrAndChildInclStdoutEmitSeen) { err = L"Duplicate --stderr-emit-incl-stdout"; return false; }
+            if (stderrEmitSeen || stderrChildEmitSeen || stderrSrEmitSeen) {
+                err = L"--stderr-emit-incl-stdout must not be combined with --stderr-emit, --stderr-emit-child, or --stderr-emit-sr";
+                return false;
+            }
+            stderrSrAndChildInclStdoutEmitSeen = true;
+            if (val.empty()) { if (!need_value(L"--stderr-emit-incl-stdout")) return false; val = argv[++i]; }
+            if (val.empty()) { err = L"Missing value for --stderr-emit-incl-stdout"; return false; }
+            SR::EmitMode m;
+            if (!SR::TryParseEmitModeIgnoreCase(val, m) || !(SR::EmitModeStreamMask(m) & SR::STDERR)) {
+                err = L"Invalid value for --stderr-emit-incl-stdout. Allowed values:\n";
+                SR::AppendEmitModeHelpForStderr(err);
+                TrimTrailingNewlines(err);
+                return false;
+            }
+            opt.stderrEmit = m;
+            opt.stderrEmitSource = SR::StderrEmitSource::SrAndChildInclStdout;
+            continue;
+        }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--stdout-dir-keep-log")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stdout-dir-keep-log")) {
             if (stdoutDirKeepLogSeen) { err = L"Duplicate --stdout-dir-keep-log"; return false; }
             stdoutDirKeepLogSeen = true;
             if (val.empty()) { if (!need_value(L"--stdout-dir-keep-log")) return false; val = argv[++i]; }
             if (val.empty()) { err = L"Missing value for --stdout-dir-keep-log"; return false; }
             SR::KeepLogMode m;
-            if (!TryParseKeepLogModeIgnoreCase_(val, m)) {
+            if (!SR::TryParseKeepLogModeIgnoreCase(val, m)) {
                 err = L"Invalid value for --stdout-dir-keep-log. Allowed values:\n";
                 SR::AppendKeepLogModeHelp(err);
                 TrimTrailingNewlines(err);
@@ -1093,13 +1074,13 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
 
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-dir-keep-log")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-dir-keep-log")) {
             if (stderrDirKeepLogSeen) { err = L"Duplicate --stderr-dir-keep-log"; return false; }
             stderrDirKeepLogSeen = true;
             if (val.empty()) { if (!need_value(L"--stderr-dir-keep-log")) return false; val = argv[++i]; }
             if (val.empty()) { err = L"Missing value for --stderr-dir-keep-log"; return false; }
             SR::KeepLogMode m;
-            if (!TryParseKeepLogModeIgnoreCase_(val, m)) {
+            if (!SR::TryParseKeepLogModeIgnoreCase(val, m)) {
                 err = L"Invalid value for --stderr-dir-keep-log. Allowed values:\n";
                 SR::AppendKeepLogModeHelp(err);
                 TrimTrailingNewlines(err);
@@ -1108,13 +1089,14 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             opt.stderrDirKeepLog = m;
             continue;
         }
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-dir-child-keep-log")) {
+        
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-dir-child-keep-log")) {
             if (stderrChildDirKeepLogSeen) { err = L"Duplicate --stderr-dir-child-keep-log"; return false; }
             stderrChildDirKeepLogSeen = true;
             if (val.empty()) { if (!need_value(L"--stderr-dir-child-keep-log")) return false; val = argv[++i]; }
             if (val.empty()) { err = L"Missing value for --stderr-dir-child-keep-log"; return false; }
             SR::KeepLogMode m;
-            if (!TryParseKeepLogModeIgnoreCase_(val, m)) {
+            if (!SR::TryParseKeepLogModeIgnoreCase(val, m)) {
                 err = L"Invalid value for --stderr-dir-child-keep-log. Allowed values:\n";
                 SR::AppendKeepLogModeHelp(err);
                 TrimTrailingNewlines(err);
@@ -1124,13 +1106,13 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             continue;
         }
         
-        if (EqualsOrdinalIgnoreCase_(key, L"--stderr-dir-sr-keep-log")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-dir-sr-keep-log")) {
             if (stderrSrDirKeepLogSeen) { err = L"Duplicate --stderr-dir-sr-keep-log"; return false; }
             stderrSrDirKeepLogSeen = true;
             if (val.empty()) { if (!need_value(L"--stderr-dir-sr-keep-log")) return false; val = argv[++i]; }
             if (val.empty()) { err = L"Missing value for --stderr-dir-sr-keep-log"; return false; }
             SR::KeepLogMode m;
-            if (!TryParseKeepLogModeIgnoreCase_(val, m)) {
+            if (!SR::TryParseKeepLogModeIgnoreCase(val, m)) {
                 err = L"Invalid value for --stderr-dir-sr-keep-log. Allowed values:\n";
                 SR::AppendKeepLogModeHelp(err);
                 TrimTrailingNewlines(err);
@@ -1139,10 +1121,24 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             opt.stderrSrDirKeepLog = m;
             continue;
         }
+
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"--stderr-dir-incl-stdout-keep-log")) {
+            if (stderrSrAndChildInclStdoutDirKeepLogSeen) { err = L"Duplicate --stderr-dir-incl-stdout-keep-log"; return false; }
+            stderrSrAndChildInclStdoutDirKeepLogSeen = true;
+            if (val.empty()) { if (!need_value(L"--stderr-dir-incl-stdout-keep-log")) return false; val = argv[++i]; }
+            if (val.empty()) { err = L"Missing value for --stderr-dir-incl-stdout-keep-log"; return false; }
+            SR::KeepLogMode m;
+            if (!SR::TryParseKeepLogModeIgnoreCase(val, m)) {
+                err = L"Invalid value for --stderr-dir-incl-stdout-keep-log. Allowed values:\n";
+                SR::AppendKeepLogModeHelp(err);
+                TrimTrailingNewlines(err);
+                return false;
+            }
+            opt.stderrSrAndChildInclStdoutDirKeepLog = m;
+            continue;
+        }
         
-
-
-        if (EqualsOrdinalIgnoreCase_(key, L"-c") || EqualsOrdinalIgnoreCase_(key, L"/c")) {
+        if (TextHelpers::EqualsOrdinalIgnoreCase(key, L"-c") || TextHelpers::EqualsOrdinalIgnoreCase(key, L"/c")) {
             if (rawCommandSeen) {
                 err = L"Duplicate -c or /c";
                 return false;
@@ -1169,9 +1165,6 @@ bool ParseArgs(int argc, wchar_t** argv, SR::Options& opt, std::wstring& err) {
             BuildUsageText();
         return false;
     }
-
-
-
 
     if (!opt.idPrefix.empty() && !IsValidId(opt.idPrefix)) {
         err = L"Invalid --id-prefix (allowed: A-Za-z0-9._-)";

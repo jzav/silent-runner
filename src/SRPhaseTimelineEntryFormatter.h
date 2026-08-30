@@ -16,12 +16,12 @@ struct ChildStderrEntry;
 // - Convert SrDiag, ChildStdout, and ChildStderr entries to their textual
 //   representations.
 // - Define JSONL field names, ordering, and value encoding.
-// - Define parseable mixed-stderr TXT segment headers.
+// - Define parseable stderr-sr-and-child TXT segment headers.
 // - Maintain the TXT segment-header contract consumed by the replay reader.
 //
 // Non-responsibilities:
 // - Decide which target or format is enabled.
-// - Decide when a mixed TXT segment header is required.
+// - Decide when a stderr-sr-and-child TXT segment header is required.
 // - Add separators between adjacent segments.
 // - Write or emit the resulting bytes.
 //
@@ -41,14 +41,21 @@ struct ChildStderrEntry;
 class SRPhaseTimelineEntryFormatter {
 public:
 
-    // Formats a parseable SrDiag segment header for mixed TXT output.
+    // Formats a parseable SrDiag segment header for stderr-sr-and-child TXT output.
     // The returned string does not include the terminating LF.
     static std::string FormatSrDiagTxtHeader(
         const SrDiagEntry& entry,
         const std::string& parsingToken
     );
 
-    // Formats a parseable ChildStderr segment header for mixed TXT output.
+    // Formats a parseable ChildStdout segment header for header-capable TXT output.
+    // The returned string does not include the terminating LF.
+    static std::string FormatChildStdoutTxtHeader(
+        const ChildStdoutEntry& entry,
+        const std::string& parsingToken
+    );
+
+    // Formats a parseable ChildStderr segment header for stderr-sr-and-child TXT output.
     // The returned string does not include the terminating LF.
     static std::string FormatChildStderrTxtHeader(
         const ChildStderrEntry& entry,

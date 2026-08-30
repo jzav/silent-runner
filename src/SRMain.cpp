@@ -74,7 +74,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     
     parentEmitPolicy.SetStdoutEmitMode(SR::EmitMode::Stream);
     parentEmitPolicy.SetStderrEmitMode(SR::EmitMode::Stream);
-    parentEmitPolicy.SetStderrEmitSource(SR::StderrEmitSource::Mixed);
+    parentEmitPolicy.SetStderrEmitSource(SR::StderrEmitSource::SrAndChild);
 
     SRLifecycleDiagnostics lifecycleDiag;
     if (!lifecycleDiag.Init(
@@ -302,13 +302,16 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         logPaths.running.stdoutTxt,
         !opt.stderrDir.empty(),
         &prepared.stderrLogWriter,
-        logPaths.running.stderrMixedTxt,
+        logPaths.running.stderrSrAndChildTxt,
         !opt.stderrChildDir.empty(),
         &prepared.stderrChildLogWriter,
         logPaths.running.stderrChildTxt,
         !opt.stderrSrDir.empty(),
         &prepared.stderrSrLogWriter,
-        logPaths.running.stderrSrTxt
+        logPaths.running.stderrSrTxt,
+        !opt.stderrSrAndChildInclStdoutDir.empty(),
+        &prepared.stderrSrAndChildInclStdoutLogWriter,
+        logPaths.running.stderrSrAndChildInclStdoutTxt
     );
     prepared.fileSinkWorker->AttachJsonlWriters(
         !opt.stdoutJsonlDir.empty(),
@@ -316,13 +319,16 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         logPaths.running.stdoutJsonl,
         !opt.stderrJsonlDir.empty(),
         &prepared.stderrJsonlWriter,
-        logPaths.running.stderrMixedJsonl,
+        logPaths.running.stderrSrAndChildJsonl,
         !opt.stderrChildJsonlDir.empty(),
         &prepared.stderrChildJsonlWriter,
         logPaths.running.stderrChildJsonl,
         !opt.stderrSrJsonlDir.empty(),
         &prepared.stderrSrJsonlWriter,
-        logPaths.running.stderrSrJsonl
+        logPaths.running.stderrSrJsonl,
+        !opt.stderrSrAndChildInclStdoutJsonlDir.empty(),
+        &prepared.stderrSrAndChildInclStdoutJsonlWriter,
+        logPaths.running.stderrSrAndChildInclStdoutJsonl
     );
     prepared.fileSinkWorker->Resume();
 

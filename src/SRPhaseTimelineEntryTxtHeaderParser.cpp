@@ -138,6 +138,41 @@ bool TryParseSrDiagTxtSchema_(
 }
 
 
+bool TryParseChildStdoutTxtSchema_(
+    const std::string& tokenizedHeader,
+    std::size_t position,
+    SRPhaseTimelineEntrySchemaData::ChildStdoutData& data
+) {
+#define SR_PARSE_TXT_FIELD_( \
+    member, \
+    fieldName, \
+    jsonEnabled, \
+    jsonFormatter, \
+    jsonParser, \
+    txtEnabled, \
+    txtFormatter, \
+    txtParser \
+) \
+    if (!TryParseTxtField_<txtEnabled>( \
+            tokenizedHeader, \
+            position, \
+            fieldName, \
+            txtParser, \
+            data, \
+            member \
+        )) { \
+        return false; \
+    }
+
+    SR_PHASE_TIMELINE_CHILD_STDOUT_SCHEMA_FIELD_TABLE(
+        SR_PARSE_TXT_FIELD_
+    )
+
+#undef SR_PARSE_TXT_FIELD_
+
+    return position == tokenizedHeader.size();
+}
+
 bool TryParseChildStderrTxtSchema_(
     const std::string& tokenizedHeader,
     std::size_t position,
@@ -210,8 +245,18 @@ bool TryParseTxtSchemaByPayloadType_(
             return true;
         }
 
-        case JobPayloadType::ChildStdout:
-            return false;
+        case JobPayloadType::ChildStdout: {
+            SRPhaseTimelineEntrySchemaData::ChildStdoutData parsedData;
+            if (!TryParseChildStdoutTxtSchema_(
+                    tokenizedHeader,
+                    0,
+                    parsedData
+                )) {
+                return false;
+            }
+            data = std::move(parsedData);
+            return true;
+        }
     }
 
     return false;

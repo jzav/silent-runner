@@ -88,8 +88,11 @@ bool SRFileSinkWorker::Init(SRLifecycleDiagnostics* diagnostics) {
         domain_ = WorkerDomain{};
     }
     
-    stderrMixedTxtLastWrittenPayloadType_.reset();
-    stderrMixedTxtAtLineStart_ = true;
+    stderrSrAndChildTxtLastWrittenPayloadType_.reset();
+    stderrSrAndChildTxtAtLineStart_ = true;
+    stderrSrAndChildInclStdoutTxtLastWrittenPayloadType_.reset();
+    stderrSrAndChildInclStdoutTxtAtLineStart_ = true;
+
     
     return true;
 }
@@ -98,60 +101,72 @@ void SRFileSinkWorker::AttachLogWriters(
     bool stdoutTxtEnabled,
     LogWriter::FileWriter* stdoutTxtWriter,
     const std::wstring& stdoutTxtRunningPath,
-    bool stderrMixedTxtEnabled,
-    LogWriter::FileWriter* stderrMixedTxtWriter,
-    const std::wstring& stderrMixedTxtRunningPath,
+    bool stderrSrAndChildTxtEnabled,
+    LogWriter::FileWriter* stderrSrAndChildTxtWriter,
+    const std::wstring& stderrSrAndChildTxtRunningPath,
     bool stderrChildTxtEnabled,
     LogWriter::FileWriter* stderrChildTxtWriter,
     const std::wstring& stderrChildTxtRunningPath,
     bool stderrSrTxtEnabled,
     LogWriter::FileWriter* stderrSrTxtWriter,
-    const std::wstring& stderrSrTxtRunningPath
+    const std::wstring& stderrSrTxtRunningPath,
+    bool stderrSrAndChildInclStdoutTxtEnabled,
+    LogWriter::FileWriter* stderrSrAndChildInclStdoutTxtWriter,
+    const std::wstring& stderrSrAndChildInclStdoutTxtRunningPath
 ) {
     std::lock_guard<std::mutex> lock(domainMutex_);
     AttachLogWritersLocked_(
         stdoutTxtEnabled,
         stdoutTxtWriter,
         stdoutTxtRunningPath,
-        stderrMixedTxtEnabled,
-        stderrMixedTxtWriter,
-        stderrMixedTxtRunningPath,
+        stderrSrAndChildTxtEnabled,
+        stderrSrAndChildTxtWriter,
+        stderrSrAndChildTxtRunningPath,
         stderrChildTxtEnabled,
         stderrChildTxtWriter,
         stderrChildTxtRunningPath,
         stderrSrTxtEnabled,
         stderrSrTxtWriter,
-        stderrSrTxtRunningPath
+        stderrSrTxtRunningPath,
+        stderrSrAndChildInclStdoutTxtEnabled,
+        stderrSrAndChildInclStdoutTxtWriter,
+        stderrSrAndChildInclStdoutTxtRunningPath
     );
 }
 void SRFileSinkWorker::AttachJsonlWriters(
     bool stdoutJsonlEnabled,
     LogWriter::FileWriter* stdoutJsonlWriter,
     const std::wstring& stdoutJsonlRunningPath,
-    bool stderrMixedJsonlEnabled,
-    LogWriter::FileWriter* stderrMixedJsonlWriter,
-    const std::wstring& stderrMixedJsonlRunningPath,
+    bool stderrSrAndChildJsonlEnabled,
+    LogWriter::FileWriter* stderrSrAndChildJsonlWriter,
+    const std::wstring& stderrSrAndChildJsonlRunningPath,
     bool stderrChildJsonlEnabled,
     LogWriter::FileWriter* stderrChildJsonlWriter,
     const std::wstring& stderrChildJsonlRunningPath,
     bool stderrSrJsonlEnabled,
     LogWriter::FileWriter* stderrSrJsonlWriter,
-    const std::wstring& stderrSrJsonlRunningPath
+    const std::wstring& stderrSrJsonlRunningPath,
+    bool stderrSrAndChildInclStdoutJsonlEnabled,
+    LogWriter::FileWriter* stderrSrAndChildInclStdoutJsonlWriter,
+    const std::wstring& stderrSrAndChildInclStdoutJsonlRunningPath
 ) {
     std::lock_guard<std::mutex> lock(domainMutex_);
     AttachJsonlWritersLocked_(
         stdoutJsonlEnabled,
         stdoutJsonlWriter,
         stdoutJsonlRunningPath,
-        stderrMixedJsonlEnabled,
-        stderrMixedJsonlWriter,
-        stderrMixedJsonlRunningPath,
+        stderrSrAndChildJsonlEnabled,
+        stderrSrAndChildJsonlWriter,
+        stderrSrAndChildJsonlRunningPath,
         stderrChildJsonlEnabled,
         stderrChildJsonlWriter,
         stderrChildJsonlRunningPath,
         stderrSrJsonlEnabled,
         stderrSrJsonlWriter,
-        stderrSrJsonlRunningPath
+        stderrSrJsonlRunningPath,
+        stderrSrAndChildInclStdoutJsonlEnabled,
+        stderrSrAndChildInclStdoutJsonlWriter,
+        stderrSrAndChildInclStdoutJsonlRunningPath
     );
 }
 
@@ -159,15 +174,18 @@ void SRFileSinkWorker::AttachLogWritersLocked_(
     bool stdoutTxtEnabled,
     LogWriter::FileWriter* stdoutTxtWriter,
     const std::wstring& stdoutTxtRunningPath,
-    bool stderrMixedTxtEnabled,
-    LogWriter::FileWriter* stderrMixedTxtWriter,
-    const std::wstring& stderrMixedTxtRunningPath,
+    bool stderrSrAndChildTxtEnabled,
+    LogWriter::FileWriter* stderrSrAndChildTxtWriter,
+    const std::wstring& stderrSrAndChildTxtRunningPath,
     bool stderrChildTxtEnabled,
     LogWriter::FileWriter* stderrChildTxtWriter,
     const std::wstring& stderrChildTxtRunningPath,
     bool stderrSrTxtEnabled,
     LogWriter::FileWriter* stderrSrTxtWriter,
-    const std::wstring& stderrSrTxtRunningPath
+    const std::wstring& stderrSrTxtRunningPath,
+    bool stderrSrAndChildInclStdoutTxtEnabled,
+    LogWriter::FileWriter* stderrSrAndChildInclStdoutTxtWriter,
+    const std::wstring& stderrSrAndChildInclStdoutTxtRunningPath
 ) {
     FileTargetConfig& stdoutTxtConfig =
         domain_.targetConfigs[
@@ -179,15 +197,15 @@ void SRFileSinkWorker::AttachLogWritersLocked_(
     stdoutTxtConfig.writer = stdoutTxtWriter;
     stdoutTxtConfig.runningPath = stdoutTxtRunningPath;
 
-    FileTargetConfig& stderrMixedTxtConfig =
+    FileTargetConfig& stderrSrAndChildTxtConfig =
         domain_.targetConfigs[
             SR::JobTargetWorkerConfigIndexOf(
-                SR::JobTarget::StderrMixedTxt
+                SR::JobTarget::StderrSrAndChildTxt
             )
         ];
-    stderrMixedTxtConfig.enabled = stderrMixedTxtEnabled;
-    stderrMixedTxtConfig.writer = stderrMixedTxtWriter;
-    stderrMixedTxtConfig.runningPath = stderrMixedTxtRunningPath;
+    stderrSrAndChildTxtConfig.enabled = stderrSrAndChildTxtEnabled;
+    stderrSrAndChildTxtConfig.writer = stderrSrAndChildTxtWriter;
+    stderrSrAndChildTxtConfig.runningPath = stderrSrAndChildTxtRunningPath;
 
     FileTargetConfig& stderrChildTxtConfig =
         domain_.targetConfigs[
@@ -208,6 +226,15 @@ void SRFileSinkWorker::AttachLogWritersLocked_(
     stderrSrTxtConfig.enabled = stderrSrTxtEnabled;
     stderrSrTxtConfig.writer = stderrSrTxtWriter;
     stderrSrTxtConfig.runningPath = stderrSrTxtRunningPath;
+    FileTargetConfig& stderrSrAndChildInclStdoutTxtConfig =
+        domain_.targetConfigs[
+            SR::JobTargetWorkerConfigIndexOf(
+                SR::JobTarget::StderrSrAndChildInclStdoutTxt
+            )
+        ];
+    stderrSrAndChildInclStdoutTxtConfig.enabled = stderrSrAndChildInclStdoutTxtEnabled;
+    stderrSrAndChildInclStdoutTxtConfig.writer = stderrSrAndChildInclStdoutTxtWriter;
+    stderrSrAndChildInclStdoutTxtConfig.runningPath = stderrSrAndChildInclStdoutTxtRunningPath;
 
 
 }
@@ -215,15 +242,18 @@ void SRFileSinkWorker::AttachJsonlWritersLocked_(
     bool stdoutJsonlEnabled,
     LogWriter::FileWriter* stdoutJsonlWriter,
     const std::wstring& stdoutJsonlRunningPath,
-    bool stderrMixedJsonlEnabled,
-    LogWriter::FileWriter* stderrMixedJsonlWriter,
-    const std::wstring& stderrMixedJsonlRunningPath,
+    bool stderrSrAndChildJsonlEnabled,
+    LogWriter::FileWriter* stderrSrAndChildJsonlWriter,
+    const std::wstring& stderrSrAndChildJsonlRunningPath,
     bool stderrChildJsonlEnabled,
     LogWriter::FileWriter* stderrChildJsonlWriter,
     const std::wstring& stderrChildJsonlRunningPath,
     bool stderrSrJsonlEnabled,
     LogWriter::FileWriter* stderrSrJsonlWriter,
-    const std::wstring& stderrSrJsonlRunningPath
+    const std::wstring& stderrSrJsonlRunningPath,
+    bool stderrSrAndChildInclStdoutJsonlEnabled,
+    LogWriter::FileWriter* stderrSrAndChildInclStdoutJsonlWriter,
+    const std::wstring& stderrSrAndChildInclStdoutJsonlRunningPath
 ) {
     FileTargetConfig& stdoutJsonlConfig =
         domain_.targetConfigs[
@@ -235,15 +265,15 @@ void SRFileSinkWorker::AttachJsonlWritersLocked_(
     stdoutJsonlConfig.writer = stdoutJsonlWriter;
     stdoutJsonlConfig.runningPath = stdoutJsonlRunningPath;
 
-    FileTargetConfig& stderrMixedJsonlConfig =
+    FileTargetConfig& stderrSrAndChildJsonlConfig =
         domain_.targetConfigs[
             SR::JobTargetWorkerConfigIndexOf(
-                SR::JobTarget::StderrMixedJsonl
+                SR::JobTarget::StderrSrAndChildJsonl
             )
         ];
-    stderrMixedJsonlConfig.enabled = stderrMixedJsonlEnabled;
-    stderrMixedJsonlConfig.writer = stderrMixedJsonlWriter;
-    stderrMixedJsonlConfig.runningPath = stderrMixedJsonlRunningPath;
+    stderrSrAndChildJsonlConfig.enabled = stderrSrAndChildJsonlEnabled;
+    stderrSrAndChildJsonlConfig.writer = stderrSrAndChildJsonlWriter;
+    stderrSrAndChildJsonlConfig.runningPath = stderrSrAndChildJsonlRunningPath;
 
     FileTargetConfig& stderrChildJsonlConfig =
         domain_.targetConfigs[
@@ -264,6 +294,15 @@ void SRFileSinkWorker::AttachJsonlWritersLocked_(
     stderrSrJsonlConfig.enabled = stderrSrJsonlEnabled;
     stderrSrJsonlConfig.writer = stderrSrJsonlWriter;
     stderrSrJsonlConfig.runningPath = stderrSrJsonlRunningPath;
+    FileTargetConfig& stderrSrAndChildInclStdoutJsonlConfig =
+        domain_.targetConfigs[
+            SR::JobTargetWorkerConfigIndexOf(
+                SR::JobTarget::StderrSrAndChildInclStdoutJsonl
+            )
+        ];
+    stderrSrAndChildInclStdoutJsonlConfig.enabled = stderrSrAndChildInclStdoutJsonlEnabled;
+    stderrSrAndChildInclStdoutJsonlConfig.writer = stderrSrAndChildInclStdoutJsonlWriter;
+    stderrSrAndChildInclStdoutJsonlConfig.runningPath = stderrSrAndChildInclStdoutJsonlRunningPath;
 
 }
 
@@ -925,20 +964,20 @@ void SRFileSinkWorker::SuppressFileTargetAfterWriteFailure_(
 
 // Serializes and writes one pending job to a TXT file target.
 //
-// For parseable mixed-stderr TXT targets, this method owns the segment framing:
+// For parseable stderr-sr-and-child TXT targets, this method owns the segment framing:
 // - determines whether a new SrDiag or ChildStderr header is required,
 // - formats the header through SRPhaseTimelineEntryFormatter,
 // - inserts an LF before a header when the preceding raw payload did not end
 //   at a line boundary,
 // - writes the entry payload,
-// - updates mixed-TXT segment and line-boundary state.
+// - updates stderr-sr-and-child TXT segment and line-boundary state.
 //
 // For ordinary TXT targets, child stdout/stderr payloads remain raw bytes.
 //
 // The formatter defines header and line contents; this method defines their
 // placement, framing, writing, and flushing.
 //
-// Keep mixed-TXT header selection, LF separation, and payload ordering aligned
+// Keep stderr-sr-and-child TXT header selection, LF separation, and payload ordering aligned
 // with SRParentEmitWorker::BuildPayloadBytes_().
 bool SRFileSinkWorker::TryWriteTxtTarget_(
     const SR::PendingJob& job,
@@ -982,6 +1021,30 @@ bool SRFileSinkWorker::TryWriteTxtTarget_(
 
         bool headerRequired = false;
         std::string header;
+        std::optional<SR::JobPayloadType>* lastWrittenPayloadType = nullptr;
+        bool* atLineStart = nullptr;
+        switch (targetConfig.target) {
+            case SR::JobTarget::StderrSrAndChildTxt:
+                lastWrittenPayloadType =
+                    &stderrSrAndChildTxtLastWrittenPayloadType_;
+                atLineStart = &stderrSrAndChildTxtAtLineStart_;
+                break;
+            case SR::JobTarget::StderrSrAndChildInclStdoutTxt:
+                lastWrittenPayloadType =
+                    &stderrSrAndChildInclStdoutTxtLastWrittenPayloadType_;
+                atLineStart =
+                    &stderrSrAndChildInclStdoutTxtAtLineStart_;
+                break;
+            default:
+                break;
+        }
+        const bool startsNewSegment =
+            lastWrittenPayloadType &&
+            (
+                !*lastWrittenPayloadType ||
+                **lastWrittenPayloadType != job.payloadType
+            );
+
 
         // Determine whether this payload starts a new TXT segment and build the
         // corresponding segment header when required.
@@ -996,15 +1059,7 @@ bool SRFileSinkWorker::TryWriteTxtTarget_(
                 break;
 
             case SR::JobPayloadType::ChildStderr:
-                headerRequired =
-                    targetConfig.target == SR::JobTarget::StderrMixedTxt &&
-
-                    (
-                        !stderrMixedTxtLastWrittenPayloadType_ ||
-                        *stderrMixedTxtLastWrittenPayloadType_ !=
-                            SR::JobPayloadType::ChildStderr
-                    );
-
+                headerRequired = startsNewSegment;
                 if (headerRequired) {
                     header =
                         SR::SRPhaseTimelineEntryFormatter::FormatChildStderrTxtHeader(
@@ -1013,21 +1068,27 @@ bool SRFileSinkWorker::TryWriteTxtTarget_(
                         );
                 }
                 break;
-
             case SR::JobPayloadType::ChildStdout:
+                headerRequired = startsNewSegment;
+                if (headerRequired) {
+                    header =
+                        SR::SRPhaseTimelineEntryFormatter::FormatChildStdoutTxtHeader(
+                            job.childStdout,
+                            parsingToken
+                        );
+                }
                 break;
+
         }
 
         if (headerRequired) {
-            if (targetConfig.target == SR::JobTarget::StderrMixedTxt &&
-
-                !stderrMixedTxtAtLineStart_) {
+            if (atLineStart && !*atLineStart) {
                 if (!targetConfig.writer->WriteRaw(&kLf, 1, outGle)) {
-
                     return false;
                 }
-                stderrMixedTxtAtLineStart_ = true;
+                *atLineStart = true;
             }
+
 
             if (!targetConfig.writer->WriteLine(
 
@@ -1079,7 +1140,16 @@ bool SRFileSinkWorker::TryWriteTxtTarget_(
                 break;
 
             case SR::JobPayloadType::ChildStdout:
+                if (!job.childStdout.bytes.empty() &&
+                    !targetConfig.writer->WriteRaw(
+                        job.childStdout.bytes.data(),
+                        job.childStdout.bytes.size(),
+                        outGle
+                    )) {
+                    return false;
+                }
                 break;
+
         }
 
         if (!targetConfig.writer->Flush(outGle)) {
@@ -1087,24 +1157,23 @@ bool SRFileSinkWorker::TryWriteTxtTarget_(
             return false;
         }
 
-        if (targetConfig.target == SR::JobTarget::StderrMixedTxt) {
-
-            stderrMixedTxtLastWrittenPayloadType_ = job.payloadType;
-
-            // Update the mixed-TXT line-boundary state after the payload has been
-            // written successfully.
+        if (lastWrittenPayloadType && atLineStart) {
+            *lastWrittenPayloadType = job.payloadType;
+            // Update the framed TXT line-boundary state after the payload has
+            // been written successfully.
             switch (job.payloadType) {
                 case SR::JobPayloadType::SrDiag:
-                    stderrMixedTxtAtLineStart_ = true;
+                    *atLineStart = true;
                     break;
-
                 case SR::JobPayloadType::ChildStderr:
-                    stderrMixedTxtAtLineStart_ =
+                    *atLineStart =
                         job.childStderr.bytes.empty() ||
                         job.childStderr.bytes.back() == kLf;
                     break;
-
                 case SR::JobPayloadType::ChildStdout:
+                    *atLineStart =
+                        job.childStdout.bytes.empty() ||
+                        job.childStdout.bytes.back() == kLf;
                     break;
             }
         }

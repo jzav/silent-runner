@@ -13,6 +13,7 @@ enum class ParentReplaySource {
     Jsonl
 };
 
+
 struct ParentReplayParameterSet {
     ParentReplaySource source = ParentReplaySource::None;
     JobTarget target = JobTarget::StdoutParent;
@@ -22,7 +23,7 @@ struct ParentReplayParameterSet {
 struct ParentReplayPolicySnapshot {
     EmitMode stdoutEmitMode = EmitMode::Never;
     EmitMode stderrEmitMode = EmitMode::Never;
-    StderrEmitSource stderrEmitSource = StderrEmitSource::Mixed;
+    StderrEmitSource stderrEmitSource = StderrEmitSource::SrAndChild;
     bool needsStdoutReplayBuffer = false;
     bool needsStderrReplayBuffer = false;
 };

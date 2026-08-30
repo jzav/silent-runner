@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "TextHelpers.h"
 
 namespace SR {
 
@@ -45,23 +46,23 @@ enum class ParentTargetAction {
 
 // Table columns:
 //   (EnumName, WideLiteralPtr, WideView, StreamMask, HelpTextWideLiteralPtr,
-//    ActionWithoutPersistentReplaySource, ActionWithPersistentReplaySource)
+//    ActionWithoutPersistentReplaySource, ActionWithPersistentReplaySource, ReplayOnSuccess, ReplayOnFailure)
 #define SR_EMITMODE_TABLE(X) \
-    X(Never,   L"never",   SR_WSV(L"never"),   BOTH,    L"never emit to parent",          Ignore, Ignore) \
-    X(Stream,  L"stream",  SR_WSV(L"stream"),  BOTH,    L"emit while running (default)",  Emit,   Emit) \
-    X(End,     L"end",     SR_WSV(L"end"),     BOTH,    L"emit at end of process",      Delay,  Ignore) \
-    X(Success, L"success", SR_WSV(L"success"), BOTH,    L"emit only on success",        Delay,  Ignore) \
-    X(Failure, L"failure", SR_WSV(L"failure"), BOTH,    L"emit on failure or timeout",  Delay,  Ignore)
+    X(Never,   L"never",   SR_WSV(L"never"),   BOTH,    L"never emit to parent",          Ignore, Ignore, false, false) \
+    X(Stream,  L"stream",  SR_WSV(L"stream"),  BOTH,    L"emit while running (default)",  Emit,   Emit,   false, false) \
+    X(End,     L"end",     SR_WSV(L"end"),     BOTH,    L"emit at end of process",      Delay,  Ignore, true,  true) \
+    X(Success, L"success", SR_WSV(L"success"), BOTH,    L"emit only on success",        Delay,  Ignore, true,  false) \
+    X(Failure, L"failure", SR_WSV(L"failure"), BOTH,    L"emit on failure or timeout",  Delay,  Ignore, false, true)
 
 enum class EmitMode {
-#define SR_X_ENUM(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource) name,
+#define SR_X_ENUM(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource, replayOnSuccess, replayOnFailure) name,
     SR_EMITMODE_TABLE(SR_X_ENUM)
 #undef SR_X_ENUM
 };
 
 inline constexpr const wchar_t* EmitModeToString(EmitMode m) noexcept {
     switch (m) {
-#define SR_X_CASE(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource) case EmitMode::name: return wptr;
+#define SR_X_CASE(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource, replayOnSuccess, replayOnFailure) case EmitMode::name: return wptr;
         SR_EMITMODE_TABLE(SR_X_CASE)
 #undef SR_X_CASE
     default:
@@ -71,7 +72,7 @@ inline constexpr const wchar_t* EmitModeToString(EmitMode m) noexcept {
 
 inline constexpr std::wstring_view EmitModeToView(EmitMode m) noexcept {
     switch (m) {
-#define SR_X_CASE(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource) case EmitMode::name: return wview;
+#define SR_X_CASE(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource, replayOnSuccess, replayOnFailure) case EmitMode::name: return wview;
         SR_EMITMODE_TABLE(SR_X_CASE)
 #undef SR_X_CASE
     default:
@@ -81,7 +82,7 @@ inline constexpr std::wstring_view EmitModeToView(EmitMode m) noexcept {
 
 inline constexpr uint8_t EmitModeStreamMask(EmitMode m) noexcept {
     switch (m) {
-#define SR_X_CASE(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource) case EmitMode::name: return (uint8_t)(mask);
+#define SR_X_CASE(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource, replayOnSuccess, replayOnFailure) case EmitMode::name: return (uint8_t)(mask);
         SR_EMITMODE_TABLE(SR_X_CASE)
 #undef SR_X_CASE
     default:
@@ -94,7 +95,7 @@ inline constexpr ParentTargetAction RetrieveParentTargetAction(
     bool hasPersistentReplaySource
 ) noexcept {
     switch (mode) {
-#define SR_X_PARENT_TARGET_ACTION(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource) \
+#define SR_X_PARENT_TARGET_ACTION(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource, replayOnSuccess, replayOnFailure) \
         case EmitMode::name: \
             return hasPersistentReplaySource \
                 ? ParentTargetAction::withPersistentSource \
@@ -105,10 +106,33 @@ inline constexpr ParentTargetAction RetrieveParentTargetAction(
 
     return ParentTargetAction::Ignore;
 }
+inline constexpr bool ShouldReplayForExecutionResult(
+    EmitMode mode,
+    bool executionSucceeded
+) noexcept {
+    switch (mode) {
+#define SR_X_SHOULD_REPLAY(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource, replayOnSuccess, replayOnFailure) \
+        case EmitMode::name: \
+            return executionSucceeded ? replayOnSuccess : replayOnFailure;
+        SR_EMITMODE_TABLE(SR_X_SHOULD_REPLAY)
+#undef SR_X_SHOULD_REPLAY
+    }
+    return false;
+}
 
 // Strict parse: expects the input to already be normalized (e.g., lowercased) if desired.
 inline constexpr bool TryParseEmitMode(std::wstring_view s, EmitMode& out) noexcept {
-#define SR_X_IF(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource) if (s == wview) { out = EmitMode::name; return true; }
+#define SR_X_IF(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource, replayOnSuccess, replayOnFailure) if (s == wview) { out = EmitMode::name; return true; }
+    SR_EMITMODE_TABLE(SR_X_IF)
+#undef SR_X_IF
+    return false;
+}
+inline bool TryParseEmitModeIgnoreCase(
+    std::wstring_view s,
+    EmitMode& out
+) noexcept {
+#define SR_X_IF(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource, replayOnSuccess, replayOnFailure) \
+    if (TextHelpers::EqualsOrdinalIgnoreCase(s, wview)) { out = EmitMode::name; return true; }
     SR_EMITMODE_TABLE(SR_X_IF)
 #undef SR_X_IF
     return false;
@@ -116,7 +140,7 @@ inline constexpr bool TryParseEmitMode(std::wstring_view s, EmitMode& out) noexc
 
 // Help generator: formats one item per line: "  <token>  - <help>"
 inline void AppendEmitModeHelp(std::wstring& out) {
-#define SR_X_HELP(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource) \
+#define SR_X_HELP(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource, replayOnSuccess, replayOnFailure) \
     out += L"  "; out += wptr; out += L"  - "; out += help; out += L"\n";
     SR_EMITMODE_TABLE(SR_X_HELP)
 #undef SR_X_HELP
@@ -124,7 +148,7 @@ inline void AppendEmitModeHelp(std::wstring& out) {
 
 // (Optional convenience) Help generator filtered by stream.
 inline void AppendEmitModeHelpForStdout(std::wstring& out) {
-#define SR_X_HELP(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource) \
+#define SR_X_HELP(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource, replayOnSuccess, replayOnFailure) \
     do { if (((uint8_t)(mask) & (uint8_t)STDOUT) != 0) { \
         out += L"  "; out += wptr; out += L"  - "; out += help; out += L"\n"; \
     } } while (0);
@@ -133,7 +157,7 @@ inline void AppendEmitModeHelpForStdout(std::wstring& out) {
 }
 
 inline void AppendEmitModeHelpForStderr(std::wstring& out) {
-#define SR_X_HELP(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource) \
+#define SR_X_HELP(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource, replayOnSuccess, replayOnFailure) \
     do { if (((uint8_t)(mask) & (uint8_t)STDERR) != 0) { \
         out += L"  "; out += wptr; out += L"  - "; out += help; out += L"\n"; \
     } } while (0);
@@ -142,7 +166,7 @@ inline void AppendEmitModeHelpForStderr(std::wstring& out) {
 }
 
 inline void AppendEmitModeHelpForBoth(std::wstring& out) {
-#define SR_X_HELP(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource) \
+#define SR_X_HELP(name, wptr, wview, mask, help, withoutPersistentSource, withPersistentSource, replayOnSuccess, replayOnFailure) \
     do { if ((uint8_t)(mask) == (uint8_t)BOTH) { \
         out += L"  "; out += wptr; out += L"  - "; out += help; out += L"\n"; \
     } } while (0);
@@ -159,9 +183,11 @@ inline void AppendEmitModeHelpForBoth(std::wstring& out) {
 // intentionally exclusive.
 
 #define SR_STDERR_EMIT_SOURCE_TABLE(X) \
-    X(Mixed,        L"mixed", L"mixed child + SilentRunner stderr", StderrMixedParent) \
-    X(Child,        L"child", L"child stderr only",                 StderrChildParent) \
-    X(SilentRunner, L"sr",    L"SilentRunner stderr only",          StderrSrParent)
+    X(SrAndChild, L"stderr-sr-and-child", L"SilentRunner diagnostics plus child stderr", StderrSrAndChildParent) \
+    X(Child, L"stderr-child", L"child stderr only", StderrChildParent) \
+    X(Sr, L"stderr-sr", L"SilentRunner diagnostics only", StderrSrParent) \
+    X(SrAndChildInclStdout, L"stderr-sr-and-child-incl-stdout", L"SilentRunner diagnostics plus child stderr and stdout", StderrSrAndChildInclStdoutParent)
+
 
 enum class StderrEmitSource {
 #define SR_X_ENUM_STDERR_SOURCE(name, wptr, help, target) name,
@@ -209,6 +235,16 @@ inline constexpr std::wstring_view KeepLogModeToView(KeepLogMode m) noexcept {
 // Strict parse: expects the input to already be normalized (e.g., lowercased) if desired.
 inline constexpr bool TryParseKeepLogMode(std::wstring_view s, KeepLogMode& out) noexcept {
 #define SR_X_IF(name, wptr, wview, help) if (s == wview) { out = KeepLogMode::name; return true; }
+    SR_KEEPLOGMODE_TABLE(SR_X_IF)
+#undef SR_X_IF
+    return false;
+}
+inline bool TryParseKeepLogModeIgnoreCase(
+    std::wstring_view s,
+    KeepLogMode& out
+) noexcept {
+#define SR_X_IF(name, wptr, wview, help) \
+    if (TextHelpers::EqualsOrdinalIgnoreCase(s, wview)) { out = KeepLogMode::name; return true; }
     SR_KEEPLOGMODE_TABLE(SR_X_IF)
 #undef SR_X_IF
     return false;
@@ -268,6 +304,28 @@ inline constexpr const wchar_t* IdSuffixModeToString(IdSuffixMode m) noexcept {
             return L"<invalid>";
     }
 }
+inline constexpr bool TryParseIdSuffixMode(
+    std::wstring_view s,
+    IdSuffixMode& out
+) noexcept {
+#define SR_X_IF_ID_SUFFIX_MODE(name, value, text, cliAllowed) \
+    if (cliAllowed && s == text) { out = IdSuffixMode::name; return true; }
+    SR_ID_SUFFIX_MODE_TABLE(SR_X_IF_ID_SUFFIX_MODE)
+#undef SR_X_IF_ID_SUFFIX_MODE
+    return false;
+}
+
+inline bool TryParseIdSuffixModeIgnoreCase(
+    std::wstring_view s,
+    IdSuffixMode& out
+) noexcept {
+#define SR_X_IF_ID_SUFFIX_MODE(name, value, text, cliAllowed) \
+    if (cliAllowed && TextHelpers::EqualsOrdinalIgnoreCase(s, text)) { out = IdSuffixMode::name; return true; }
+    SR_ID_SUFFIX_MODE_TABLE(SR_X_IF_ID_SUFFIX_MODE)
+#undef SR_X_IF_ID_SUFFIX_MODE
+    return false;
+}
+
 
 
 
@@ -528,14 +586,16 @@ struct LogPathSet {
     std::wstring stdoutTxt;
     std::wstring stdoutJsonl;
 
-    std::wstring stderrMixedTxt;
-    std::wstring stderrMixedJsonl;
+    std::wstring stderrSrAndChildTxt;
+    std::wstring stderrSrAndChildJsonl;
 
     std::wstring stderrChildTxt;
     std::wstring stderrChildJsonl;
 
     std::wstring stderrSrTxt;
     std::wstring stderrSrJsonl;
+    std::wstring stderrSrAndChildInclStdoutTxt;
+    std::wstring stderrSrAndChildInclStdoutJsonl;
 };
 
 struct LogPaths {
@@ -570,6 +630,8 @@ struct Options {
     std::wstring stderrJsonlDir;
     std::wstring stderrChildJsonlDir;
     std::wstring stderrSrJsonlDir;
+    std::wstring stderrSrAndChildInclStdoutDir;
+    std::wstring stderrSrAndChildInclStdoutJsonlDir;
     std::wstring probeDir;
 
 
@@ -581,24 +643,28 @@ struct Options {
 
     EmitMode stdoutEmit = EmitMode::Stream;  // default
     EmitMode stderrEmit = EmitMode::Stream;  // default
-    StderrEmitSource stderrEmitSource = StderrEmitSource::Mixed;
+    StderrEmitSource stderrEmitSource = StderrEmitSource::SrAndChild;
 
     KeepLogMode stdoutDirKeepLog = KeepLogMode::Always; // default
     KeepLogMode stderrDirKeepLog = KeepLogMode::Always; // default
     KeepLogMode stderrChildDirKeepLog = KeepLogMode::Always;
     KeepLogMode stderrSrDirKeepLog = KeepLogMode::Always;
+    KeepLogMode stderrSrAndChildInclStdoutDirKeepLog = KeepLogMode::Always;
 
     uint64_t stdoutMaxBufferBytes = 0; // 0 = unlimited (RAM only)
     uint64_t stderrMaxBufferBytes = 0; // 0 = unlimited (RAM only)
     uint64_t maxTotalBufferBytes  = 0; // 0 = unlimited (RAM only)
     bool hasReplayablePersistentStdoutTxtSource = false;
     bool hasReplayablePersistentStdoutJsonlSource = false;
-    bool hasReplayablePersistentStderrMixedTxtSource = false;
-    bool hasReplayablePersistentStderrMixedJsonlSource = false;
+    bool hasReplayablePersistentStderrSrAndChildTxtSource = false;
+    bool hasReplayablePersistentStderrSrAndChildJsonlSource = false;
     bool hasReplayablePersistentStderrChildTxtSource = false;
     bool hasReplayablePersistentStderrChildJsonlSource = false;
     bool hasReplayablePersistentStderrSrTxtSource = false;
     bool hasReplayablePersistentStderrSrJsonlSource = false;
+    bool hasReplayablePersistentStderrSrAndChildInclStdoutTxtSource = false;
+    bool hasReplayablePersistentStderrSrAndChildInclStdoutJsonlSource = false;
+
 
     std::wstring inner; // inner command passed to cmd.exe /d /s /c "...".
     std::vector<std::wstring> parserDebugMessages;

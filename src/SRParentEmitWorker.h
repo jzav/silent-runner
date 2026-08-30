@@ -91,7 +91,7 @@ private:
                 true,
             },
             {
-                SR::JobTarget::StderrMixedParent,
+                SR::JobTarget::StderrSrAndChildParent,
                 true,
             },
             {
@@ -102,6 +102,11 @@ private:
                 SR::JobTarget::StderrSrParent,
                 true,
             },
+            {
+                SR::JobTarget::StderrSrAndChildInclStdoutParent,
+                true,
+            },
+
         }};
         WorkerConfig config;
     };
@@ -193,8 +198,12 @@ private:
     mutable std::mutex failureLatchMutex_;
     WorkerDomain domain_;
     std::optional<SR::JobPayloadType>
-        stderrMixedParentLastWrittenPayloadType_;
-    bool stderrMixedParentAtLineStart_ = true;
+        stderrSrAndChildParentLastWrittenPayloadType_;
+    bool stderrSrAndChildParentAtLineStart_ = true;
+    std::optional<SR::JobPayloadType>
+        stderrSrAndChildInclStdoutParentLastWrittenPayloadType_;
+    bool stderrSrAndChildInclStdoutParentAtLineStart_ = true;
+
 
 
     mutable std::mutex pendingJobsMutex_;

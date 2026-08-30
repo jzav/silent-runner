@@ -40,18 +40,21 @@ public:
         );
 
         emitSourceConfig_.stderrEmitSource.store(
-            SR::StderrEmitSource::Mixed,
+            SR::StderrEmitSource::SrAndChild,
             std::memory_order_relaxed
         );
         emitSourceConfig_.hasReplayablePersistentStdoutTxtSource = false;
         emitSourceConfig_.hasReplayablePersistentStdoutJsonlSource = false;
         
-        emitSourceConfig_.hasReplayablePersistentStderrMixedTxtSource = false;
-        emitSourceConfig_.hasReplayablePersistentStderrMixedJsonlSource = false;
+        emitSourceConfig_.hasReplayablePersistentStderrSrAndChildTxtSource = false;
+        emitSourceConfig_.hasReplayablePersistentStderrSrAndChildJsonlSource = false;
         emitSourceConfig_.hasReplayablePersistentStderrChildTxtSource = false;
         emitSourceConfig_.hasReplayablePersistentStderrChildJsonlSource = false;
         emitSourceConfig_.hasReplayablePersistentStderrSrTxtSource = false;
         emitSourceConfig_.hasReplayablePersistentStderrSrJsonlSource = false;
+        emitSourceConfig_.hasReplayablePersistentStderrSrAndChildInclStdoutTxtSource = false;
+        emitSourceConfig_.hasReplayablePersistentStderrSrAndChildInclStdoutJsonlSource = false;
+
         return true;
     }
 
@@ -61,10 +64,10 @@ public:
         emitSourceConfig_.hasReplayablePersistentStdoutJsonlSource =
             opt.hasReplayablePersistentStdoutJsonlSource;
 
-        emitSourceConfig_.hasReplayablePersistentStderrMixedTxtSource =
-            opt.hasReplayablePersistentStderrMixedTxtSource;
-        emitSourceConfig_.hasReplayablePersistentStderrMixedJsonlSource =
-            opt.hasReplayablePersistentStderrMixedJsonlSource;
+        emitSourceConfig_.hasReplayablePersistentStderrSrAndChildTxtSource =
+            opt.hasReplayablePersistentStderrSrAndChildTxtSource;
+        emitSourceConfig_.hasReplayablePersistentStderrSrAndChildJsonlSource =
+            opt.hasReplayablePersistentStderrSrAndChildJsonlSource;
         emitSourceConfig_.hasReplayablePersistentStderrChildTxtSource =
             opt.hasReplayablePersistentStderrChildTxtSource;
         emitSourceConfig_.hasReplayablePersistentStderrChildJsonlSource =
@@ -73,6 +76,11 @@ public:
             opt.hasReplayablePersistentStderrSrTxtSource;
         emitSourceConfig_.hasReplayablePersistentStderrSrJsonlSource =
             opt.hasReplayablePersistentStderrSrJsonlSource;
+        emitSourceConfig_.hasReplayablePersistentStderrSrAndChildInclStdoutTxtSource =
+            opt.hasReplayablePersistentStderrSrAndChildInclStdoutTxtSource;
+        emitSourceConfig_.hasReplayablePersistentStderrSrAndChildInclStdoutJsonlSource =
+            opt.hasReplayablePersistentStderrSrAndChildInclStdoutJsonlSource;
+
 
         SetStdoutEmitMode(opt.stdoutEmit);
         SetStderrEmitMode(opt.stderrEmit);
@@ -123,14 +131,17 @@ public:
             case SR::JobTarget::StdoutParent:
                 return HasReplayablePersistentStdoutSource_();
 
-            case SR::JobTarget::StderrMixedParent:
-                return HasReplayablePersistentStderrMixedSource_();
+            case SR::JobTarget::StderrSrAndChildParent:
+                return HasReplayablePersistentStderrSrAndChildSource_();
 
             case SR::JobTarget::StderrChildParent:
                 return HasReplayablePersistentStderrChildSource_();
 
             case SR::JobTarget::StderrSrParent:
                 return HasReplayablePersistentStderrSrSource_();
+            case SR::JobTarget::StderrSrAndChildInclStdoutParent:
+                return HasReplayablePersistentStderrSrAndChildInclStdoutSource_();
+
 
             default:
                 return false;
@@ -195,6 +206,13 @@ public:
             IsBufferedEmitMode(RetrieveStderrEmitMode_()) &&
             !HasActiveStderrPersistentReplaySource_();
     }
+    bool NeedsStderrInclStdoutReplayBuffer() const noexcept {
+        return
+            RetrieveStderrEmitSource_() ==
+                SR::StderrEmitSource::SrAndChildInclStdout &&
+            NeedsStderrReplayBuffer();
+    }
+
 
     static bool IsBufferedEmitMode(SR::EmitMode mode) noexcept {
         return
@@ -214,7 +232,7 @@ private:
         // The selected stderr source is runtime/finalize mutable, but it belongs
         // to source selection rather than emit timing.
         std::atomic<SR::StderrEmitSource> stderrEmitSource{
-            SR::StderrEmitSource::Mixed
+            SR::StderrEmitSource::SrAndChild
         };
 
         // Replayable persistent source topology is copied from finalized
@@ -222,12 +240,15 @@ private:
         bool hasReplayablePersistentStdoutTxtSource = false;
         bool hasReplayablePersistentStdoutJsonlSource = false;
 
-        bool hasReplayablePersistentStderrMixedTxtSource = false;
-        bool hasReplayablePersistentStderrMixedJsonlSource = false;
+        bool hasReplayablePersistentStderrSrAndChildTxtSource = false;
+        bool hasReplayablePersistentStderrSrAndChildJsonlSource = false;
         bool hasReplayablePersistentStderrChildTxtSource = false;
         bool hasReplayablePersistentStderrChildJsonlSource = false;
         bool hasReplayablePersistentStderrSrTxtSource = false;
         bool hasReplayablePersistentStderrSrJsonlSource = false;
+        bool hasReplayablePersistentStderrSrAndChildInclStdoutTxtSource = false;
+        bool hasReplayablePersistentStderrSrAndChildInclStdoutJsonlSource = false;
+
     };
 
     SR::EmitMode RetrieveStdoutEmitMode_() const noexcept {
@@ -248,10 +269,10 @@ private:
             emitSourceConfig_.hasReplayablePersistentStdoutJsonlSource;
     }
 
-    bool HasReplayablePersistentStderrMixedSource_() const noexcept {
+    bool HasReplayablePersistentStderrSrAndChildSource_() const noexcept {
         return
-            emitSourceConfig_.hasReplayablePersistentStderrMixedTxtSource ||
-            emitSourceConfig_.hasReplayablePersistentStderrMixedJsonlSource;
+            emitSourceConfig_.hasReplayablePersistentStderrSrAndChildTxtSource ||
+            emitSourceConfig_.hasReplayablePersistentStderrSrAndChildJsonlSource;
     }
 
     bool HasReplayablePersistentStderrChildSource_() const noexcept {
@@ -265,17 +286,26 @@ private:
             emitSourceConfig_.hasReplayablePersistentStderrSrTxtSource ||
             emitSourceConfig_.hasReplayablePersistentStderrSrJsonlSource;
     }
+    bool HasReplayablePersistentStderrSrAndChildInclStdoutSource_() const noexcept {
+        return
+            emitSourceConfig_.hasReplayablePersistentStderrSrAndChildInclStdoutTxtSource ||
+            emitSourceConfig_.hasReplayablePersistentStderrSrAndChildInclStdoutJsonlSource;
+    }
+
 
     bool HasActiveStderrPersistentReplaySource_() const noexcept {
         switch (RetrieveStderrEmitSource_()) {
-            case SR::StderrEmitSource::Mixed:
-                return HasReplayablePersistentStderrMixedSource_();
+            case SR::StderrEmitSource::SrAndChild:
+                return HasReplayablePersistentStderrSrAndChildSource_();
 
             case SR::StderrEmitSource::Child:
                 return HasReplayablePersistentStderrChildSource_();
 
-            case SR::StderrEmitSource::SilentRunner:
+            case SR::StderrEmitSource::Sr:
                 return HasReplayablePersistentStderrSrSource_();
+            case SR::StderrEmitSource::SrAndChildInclStdout:
+                return HasReplayablePersistentStderrSrAndChildInclStdoutSource_();
+
 
             default:
                 return false;

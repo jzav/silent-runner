@@ -7,7 +7,7 @@
 namespace SR {
 
 
-// Parses one complete canonical mixed-stderr TXT segment header.
+// Parses one complete canonical stderr-sr-and-child TXT segment header.
 //
 // Responsibilities:
 // - Tokenize adjacent [field=value] records into LF-separated field records.

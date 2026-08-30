@@ -73,7 +73,7 @@ void SRLogGatewayStderr::RouteDiagnosticLineUtf16(
     EnsureMutex_();
     std::lock_guard<std::mutex> lk(*mutex_);
     RouteBytesLocked_(
-        SR::StderrEmitSource::SilentRunner,
+        SR::StderrEmitSource::Sr,
         utf8.data(),
         utf8.size(),
         &severity,
@@ -85,7 +85,9 @@ void SRLogGatewayStderr::RouteDiagnosticLineUtf16(
 bool SRLogGatewayStderr::ShouldRouteToActiveStderrView_(
     SR::StderrEmitSource source
 ) const noexcept {
-    if (emitSource_ == SR::StderrEmitSource::Mixed) return true;
+    if (emitSource_ == SR::StderrEmitSource::SrAndChild ||
+        emitSource_ == SR::StderrEmitSource::SrAndChildInclStdout) return true;
+
     return emitSource_ == source;
 }
 
@@ -131,7 +133,7 @@ void SRLogGatewayStderr::RouteBytesLocked_(
                 n,
                 replayPayloadStorage
             );
-        } else if (source == SR::StderrEmitSource::SilentRunner &&
+        } else if (source == SR::StderrEmitSource::Sr &&
                       runtimeDiagSeverityOrNull &&
                       runtimeDiagMessageOrNull) {
             executionTimeline_->RouteSrDiag(

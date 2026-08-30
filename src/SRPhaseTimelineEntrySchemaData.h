@@ -43,6 +43,8 @@ public:
         bool payloadDropped = false;
         uint64_t payloadByteCount = 0;
         std::string payloadBase64;
+        std::string parsingToken;
+
 
         ChildStdoutData() = default;
 
