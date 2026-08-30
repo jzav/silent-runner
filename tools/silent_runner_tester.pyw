@@ -153,7 +153,7 @@ class SilentRunnerTesterApp:
         )
         self.arguments_entry.grid(row=0, column=0, sticky="ew")
 
-        self.arguments_text = tk.Text(
+        self.arguments_text = ScrolledText(
             self.arguments_container,
             height=1,
             wrap="word",
@@ -161,7 +161,7 @@ class SilentRunnerTesterApp:
         )
         self.arguments_text.bind(
             "<<Modified>>",
-            lambda _event: self._on_expandable_text_modified(self.arguments_text),
+            lambda _event: self._on_single_line_text_modified(self.arguments_text),
         )
 
         self.arguments_toggle_button = ttk.Button(
@@ -232,7 +232,7 @@ class SilentRunnerTesterApp:
         )
         self.parsed_arguments_entry.grid(row=0, column=0, sticky="ew")
 
-        self.parsed_arguments_text = tk.Text(
+        self.parsed_arguments_text = ScrolledText(
             self.parsed_arguments_container,
             height=1,
             wrap="word",
@@ -240,7 +240,7 @@ class SilentRunnerTesterApp:
         )
         self.parsed_arguments_text.bind(
             "<<Modified>>",
-            lambda _event: self._on_expandable_text_modified(self.parsed_arguments_text),
+            lambda _event: self._on_single_line_text_modified(self.parsed_arguments_text),
         )
 
         self.parsed_arguments_toggle_button = ttk.Button(
@@ -332,32 +332,28 @@ class SilentRunnerTesterApp:
         self.status_var.set(f"Parsed {len(tokens)} argument(s)")
 
     def _fit_expanded_text(self, text_widget: tk.Text) -> None:
-        self.root.update_idletasks()
+        self.root.after_idle(self._fit_expanded_text_now, text_widget)
 
+    def _fit_expanded_text_now(self, text_widget: tk.Text) -> None:
+        self.root.update_idletasks()
         count = text_widget.count(
             "1.0",
-            "end-1c",
+            "end",
             "displaylines",
         )
         required_lines = max(1, count[0] if count else 1)
-
         current_lines = max(1, int(text_widget.cget("height")))
         if required_lines <= current_lines:
             text_widget.configure(height=required_lines)
             return
-
         line_height = text_widget.dlineinfo("1.0")
         if not line_height:
             return
         line_height_px = line_height[3]
-
         stdout_line_height = self.stdout_text.dlineinfo("1.0")
         stderr_line_height = self.stderr_text.dlineinfo("1.0")
         if not stdout_line_height or not stderr_line_height:
             return
-
-        self.root.update_idletasks()
-
         available_output_px = (
             self.stdout_text.winfo_height()
             + self.stderr_text.winfo_height()
@@ -365,15 +361,62 @@ class SilentRunnerTesterApp:
             - stderr_line_height[3]
         )
         additional_lines = max(0, available_output_px // line_height_px)
+        visible_lines = min(required_lines, current_lines + additional_lines)
+        if visible_lines < required_lines:
+            missing_lines = required_lines - visible_lines
+            current_window_height = self.root.winfo_height()
+            current_window_width = self.root.winfo_width()
+            window_top = max(0, self.root.winfo_rooty())
+            available_window_height = max(
+                current_window_height,
+                self.root.winfo_screenheight() - window_top,
+            )
+            requested_window_height = (
+                current_window_height
+                + missing_lines * line_height_px
+            )
+            new_window_height = min(
+                requested_window_height,
+                available_window_height,
+            )
+            if new_window_height > current_window_height:
+                self.root.geometry(
+                    f"{current_window_width}x{new_window_height}"
+                )
+                self.root.update_idletasks()
+                gained_lines = (
+                    new_window_height - current_window_height
+                ) // line_height_px
+                visible_lines = min(
+                    required_lines,
+                    visible_lines + gained_lines,
+                )
+        text_widget.configure(height=visible_lines)
 
-        text_widget.configure(
-            height=min(required_lines, current_lines + additional_lines)
-        )
 
-
-    def _on_expandable_text_modified(self, text_widget: tk.Text) -> None:
+    def _on_single_line_text_modified(self, text_widget: tk.Text) -> None:
         if not text_widget.edit_modified():
             return
+
+        text = text_widget.get("1.0", "end-1c")
+        normalized = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+
+        if normalized != text:
+            insert_count = text_widget.count("1.0", "insert", "chars")
+            insert_offset = insert_count[0] if insert_count else len(text)
+            normalized_insert_offset = len(
+                text[:insert_offset]
+                .replace("\r\n", " ")
+                .replace("\r", " ")
+                .replace("\n", " ")
+            )
+
+            text_widget.delete("1.0", "end")
+            text_widget.insert("1.0", normalized)
+            text_widget.mark_set(
+                "insert",
+                f"1.0+{normalized_insert_offset}c",
+            )
 
         text_widget.edit_modified(False)
         self._fit_expanded_text(text_widget)
@@ -601,26 +644,111 @@ class SilentRunnerTesterApp:
         if not self.running:
             self.status_var.set("Ready")
 
+    def _decode_buffer(self, buffer: bytearray) -> str:
+        return self._decode_bytes(bytes(buffer))
+
     def _copy_stdout(self) -> None:
-        self._copy_to_clipboard(self.stdout_text.get("1.0", "end-1c"), "STDOUT copied to clipboard")
+        self._copy_to_clipboard(
+            self._decode_buffer(self.stdout_buffer),
+            "STDOUT copied to clipboard",
+        )
 
     def _copy_stderr(self) -> None:
-        self._copy_to_clipboard(self.stderr_text.get("1.0", "end-1c"), "STDERR copied to clipboard")
+        self._copy_to_clipboard(
+            self._decode_buffer(self.stderr_buffer),
+            "STDERR copied to clipboard",
+        )
+
 
     def _copy_both(self) -> None:
         payload = (
             f"ExitCode: {self.exit_code_var.get()}\n"
             f"\n===== STDOUT =====\n"
-            f"{self.stdout_text.get('1.0', 'end-1c')}\n"
+            f"{self._decode_buffer(self.stdout_buffer)}\n"
             f"\n===== STDERR =====\n"
-            f"{self.stderr_text.get('1.0', 'end-1c')}"
+            f"{self._decode_buffer(self.stderr_buffer)}"
         )
         self._copy_to_clipboard(payload, "Exit code, stdout, and stderr copied to clipboard")
 
     def _copy_to_clipboard(self, text: str, status_message: str) -> None:
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-        self.root.update_idletasks()
+        # Publish one explicit Windows Unicode-text clipboard format instead of
+        # letting Tk perform clipboard format/EOL conversion.
+        buffer = ctypes.create_unicode_buffer(text)
+        buffer_size = ctypes.sizeof(buffer)
+        
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        
+        open_clipboard = user32.OpenClipboard
+        open_clipboard.argtypes = [wintypes.HWND]
+        open_clipboard.restype = wintypes.BOOL
+        
+        empty_clipboard = user32.EmptyClipboard
+        empty_clipboard.argtypes = []
+        empty_clipboard.restype = wintypes.BOOL
+        
+        set_clipboard_data = user32.SetClipboardData
+        set_clipboard_data.argtypes = [wintypes.UINT, wintypes.HANDLE]
+        set_clipboard_data.restype = wintypes.HANDLE
+        
+        close_clipboard = user32.CloseClipboard
+        close_clipboard.argtypes = []
+        close_clipboard.restype = wintypes.BOOL
+        
+        global_alloc = kernel32.GlobalAlloc
+        global_alloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+        global_alloc.restype = wintypes.HGLOBAL
+        
+        global_lock = kernel32.GlobalLock
+        global_lock.argtypes = [wintypes.HGLOBAL]
+        global_lock.restype = wintypes.LPVOID
+        
+        global_unlock = kernel32.GlobalUnlock
+        global_unlock.argtypes = [wintypes.HGLOBAL]
+        global_unlock.restype = wintypes.BOOL
+        
+        global_free = kernel32.GlobalFree
+        global_free.argtypes = [wintypes.HGLOBAL]
+        global_free.restype = wintypes.HGLOBAL
+        
+        cf_unicode_text = 13
+        gmem_moveable = 0x0002
+        
+        if not open_clipboard(self.root.winfo_id()):
+            messagebox.showerror(
+                "SilentRunner Tester",
+                f"Could not open the Windows clipboard:\n{ctypes.WinError(ctypes.get_last_error())}",
+            )
+            return
+        
+        memory = None
+        ownership_transferred = False
+        try:
+            if not empty_clipboard():
+                raise ctypes.WinError(ctypes.get_last_error())
+        
+            memory = global_alloc(gmem_moveable, buffer_size)
+            if not memory:
+                raise ctypes.WinError(ctypes.get_last_error())
+        
+            destination = global_lock(memory)
+            if not destination:
+                raise ctypes.WinError(ctypes.get_last_error())
+        
+            try:
+                ctypes.memmove(destination, buffer, buffer_size)
+            finally:
+                global_unlock(memory)
+        
+            if not set_clipboard_data(cf_unicode_text, memory):
+                raise ctypes.WinError(ctypes.get_last_error())
+        
+            ownership_transferred = True
+        finally:
+            if memory and not ownership_transferred:
+                global_free(memory)
+            close_clipboard()
+        
         self.status_var.set(status_message)
 
     def _apply_wrap_mode(self) -> None:
