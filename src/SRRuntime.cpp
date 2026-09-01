@@ -92,7 +92,7 @@ SRRuntimeResult RunHiddenWithRouting(
     std::shared_ptr<ExecutionTimeline> executionTimeline,
     const SRParentEmitPolicy& parentEmitPolicy,
     const SRWorkerCommonPolicy& workerCommonPolicy,
-
+    SRBufferLimiter* bufferLimitPtr,
     const SR::Options& opt,
     const SR::LogPaths& logPaths,
     const HandleHelpers::StdHandleWriteProbeResult& stdoutStdHandleProbe,
@@ -112,22 +112,6 @@ SRRuntimeResult RunHiddenWithRouting(
     SRLogGatewayDiagnostics diag;
     SRLogGatewayStdout stdoutRouter;
     SRLogGatewayStderr stderrRouter;
-    SRBufferLimiter bufferLimit;
-
-
-
-    // Replay-buffer policy is derived by SRParentEmitPolicy from finalized
-    // options and current emit/source configuration.
-    const bool needStdoutReplayBuffer = parentEmitPolicy.NeedsStdoutReplayBuffer();
-    const bool needStderrReplayBuffer = parentEmitPolicy.NeedsStderrReplayBuffer();
-
-    // Buffer-limit object is only needed when buffering in RAM.
-    SRBufferLimiter* bufferLimitPtr = nullptr;
-    if (needStdoutReplayBuffer || needStderrReplayBuffer) {
-        bufferLimit.Init(opt);
-        bufferLimitPtr = &bufferLimit;
-    }
-
 
     // File output is owned by ExecutionTimeline -> JobsExchange -> SRFileSinkWorker.
     // Gateways are lightweight entry points into ExecutionTimeline.
@@ -644,6 +628,19 @@ SRRuntimeResult RunHiddenWithRouting(
 
         const SRRuntimeStopReason::StopReason stopReason =
             SRRuntimeStopReason::FromWaitResult(wait);
+
+        executionTimeline->ProbeLine(
+            L"[RUNTIME][WAIT] wait=" + std::to_wstring(wait) +
+            L" stopReason=" +
+            std::wstring(SRRuntimeStopReason::ToReaderJoinDiagnosticLabel(stopReason)) +
+            L" limitHit=" +
+            std::wstring(
+                bufferLimitPtr && bufferLimitPtr->LimitHit()
+                    ? L"TRUE"
+                    : L"FALSE"
+            )
+        );
+
         result.stopReason = stopReason;
 
         if (stopReason == SRRuntimeStopReason::StopReason::WaitFailed) {

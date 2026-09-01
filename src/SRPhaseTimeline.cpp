@@ -43,7 +43,9 @@ void PhaseTimeline::End() {
 
 void PhaseTimeline::AppendSrDiag(
     SR::DiagnosticSeverity severity,
-    const std::wstring& message
+    const std::wstring& message,
+    SR::ReplayPayloadStorage replayPayloadStorage,
+    uint64_t payloadByteCount
 ) {
     PhaseEventStamp stamp = Stamp();
 
@@ -54,11 +56,23 @@ void PhaseTimeline::AppendSrDiag(
     entry.timestampUtc = stamp.timestampUtc;
     entry.severity = severity;
     entry.message = message;
-    entry.payloadByteCount =
-        static_cast<uint64_t>(FileHelpers::WideToUtf8(message).size());
+    entry.payloadByteCount = payloadByteCount;
+    entry.replayPayloadStorage = replayPayloadStorage;
+
+    if (replayPayloadStorage == SR::ReplayPayloadStorage::Store) {
+        bufferUsage.stderrBufferedBytes += entry.payloadByteCount;
+        bufferUsage.totalBufferedBytes += entry.payloadByteCount;
+    } else if (
+        replayPayloadStorage == 
+        SR::ReplayPayloadStorage::DroppedByBufferLimit
+    ) {
+        bufferUsage.stderrDroppedBytes += entry.payloadByteCount;
+        bufferUsage.totalDroppedBytes += entry.payloadByteCount;
+        ++bufferUsage.stderrDroppedEvents;
+        ++bufferUsage.totalDroppedEvents;
+    }
 
     entries.push_back(entry);
-
 }
 
 void PhaseTimeline::AppendChildStdout(

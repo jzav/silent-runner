@@ -5,6 +5,10 @@
 #include "SRTypes.h"
 #include "SRExecutionTimeline.h"
 
+class SRBufferLimiter;
+class SRParentEmitPolicy;
+
+
 
 
 class SRLifecycleDiagnostics {
@@ -25,6 +29,10 @@ public:
     void SetVerboseEnabled(bool value) noexcept;
     void SetEmitMode(SR::EmitMode value) noexcept;
     void SetStderrEmitSource(SR::StderrEmitSource value) noexcept;
+    void SetBufferLimiter(SRBufferLimiter* bufferLimitOrNull) noexcept;
+    void SetParentEmitPolicy(const SRParentEmitPolicy* parentEmitPolicyOrNull) noexcept;
+
+
     bool TrySetProbeLogPath(const std::wstring& value) noexcept;
     const std::wstring& ProbeLogPath() const noexcept { return probeLogPath_; }
 
@@ -62,8 +70,6 @@ public:
 
 
 private:
-
-
     void EmitLineWithSeverity_(
         SR::DiagnosticSeverity severity,
         const std::wstring& msg
@@ -74,6 +80,10 @@ private:
     bool verboseEnabled_ = false;
     SR::EmitMode emitMode_ = SR::EmitMode::Stream;
     SR::StderrEmitSource stderrEmitSource_ = SR::StderrEmitSource::SrAndChild;
+    SRBufferLimiter* bufferLimit_ = nullptr;
+    const SRParentEmitPolicy* parentEmitPolicy_ = nullptr;
+
+
     ExecutionTimeline* executionTimeline_ = nullptr;
     std::wstring probeLogPath_;
 

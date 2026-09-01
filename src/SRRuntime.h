@@ -9,6 +9,8 @@
 #include "SRExecutionTimeline.h"
 #include "SRLifecycleDiagnostics.h"
 
+class SRBufferLimiter;
+
 class SRParentEmitPolicy;
 class SRWorkerCommonPolicy;
 struct SRRuntimeResult {
@@ -28,7 +30,7 @@ SRRuntimeResult RunHiddenWithRouting(
     std::shared_ptr<ExecutionTimeline> executionTimeline,
     const SRParentEmitPolicy& parentEmitPolicy,
     const SRWorkerCommonPolicy& workerCommonPolicy,
-
+    SRBufferLimiter* bufferLimitPtr,
     const SR::Options& opt,
     const SR::LogPaths& logPaths,
     const HandleHelpers::StdHandleWriteProbeResult& stdoutStdHandleProbe,

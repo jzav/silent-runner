@@ -24,6 +24,8 @@
 #include "SRLifecycleFinalizeExecution.h"
 #include "SRParentEmitPolicy.h"
 #include "SRWorkerCommonPolicy.h"
+#include "SRBufferLimiter.h"
+
 
 // Linker hint (MSVC-style). With MinGW, you typically pass subsystem via linker flags,
 // but keeping this is harmless if your toolchain ignores it.
@@ -71,6 +73,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         );
         return 255;
     }
+    SRBufferLimiter bufferLimiter;
+    SRBufferLimiter* bufferLimitPtr = nullptr;
+
     
     parentEmitPolicy.SetStdoutEmitMode(SR::EmitMode::Stream);
     parentEmitPolicy.SetStderrEmitMode(SR::EmitMode::Stream);
@@ -217,6 +222,20 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   
     
     parentEmitPolicy.SetFromFinalizedOptions(opt);
+    const bool needStdoutReplayBuffer =
+        parentEmitPolicy.NeedsStdoutReplayBuffer();
+    const bool needStderrReplayBuffer =
+        parentEmitPolicy.NeedsStderrReplayBuffer();
+
+    if (needStdoutReplayBuffer || needStderrReplayBuffer) {
+        bufferLimiter.Init(opt, &lifecycleDiag);
+        bufferLimitPtr = &bufferLimiter;
+    }
+
+    lifecycleDiag.SetParentEmitPolicy(&parentEmitPolicy);
+    lifecycleDiag.SetBufferLimiter(bufferLimitPtr);
+
+
     executionTimeline->SetParentEmitPolicy(parentEmitPolicy);
     executionTimeline->SetVerboseEnabled(opt.verbose);
 
@@ -238,9 +257,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 0;
     }
     
-
-
-
     lifecycleDiag.DebugLine(
         L"PrepareRuntime phase starts"
     );
@@ -372,7 +388,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
             executionTimeline,
             parentEmitPolicy,
             workerCommonPolicy,
-
+            bufferLimitPtr,
             opt,
             logPaths,
             prepared.stdoutStdHandleProbe,

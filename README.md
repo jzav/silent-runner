@@ -248,21 +248,24 @@ Controls how much output may be buffered in memory for delayed parent
 replay (`end`, `success`, or `failure` emission modes). By default,
 buffer limits are 0 (unlimited).
 
-Buffering is only used when parent stdout/stderr emission is delayed. When
-output is streamed to the parent process, these limits are not used.
+Buffering is only used for output that needs to be retained for delayed
+parent replay. Output that is streamed to the parent process does not
+require replay buffering.
 
-If persistent logging is enabled for the corresponding stream,
+If persistent logging is enabled for the corresponding replay source,
 SilentRunner can replay the output from the persistent log file instead
 of the in-memory buffer. For example, `--stderr-emit-sr end` can replay
-from logs written by `--stderr-dir-sr` or `--stderr-dir-sr-jsonl`. This
+from logs written by `--stderr-dir-sr` or `--stderr-dir-sr-jsonl`, while
+`--stderr-emit-incl-stdout end` can replay from logs written by
+`--stderr-dir-incl-stdout` or `--stderr-dir-incl-stdout-jsonl`. This
 allows delayed replay of arbitrarily large outputs while keeping memory
 usage bounded.
 
 Options:
 
--   `--stdout-max-buffer-bytes <bytes>`
--   `--stderr-max-buffer-bytes <bytes>`
--   `--std-total-max-buffer-bytes <bytes>`
+- `--stdout-max-buffer-bytes <bytes>`
+- `--stderr-max-buffer-bytes <bytes>`
+- `--std-total-max-buffer-bytes <bytes>`
 
 ------------------------------------------------------------------------
 

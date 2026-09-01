@@ -40,6 +40,7 @@ wchar_t ToUpperAscii(wchar_t ch) noexcept;
 std::wstring ToUpperAsciiCopy(std::wstring s);
 
 std::string Utf16ToUtf8(const std::wstring& text);
+size_t Utf16ToUtf8ByteCount(const std::wstring& text) noexcept;
 uint64_t PayloadByteCountFromBytes(const std::vector<char>& bytes) noexcept;
 std::string PayloadBase64FromBytes(const std::vector<char>& bytes);
 

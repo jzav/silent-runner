@@ -7,6 +7,8 @@
 #include "CoreHelpers.h"
 #include "SRTypes.h"
 
+class SRLifecycleDiagnostics;
+
 class SRBufferLimiter {
 public:
     enum class StreamType {
@@ -26,7 +28,11 @@ public:
     SRBufferLimiter(const SRBufferLimiter&) = delete;
     SRBufferLimiter& operator=(const SRBufferLimiter&) = delete;
 
-    void Init(const SR::Options& opt) noexcept;
+    void Init(
+        const SR::Options& opt,
+        SRLifecycleDiagnostics* diagnosticsOrNull
+    ) noexcept;
+
     void ResetRuntimeState() noexcept;
 
     bool TryReserveStdout(
@@ -41,12 +47,20 @@ public:
 
     bool LimitHit() const noexcept;
     StreamType FirstHitStream() const noexcept;
+    bool StdoutLimitReached() const noexcept;
+    bool StderrLimitReached() const noexcept;
+    bool TotalLimitReached() const noexcept;
+
 
     HANDLE LimitEventHandle() const noexcept;
     bool EventFailureDetected() const noexcept;
     EventOperation FirstEventFailureOperation() const noexcept;
     const wchar_t* FirstEventFailureOperationName() const noexcept;
     DWORD FirstEventFailureGle() const noexcept;
+    
+    uint64_t stdoutMax_ = 0;
+    uint64_t stderrMax_ = 0;
+    uint64_t totalMax_  = 0;
 
 
 private:
@@ -61,16 +75,19 @@ private:
 
 
 private:
-    uint64_t stdoutMax_ = 0;
-    uint64_t stderrMax_ = 0;
-    uint64_t totalMax_  = 0;
-
+    SRLifecycleDiagnostics* diagnostics_ = nullptr;
 
     CoreHelpers::UniqueHandle limitEvent_;
 
     std::atomic_bool limitSignaled_{false};
     std::atomic<int> firstHitStream_{static_cast<int>(StreamType::None)};
+
+    std::atomic_bool stdoutLimitReached_{false};
+    std::atomic_bool stderrLimitReached_{false};
+    std::atomic_bool totalLimitReached_{false};
+
     std::atomic_bool eventFailureDetected_{false};
+
     std::atomic<int> firstEventFailureOperation_{static_cast<int>(EventOperation::None)};
     std::atomic<DWORD> firstEventFailureGle_{0};
 

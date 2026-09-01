@@ -65,12 +65,7 @@ struct PhaseTimeline {
     
     void Start();
     void End();
-    
-    void AppendSrDiag(
-        SR::DiagnosticSeverity severity,
-        const std::wstring& message
-    );
-    
+     
     void AppendChildStdout(
         const char* bytes,
         size_t byteCount,
@@ -81,6 +76,13 @@ struct PhaseTimeline {
         const char* bytes,
         size_t byteCount,
         SR::ReplayPayloadStorage replayPayloadStorage
+    );
+
+    void AppendSrDiag(
+        SR::DiagnosticSeverity severity,
+        const std::wstring& message,
+        SR::ReplayPayloadStorage replayPayloadStorage,
+        uint64_t payloadByteCount
     );
 
     void GetAllDelayed(

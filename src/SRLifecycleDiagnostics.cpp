@@ -5,6 +5,9 @@
 #include "FileHelpers.h"
 #include "ParentStdEmitter.h"
 #include "TextHelpers.h"
+#include "SRBufferLimiter.h"
+#include "SRParentEmitPolicy.h"
+
 namespace {
 
 std::mutex& ProbeLogMutex_() noexcept {
@@ -117,6 +120,18 @@ void SRLifecycleDiagnostics::SetEmitMode(SR::EmitMode value) noexcept {
 void SRLifecycleDiagnostics::SetStderrEmitSource(SR::StderrEmitSource value) noexcept {
     stderrEmitSource_ = value;
 }
+void SRLifecycleDiagnostics::SetBufferLimiter(
+    SRBufferLimiter* bufferLimitOrNull
+) noexcept {
+    bufferLimit_ = bufferLimitOrNull;
+}
+void SRLifecycleDiagnostics::SetParentEmitPolicy(
+    const SRParentEmitPolicy* parentEmitPolicyOrNull
+) noexcept {
+    parentEmitPolicy_ = parentEmitPolicyOrNull;
+}
+
+
 
 bool SRLifecycleDiagnostics::TrySetProbeLogPath(
     const std::wstring& value
@@ -261,9 +276,74 @@ void SRLifecycleDiagnostics::EmitLineWithSeverity_(
     if (msg.empty()) return;
 
     if (executionTimeline_) {
+        const uint64_t payloadByteCount =
+            static_cast<uint64_t>(
+                TextHelpers::Utf16ToUtf8ByteCount(msg)
+            );
+
+        SR::ReplayPayloadStorage replayPayloadStorage =
+            SR::ReplayPayloadStorage::NotNeeded;
+
+        const bool routeToActiveView =
+            stderrEmitSource_ == SR::StderrEmitSource::SrAndChild ||
+            stderrEmitSource_ == SR::StderrEmitSource::Sr ||
+            stderrEmitSource_ == SR::StderrEmitSource::SrAndChildInclStdout;
+
+        if (routeToActiveView &&
+            parentEmitPolicy_ &&
+            parentEmitPolicy_->NeedsStderrReplayBuffer()) {
+
+            const SR::BufferUsage usage =
+                executionTimeline_->GetCachedBufferUsage();
+
+            const bool reserved =
+                !bufferLimit_ ||
+                bufferLimit_->TryReserveStderr(
+                    static_cast<size_t>(payloadByteCount),
+                    usage
+                );
+
+            replayPayloadStorage =
+                reserved
+                    ? SR::ReplayPayloadStorage::Store
+                    : SR::ReplayPayloadStorage::DroppedByBufferLimit;
+        }
+
+        const bool eventSummaryEnabled =
+            !bufferLimit_ ||
+            (!bufferLimit_->StderrLimitReached() &&
+             !bufferLimit_->TotalLimitReached());
+
+
+        ProbeLine(
+            std::wstring(L"[BUFFER][DECISION] origin=LIFECYCLE_SR") +
+            L" payloadByteCount=" +
+            std::to_wstring(payloadByteCount) +
+            L" routeToActiveView=" +
+            (routeToActiveView ? L"TRUE" : L"FALSE") +
+            L" needsStderrReplayBuffer=" +
+            ((parentEmitPolicy_ &&
+              parentEmitPolicy_->NeedsStderrReplayBuffer())
+                ? L"TRUE"
+                : L"FALSE") +
+            L" bufferLimiter=" +
+            (bufferLimit_ ? L"SET" : L"NULL") +
+            L" storage=" +
+            (replayPayloadStorage == SR::ReplayPayloadStorage::Store
+                ? L"STORE"
+                : replayPayloadStorage ==
+                    SR::ReplayPayloadStorage::DroppedByBufferLimit
+                    ? L"DROPPED_BY_BUFFER_LIMIT"
+                    : L"NOT_NEEDED")
+        );
+
+
         executionTimeline_->RouteSrDiag(
             severity,
-            msg
+            msg,
+            replayPayloadStorage,
+            payloadByteCount,
+            eventSummaryEnabled
         );
     }
 }

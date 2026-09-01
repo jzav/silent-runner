@@ -1,9 +1,16 @@
 #include "SRBufferLimiter.h"
+#include "SRLifecycleDiagnostics.h"
+
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-void SRBufferLimiter::Init(const SR::Options& opt) noexcept {
+void SRBufferLimiter::Init(
+    const SR::Options& opt,
+    SRLifecycleDiagnostics* diagnosticsOrNull
+) noexcept {
+    diagnostics_ = diagnosticsOrNull;
+
     eventFailureDetected_.store(false, std::memory_order_relaxed);
     firstEventFailureOperation_.store(
         static_cast<int>(EventOperation::None),
@@ -38,6 +45,11 @@ void SRBufferLimiter::ResetRuntimeState() noexcept {
 
     limitSignaled_.store(false, std::memory_order_relaxed);
     firstHitStream_.store(static_cast<int>(StreamType::None), std::memory_order_relaxed);
+
+    stdoutLimitReached_.store(false, std::memory_order_relaxed);
+    stderrLimitReached_.store(false, std::memory_order_relaxed);
+    totalLimitReached_.store(false, std::memory_order_relaxed);
+
 
     if (limitEvent_.valid()) {
         if (!ResetEvent(limitEvent_.get())) {
@@ -78,6 +90,19 @@ bool SRBufferLimiter::LimitHit() const noexcept {
 SRBufferLimiter::StreamType SRBufferLimiter::FirstHitStream() const noexcept {
     return static_cast<StreamType>(firstHitStream_.load(std::memory_order_relaxed));
 }
+
+bool SRBufferLimiter::StdoutLimitReached() const noexcept {
+    return stdoutLimitReached_.load(std::memory_order_relaxed);
+}
+
+bool SRBufferLimiter::StderrLimitReached() const noexcept {
+    return stderrLimitReached_.load(std::memory_order_relaxed);
+}
+
+bool SRBufferLimiter::TotalLimitReached() const noexcept {
+    return totalLimitReached_.load(std::memory_order_relaxed);
+}
+
 
 HANDLE SRBufferLimiter::LimitEventHandle() const noexcept {
     return limitEvent_.valid() ? limitEvent_.get() : nullptr;
@@ -135,6 +160,50 @@ bool SRBufferLimiter::TryReserve_(
     uint64_t streamBufferedBytes,
     uint64_t totalBufferedBytes
 ) noexcept {
+    auto probeReserve = [&](bool allowed, const wchar_t* reason) noexcept {
+        if (!diagnostics_) return;
+
+        try {
+            const wchar_t* streamName =
+                stream == StreamType::Stdout
+                    ? L"STDOUT"
+                    : stream == StreamType::Stderr
+                        ? L"STDERR"
+                        : L"INVALID";
+
+            const uint64_t streamMax =
+                stream == StreamType::Stdout
+                    ? stdoutMax_
+                    : stream == StreamType::Stderr
+                        ? stderrMax_
+                        : 0;
+
+            diagnostics_->ProbeLine(
+                std::wstring(L"[BUFFER][RESERVE] stream=") +
+                streamName +
+                L" bytes=" +
+                std::to_wstring(static_cast<uint64_t>(bytes)) +
+                L" streamBufferedBytes=" +
+                std::to_wstring(streamBufferedBytes) +
+                L" streamMax=" +
+                std::to_wstring(streamMax) +
+                L" totalBufferedBytes=" +
+                std::to_wstring(totalBufferedBytes) +
+                L" totalMax=" +
+                std::to_wstring(totalMax_) +
+                L" result=" +
+                (allowed ? L"ALLOWED" : L"DENIED") +
+                L" reason=" +
+                reason
+            );
+        } catch (...) {
+        }
+    };
+
+    if (bytes == 0) {
+        probeReserve(true, L"ZERO_BYTES");
+    }
+
     if (bytes == 0) return true;
 
     const uint64_t n = static_cast<uint64_t>(bytes);
@@ -146,22 +215,41 @@ bool SRBufferLimiter::TryReserve_(
         streamMax = stderrMax_;
     } else {
         SignalLimitHit_(stream);
+        probeReserve(false, L"INVALID_STREAM");
+
         return false;
     }
 
     if (streamMax != 0 &&
         (streamBufferedBytes > streamMax ||
          n > streamMax - streamBufferedBytes)) {
+        if (stream == StreamType::Stdout) {
+            stdoutLimitReached_.store(true, std::memory_order_relaxed);
+        } else {
+            stderrLimitReached_.store(true, std::memory_order_relaxed);
+        }
+
         SignalLimitHit_(stream);
+        probeReserve(false, L"STREAM_LIMIT");
+
         return false;
+
     }
 
     if (totalMax_ != 0 &&
         (totalBufferedBytes > totalMax_ ||
          n > totalMax_ - totalBufferedBytes)) {
+        totalLimitReached_.store(true, std::memory_order_relaxed);
+
         SignalLimitHit_(stream);
+        probeReserve(false, L"TOTAL_LIMIT");
+
         return false;
+
     }
+
+    probeReserve(true, L"WITHIN_LIMITS");
+
 
     return true;
 }

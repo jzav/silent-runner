@@ -3,6 +3,7 @@
 #include "SRLogGatewayStderr.h"
 
 #include "FileHelpers.h"
+#include "TextHelpers.h"
 #include "SRBufferLimiter.h"
 #include "SRParentEmitPolicy.h"
 #include "SRTypes.h"
@@ -108,16 +109,22 @@ void SRLogGatewayStderr::RouteBytesLocked_(
 
     // Route canonical ExecutionTimeline event with gateway-level replay storage decision.
     if (executionTimeline_) {
-        if (source == SR::StderrEmitSource::Child) {
-            SR::ReplayPayloadStorage replayPayloadStorage =
-                SR::ReplayPayloadStorage::NotNeeded;
+        SR::ReplayPayloadStorage replayPayloadStorage =
+            SR::ReplayPayloadStorage::NotNeeded;
+        const size_t srDiagPayloadByteCount =
+            source == SR::StderrEmitSource::Sr &&
+            runtimeDiagMessageOrNull
+                ? TextHelpers::Utf16ToUtf8ByteCount(
+                    *runtimeDiagMessageOrNull
+                )
+                : 0;
+        if (routeToActiveView &&
+            parentEmitPolicy_ &&
+            parentEmitPolicy_->NeedsStderrReplayBuffer()) {
+            const SR::BufferUsage usage =
+                executionTimeline_->GetCachedBufferUsage();
 
-            if (routeToActiveView &&
-                parentEmitPolicy_ &&
-                parentEmitPolicy_->NeedsStderrReplayBuffer()) {
-                const SR::BufferUsage usage =
-                    executionTimeline_->GetCachedBufferUsage();
-
+            if (source == SR::StderrEmitSource::Child) {
                 const bool reserved =
                     !bufferLimit_ ||
                     bufferLimit_->TryReserveStderr(n, usage);
@@ -126,20 +133,79 @@ void SRLogGatewayStderr::RouteBytesLocked_(
                     reserved
                         ? SR::ReplayPayloadStorage::Store
                         : SR::ReplayPayloadStorage::DroppedByBufferLimit;
-            }
+            } else if (source == SR::StderrEmitSource::Sr &&
+                       runtimeDiagMessageOrNull) {
+                const bool reserved =
+                    !bufferLimit_ ||
+                    bufferLimit_->TryReserveStderr(
+                        srDiagPayloadByteCount,
+                        usage
+                    );
 
+                replayPayloadStorage =
+                    reserved
+                        ? SR::ReplayPayloadStorage::Store
+                        : SR::ReplayPayloadStorage::DroppedByBufferLimit;
+            }
+        }
+
+        const bool eventSummaryEnabled =
+            !bufferLimit_ ||
+            (!bufferLimit_->StderrLimitReached() &&
+             !bufferLimit_->TotalLimitReached());
+
+
+        executionTimeline_->ProbeLine(
+            std::wstring(L"[BUFFER][DECISION] origin=STDERR_GATEWAY") +
+            L" source=" +
+            SR::StderrEmitSourceToString(source) +
+            L" bytes=" +
+            std::to_wstring(static_cast<uint64_t>(n)) +
+            L" replayPayloadByteCount=" +
+            std::to_wstring(
+                source == SR::StderrEmitSource::Sr
+                    ? static_cast<uint64_t>(srDiagPayloadByteCount)
+                    : static_cast<uint64_t>(n)
+            ) +
+            L" routeToActiveView=" +
+            (routeToActiveView ? L"TRUE" : L"FALSE") +
+            L" needsStderrReplayBuffer=" +
+            ((parentEmitPolicy_ &&
+              parentEmitPolicy_->NeedsStderrReplayBuffer())
+                ? L"TRUE"
+                : L"FALSE") +
+            L" runtimeDiagMessage=" +
+            (runtimeDiagMessageOrNull ? L"SET" : L"NULL") +
+            L" bufferLimiter=" +
+            (bufferLimit_ ? L"SET" : L"NULL") +
+            L" storage=" +
+            (replayPayloadStorage == SR::ReplayPayloadStorage::Store
+                ? L"STORE"
+                : replayPayloadStorage ==
+                    SR::ReplayPayloadStorage::DroppedByBufferLimit
+                    ? L"DROPPED_BY_BUFFER_LIMIT"
+                    : L"NOT_NEEDED")
+        );
+
+
+        if (source == SR::StderrEmitSource::Child) {
             executionTimeline_->RouteChildStderr(
                 p,
                 n,
-                replayPayloadStorage
+                replayPayloadStorage,
+                eventSummaryEnabled
             );
         } else if (source == SR::StderrEmitSource::Sr &&
-                      runtimeDiagSeverityOrNull &&
-                      runtimeDiagMessageOrNull) {
+                   runtimeDiagSeverityOrNull &&
+                   runtimeDiagMessageOrNull) {
             executionTimeline_->RouteSrDiag(
                 *runtimeDiagSeverityOrNull,
-                *runtimeDiagMessageOrNull
+                *runtimeDiagMessageOrNull,
+                replayPayloadStorage,
+                static_cast<uint64_t>(srDiagPayloadByteCount),
+                eventSummaryEnabled
             );
+
         }
     }
 }

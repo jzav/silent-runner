@@ -68,24 +68,32 @@ public:
 
     bool RouteSrDiag(
         SR::DiagnosticSeverity severity,
-        const std::wstring& message
+        const std::wstring& message,
+        SR::ReplayPayloadStorage replayPayloadStorage,
+        uint64_t payloadByteCount,
+        bool eventSummaryEnabled
     );
 
     bool RouteChildStdout(
         const char* bytes,
         size_t byteCount,
-        SR::ReplayPayloadStorage replayPayloadStorage
+        SR::ReplayPayloadStorage replayPayloadStorage,
+        bool eventSummaryEnabled
     );
 
     bool RouteChildStderr(
         const char* bytes,
         size_t byteCount,
-        SR::ReplayPayloadStorage replayPayloadStorage
+        SR::ReplayPayloadStorage replayPayloadStorage,
+        bool eventSummaryEnabled
     );
+
 
     const PhaseTimeline& Prepare() const noexcept { return prepareTimeline_; }
     const PhaseTimeline& Runtime() const noexcept { return runtimeTimeline_; }
     SR::BufferUsage GetCachedBufferUsage() const noexcept;
+    void ProbeLine(const std::wstring& msg) const;
+
 
 
     bool ReplayToParent(
@@ -96,13 +104,17 @@ private:
 
     static constexpr bool kExecutionTimelineProbeEnabled = true;
     void ProbeLine_(const std::wstring& msg) const;
+    void ProbeBufferAccounting_(
+        const wchar_t* origin,
+        const SR::BufferUsage& beforeUsage,
+        const SR::BufferUsage& afterUsage,
+        SR::ReplayPayloadStorage replayPayloadStorage,
+        uint64_t payloadByteCount
+    ) const;
+
+
     void RefreshCachedBufferUsageLocked_() noexcept;
     using TimelineEntryKey = SR::TimelineEntryKey;
-    bool RouteSrDiag_(
-        SR::DiagnosticSeverity severity,
-        const std::wstring& message,
-        bool eventSummaryEnabled
-    );
     void CollectEventSummaryDiagnostics_(
         SR::EventSummary& eventSummary
     );
@@ -113,8 +125,9 @@ private:
     template <typename AppendFn>
     bool RouteEvent_(
         const AppendFn& appendFn,
-        bool eventSummaryEnabled = true
+        bool eventSummaryEnabled
     ) {
+
         SR::EventSummary eventSummary;
         struct RouteEventSummarizer {
             ExecutionTimeline* owner = nullptr;

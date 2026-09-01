@@ -597,6 +597,27 @@ std::string Utf16ToUtf8(const std::wstring& text) {
 
     return bytes;
 }
+size_t Utf16ToUtf8ByteCount(const std::wstring& text) noexcept {
+    if (text.empty() ||
+        text.size() > static_cast<size_t>(INT_MAX)) {
+        return 0;
+    }
+
+    const int requiredByteCount = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        text.c_str(),
+        static_cast<int>(text.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr
+    );
+
+    return requiredByteCount > 0
+        ? static_cast<size_t>(requiredByteCount)
+        : 0;
+}
 
 uint64_t PayloadByteCountFromBytes(const std::vector<char>& bytes) noexcept {
     return static_cast<uint64_t>(bytes.size());

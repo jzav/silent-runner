@@ -1,6 +1,7 @@
 #include "SRExecutionTimeline.h"
 
 #include "FileHelpers.h"
+#include "TextHelpers.h"
 #include "SRLifecycleDiagnostics.h"
 #include "SRReplayJobsBatch.h"
 
@@ -117,6 +118,71 @@ void ExecutionTimeline::ProbeLine_(const std::wstring& msg) const {
     if (!lifecycleDiag_) return;
     lifecycleDiag_->ProbeLine(msg);
 }
+void ExecutionTimeline::ProbeLine(const std::wstring& msg) const {
+    ProbeLine_(msg);
+}
+
+void ExecutionTimeline::ProbeBufferAccounting_(
+    const wchar_t* origin,
+    const SR::BufferUsage& beforeUsage,
+    const SR::BufferUsage& afterUsage,
+    SR::ReplayPayloadStorage replayPayloadStorage,
+    uint64_t payloadByteCount
+) const {
+    const wchar_t* storageName =
+        replayPayloadStorage == SR::ReplayPayloadStorage::Store
+            ? L"STORE"
+            : replayPayloadStorage ==
+                SR::ReplayPayloadStorage::DroppedByBufferLimit
+                ? L"DROPPED_BY_BUFFER_LIMIT"
+                : L"NOT_NEEDED";
+
+    ProbeLine_(
+        std::wstring(L"[BUFFER][ACCOUNT] origin=") +
+        origin +
+        L" payloadByteCount=" +
+        std::to_wstring(payloadByteCount) +
+        L" storage=" +
+        storageName +
+        L" before.stdoutBufferedBytes=" +
+        std::to_wstring(beforeUsage.stdoutBufferedBytes) +
+        L" after.stdoutBufferedBytes=" +
+        std::to_wstring(afterUsage.stdoutBufferedBytes) +
+        L" before.stderrBufferedBytes=" +
+        std::to_wstring(beforeUsage.stderrBufferedBytes) +
+        L" after.stderrBufferedBytes=" +
+        std::to_wstring(afterUsage.stderrBufferedBytes) +
+        L" before.totalBufferedBytes=" +
+        std::to_wstring(beforeUsage.totalBufferedBytes) +
+        L" after.totalBufferedBytes=" +
+        std::to_wstring(afterUsage.totalBufferedBytes) +
+        L" before.stdoutDroppedBytes=" +
+        std::to_wstring(beforeUsage.stdoutDroppedBytes) +
+        L" after.stdoutDroppedBytes=" +
+        std::to_wstring(afterUsage.stdoutDroppedBytes) +
+        L" before.stderrDroppedBytes=" +
+        std::to_wstring(beforeUsage.stderrDroppedBytes) +
+        L" after.stderrDroppedBytes=" +
+        std::to_wstring(afterUsage.stderrDroppedBytes) +
+        L" before.totalDroppedBytes=" +
+        std::to_wstring(beforeUsage.totalDroppedBytes) +
+        L" after.totalDroppedBytes=" +
+        std::to_wstring(afterUsage.totalDroppedBytes) +
+        L" before.stdoutDroppedEvents=" +
+        std::to_wstring(beforeUsage.stdoutDroppedEvents) +
+        L" after.stdoutDroppedEvents=" +
+        std::to_wstring(afterUsage.stdoutDroppedEvents) +
+        L" before.stderrDroppedEvents=" +
+        std::to_wstring(beforeUsage.stderrDroppedEvents) +
+        L" after.stderrDroppedEvents=" +
+        std::to_wstring(afterUsage.stderrDroppedEvents) +
+        L" before.totalDroppedEvents=" +
+        std::to_wstring(beforeUsage.totalDroppedEvents) +
+        L" after.totalDroppedEvents=" +
+        std::to_wstring(afterUsage.totalDroppedEvents)
+    );
+}
+
 
 
 bool ExecutionTimeline::StartPhase(PhaseContext context) {
@@ -246,28 +312,36 @@ bool ExecutionTimeline::HarvestCompletedJobs_(
     return timelineEntryLocationsResolved;
 }
 
-
 bool ExecutionTimeline::RouteSrDiag(
     SR::DiagnosticSeverity severity,
-    const std::wstring& message
-) {
-    return RouteSrDiag_(severity, message, true);
-}
-
-bool ExecutionTimeline::RouteSrDiag_(
-    SR::DiagnosticSeverity severity,
     const std::wstring& message,
+    SR::ReplayPayloadStorage replayPayloadStorage,
+    uint64_t payloadByteCount,
     bool eventSummaryEnabled
 ) {
+
     if (message.empty()) return true;
 
     return RouteEvent_(
         [&](PhaseTimeline& phaseTimeline) {
             const uint64_t eventOrderNo = phaseTimeline.nextEventOrderNo;
+            const SR::BufferUsage bufferUsageBefore =
+                phaseTimeline.bufferUsage;
+
             phaseTimeline.AppendSrDiag(
                 severity,
-                message
+                message,
+                replayPayloadStorage,
+                payloadByteCount
             );
+            ProbeBufferAccounting_(
+                L"SR_DIAG",
+                bufferUsageBefore,
+                phaseTimeline.bufferUsage,
+                replayPayloadStorage,
+                payloadByteCount
+            );
+
             ProbeLine_(
                 L"AppendSrDiag eventOrderNo=" +
                 std::to_wstring(eventOrderNo) +
@@ -277,7 +351,9 @@ bool ExecutionTimeline::RouteSrDiag_(
         },
         eventSummaryEnabled
     );
+
 }
+
 void ExecutionTimeline::CollectEventSummaryDiagnostics_(
     SR::EventSummary& eventSummary
 ) {
@@ -315,10 +391,39 @@ bool ExecutionTimeline::RouteEventSummary_(
         eventSummary.eventKey.phaseOrderNo = currentPhase_->phaseOrderNo;
         eventSummary.eventKey.eventOrderNo = eventOrderNo;
 
+        const std::wstring message =
+            SR::FormatEventSummary(eventSummary);
+        const uint64_t payloadByteCount =
+            static_cast<uint64_t>(
+                TextHelpers::Utf16ToUtf8ByteCount(message)
+            );
+        const SR::BufferUsage bufferUsageBeforeEventSummary =
+            currentPhase_->bufferUsage;
+
+        const SR::ReplayPayloadStorage replayPayloadStorage =
+            SR::ReplayPayloadStorage::Store;
+
+        ProbeLine_(
+            std::wstring(L"[BUFFER][EVENT-SUMMARY]") +
+            L" payloadByteCount=" +
+            std::to_wstring(payloadByteCount) +
+            L" storage=STORE"
+        );
+
         currentPhase_->AppendSrDiag(
             SR::DiagnosticSeverity::Verbose,
-            SR::FormatEventSummary(eventSummary)
+            message,
+            replayPayloadStorage,
+            payloadByteCount
         );
+        ProbeBufferAccounting_(
+            L"EVENT_SUMMARY",
+            bufferUsageBeforeEventSummary,
+            currentPhase_->bufferUsage,
+            replayPayloadStorage,
+            payloadByteCount
+        );
+
         RefreshCachedBufferUsageLocked_();
         ProbeLine_(
             L"AppendSrDiag eventOrderNo=" +
@@ -361,33 +466,62 @@ bool ExecutionTimeline::RouteEventSummary_(
 bool ExecutionTimeline::RouteChildStdout(
     const char* bytes,
     size_t byteCount,
-    SR::ReplayPayloadStorage replayPayloadStorage
+    SR::ReplayPayloadStorage replayPayloadStorage,
+    bool eventSummaryEnabled
 ) {
+
     if (!bytes || byteCount == 0) return true;
 
     return RouteEvent_([&](PhaseTimeline& phaseTimeline) {
+        const SR::BufferUsage bufferUsageBefore =
+            phaseTimeline.bufferUsage;
+
         phaseTimeline.AppendChildStdout(
             bytes,
             byteCount,
             replayPayloadStorage
         );
-    });
+        ProbeBufferAccounting_(
+            L"CHILD_STDOUT",
+            bufferUsageBefore,
+            phaseTimeline.bufferUsage,
+            replayPayloadStorage,
+            static_cast<uint64_t>(byteCount)
+        );
+
+    }, eventSummaryEnabled);
+
 }
 
 bool ExecutionTimeline::RouteChildStderr(
     const char* bytes,
     size_t byteCount,
-    SR::ReplayPayloadStorage replayPayloadStorage
+    SR::ReplayPayloadStorage replayPayloadStorage,
+    bool eventSummaryEnabled
 ) {
+
     if (!bytes || byteCount == 0) return true;
 
     return RouteEvent_([&](PhaseTimeline& phaseTimeline) {
+        const SR::BufferUsage bufferUsageBefore =
+            phaseTimeline.bufferUsage;
+
         phaseTimeline.AppendChildStderr(
             bytes,
             byteCount,
             replayPayloadStorage
         );
-    });
+        ProbeBufferAccounting_(
+            L"CHILD_STDERR",
+            bufferUsageBefore,
+            phaseTimeline.bufferUsage,
+            replayPayloadStorage,
+            static_cast<uint64_t>(byteCount)
+        );
+
+
+    }, eventSummaryEnabled);
+
 }
 
 void ExecutionTimeline::AddToJobQueueLocked_(
