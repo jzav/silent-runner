@@ -1,0 +1,6 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+sr_run(r ARGS --debug --stderr-emit-sr failure "${SR_BOTH_CMD}")
+sr_assert_exit(r 0)
+sr_assert_stderr_not_contains(r "${SR_TEST_SRDIAG_TXT_PREFIX}")
+sr_assert_stderr_not_contains(r "${SR_TEST_CHILD_STDERR_MARKER}")

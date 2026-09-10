@@ -1,0 +1,6 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+sr_run(r ARGS --run-on-success success-hook.cmd "${SR_FAIL}")
+sr_assert_exit(r "${SR_TEST_FAIL_CMD_EXIT_CODE}")
+execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 0.3)
+sr_assert_path_not_exists("${SR_TEST_ROOT}/success.marker")

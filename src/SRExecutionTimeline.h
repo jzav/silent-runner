@@ -16,6 +16,10 @@
 #include "SRExecutionTimelineDiagnostics.h"
 
 class SRLifecycleDiagnostics;
+namespace SR {
+struct ExecutionTimelineConfig;
+}
+
 // Opaque phase handle used by execution-level APIs.
 //
 // The pointed-to PhaseTimeline remains owned by ExecutionTimeline.
@@ -48,13 +52,13 @@ public:
     ExecutionTimeline(const ExecutionTimeline&) = delete;
     ExecutionTimeline& operator=(const ExecutionTimeline&) = delete;
 
-    bool Init();
+    bool Init(const SR::ExecutionTimelineConfig& config);
+
 
     PhaseContext PrepareContext() noexcept;
     PhaseContext RuntimeContext() noexcept;
     void SetJobsExchange(SRJobsExchange& jobsExchange);
     void SetParentEmitPolicy(SRParentEmitPolicy& parentEmitPolicy) noexcept;
-    void SetVerboseEnabled(bool value) noexcept;
     void SetLifecycleDiagnostics(SRLifecycleDiagnostics& lifecycleDiag) noexcept;
 
     bool StartPhase(PhaseContext context);

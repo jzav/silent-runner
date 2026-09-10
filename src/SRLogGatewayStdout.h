@@ -29,8 +29,7 @@ public:
     SRLogGatewayStdout& operator=(const SRLogGatewayStdout&) = delete;
 
     void Init(
-        SR::EmitMode emitMode,
-        const SRParentEmitPolicy* parentEmitPolicyOrNull,
+        const SRParentEmitPolicy& parentEmitPolicy,
         SRBufferLimiter* bufferLimitOrNull,
         ExecutionTimeline* executionTimelineOrNull
     ) noexcept;
@@ -44,7 +43,6 @@ public:
     
 
 private:
-    SR::EmitMode emitMode_ = SR::EmitMode::Stream;
     const SRParentEmitPolicy* parentEmitPolicy_ = nullptr;
     SRBufferLimiter* bufferLimit_ = nullptr;
     ExecutionTimeline* executionTimeline_ = nullptr;

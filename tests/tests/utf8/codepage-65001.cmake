@@ -1,0 +1,5 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+sr_run(r ARGS --utf8 "${SR_PRINT_CODEPAGE}")
+sr_assert_exit(r 0)
+sr_assert_stdout_contains(r "65001")

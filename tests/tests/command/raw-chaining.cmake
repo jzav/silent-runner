@@ -1,0 +1,6 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+sr_run(r ARGS -c "echo RAW_ONE & echo RAW_TWO")
+sr_assert_exit(r 0)
+sr_assert_stdout_contains(r "RAW_ONE")
+sr_assert_stdout_contains(r "RAW_TWO")

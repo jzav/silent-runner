@@ -1,62 +1,18 @@
 #pragma once
 
-#include <memory>
 #include <string>
+#include <vector>
 
 #include "LogWriter.h"
 #include "HandleHelpers.h"
-#include "SRFileSinkWorker.h"
-#include "SRJobsExchange.h"
-#include "SRParentEmitWorker.h"
 #include "SRTypes.h"
-#include "SRWorkerSupervisor.h"
+#include "SRConfigsBuilderTypes.h"
 
 class SRLifecycleDiagnostics;
+class SRParentEmitPolicy;
+class SRFileSinkWorker;
 
-struct SRPreparedRuntime {
-    std::wstring fullCmdLineForCreateProcess;
-    std::wstring executionId;
-    std::wstring generatedSuffix;
-    SR::IdSuffixMode effectiveIdSuffixMode = SR::IdSuffixMode::None;
-    bool useDefaultSuffixMode = false;
-
-
-    std::wstring stdoutRunningName;
-    std::wstring stderrRunningName;
-    std::wstring stdoutSuccessName;
-    std::wstring stdoutFailureName;
-    std::wstring stderrSuccessName;
-    std::wstring stderrFailureName;
-    std::wstring stderrChildRunningName;
-    std::wstring stderrChildSuccessName;
-    std::wstring stderrChildFailureName;
-    std::wstring stderrSrRunningName;
-    std::wstring stderrSrSuccessName;
-    std::wstring stderrSrFailureName;
-    std::wstring stderrSrAndChildInclStdoutRunningName;
-    std::wstring stderrSrAndChildInclStdoutSuccessName;
-    std::wstring stderrSrAndChildInclStdoutFailureName;
-    std::wstring stdoutJsonlRunningName;
-    std::wstring stderrJsonlRunningName;
-    std::wstring stdoutJsonlSuccessName;
-    std::wstring stdoutJsonlFailureName;
-    std::wstring stderrJsonlSuccessName;
-    std::wstring stderrJsonlFailureName;
-    std::wstring stderrChildJsonlRunningName;
-    std::wstring stderrChildJsonlSuccessName;
-    std::wstring stderrChildJsonlFailureName;
-    std::wstring stderrSrJsonlRunningName;
-    std::wstring stderrSrJsonlSuccessName;
-    std::wstring stderrSrJsonlFailureName;
-    std::wstring stderrSrAndChildInclStdoutJsonlRunningName;
-    std::wstring stderrSrAndChildInclStdoutJsonlSuccessName;
-    std::wstring stderrSrAndChildInclStdoutJsonlFailureName;
-    std::wstring probeLogName;
-
-
-    std::wstring probeLogPath;
-
-
+struct SRLogFileWriters {
     LogWriter::FileWriter stdoutLogWriter;
     LogWriter::FileWriter stderrLogWriter;
     LogWriter::FileWriter stderrChildLogWriter;
@@ -67,25 +23,32 @@ struct SRPreparedRuntime {
     LogWriter::FileWriter stderrChildJsonlWriter;
     LogWriter::FileWriter stderrSrJsonlWriter;
     LogWriter::FileWriter stderrSrAndChildInclStdoutJsonlWriter;
-    HandleHelpers::StdHandleWriteProbeResult stdoutStdHandleProbe;
-    HandleHelpers::StdHandleWriteProbeResult stderrStdHandleProbe;
+};
 
-    std::unique_ptr<SR::SRWorkerSupervisor> workerSupervisor;
-    std::unique_ptr<SRFileSinkWorker> fileSinkWorker;
-    std::unique_ptr<SRParentEmitWorker> parentEmitWorker;
-    std::unique_ptr<SRJobsExchange> jobsExchange;
-
+struct SRLogFiles {
+    SR::LogPaths paths;
+    SR::LogFileCreationResults creationResults;
+    SRLogFileWriters writers;
 };
 
 struct SRPrepareResult {
     bool ok = false;
     int earlyExitCode = 255;
-    SRPreparedRuntime prepared;
+
+    std::wstring fullCmdLineForCreateProcess;
+    HandleHelpers::StdHandleWriteProbeResult stdoutStdHandleProbe;
+    HandleHelpers::StdHandleWriteProbeResult stderrStdHandleProbe;
+
+    std::wstring specialCharactersDebugMessage;
+    std::vector<std::wstring> unboundedReplayBufferDebugMessages;
+    SRLogFiles logFiles;
 };
 
 void PrepareRuntime(
-    const SR::Options& opt,
+    SR::SRConfigs& configs,
+    SRFileSinkWorker& fileSinkWorker,
+
+    const SRParentEmitPolicy& parentEmitPolicy,
     SRLifecycleDiagnostics& lifecycleDiag,
-    SR::LogPaths& logPaths,
     SRPrepareResult& result
 );

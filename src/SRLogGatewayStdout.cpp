@@ -6,14 +6,12 @@
 #include "SRParentEmitPolicy.h"
 
 void SRLogGatewayStdout::Init(
-    SR::EmitMode emitMode,
-    const SRParentEmitPolicy* parentEmitPolicyOrNull,
+    const SRParentEmitPolicy& parentEmitPolicy,
     SRBufferLimiter* bufferLimitOrNull,
     ExecutionTimeline* executionTimelineOrNull
 ) noexcept {
 
-    emitMode_ = emitMode;
-    parentEmitPolicy_ = parentEmitPolicyOrNull;
+    parentEmitPolicy_ = &parentEmitPolicy;
     bufferLimit_ = bufferLimitOrNull;
     executionTimeline_ = executionTimelineOrNull;
 

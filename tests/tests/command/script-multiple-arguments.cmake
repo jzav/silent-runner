@@ -1,0 +1,8 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+sr_run(r ARGS "${SR_ECHO_ARGS}" one two three four)
+sr_assert_exit(r 0)
+sr_assert_stdout_contains(r "ARG1=[one]")
+sr_assert_stdout_contains(r "ARG2=[two]")
+sr_assert_stdout_contains(r "ARG3=[three]")
+sr_assert_stdout_contains(r "ARG4=[four]")

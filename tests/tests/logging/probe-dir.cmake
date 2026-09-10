@@ -1,0 +1,8 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+set(log_dir "${SR_TEST_ROOT}/probe")
+set(expected_log "${log_dir}/ctest-probe_probe.log")
+sr_run(r ARGS --id-base ctest-probe --probe-dir "${log_dir}" "${SR_OK}")
+sr_assert_exit(r 0)
+sr_assert_file_not_empty("${expected_log}")
+sr_assert_directory_file_count("${log_dir}" 1)

@@ -1,0 +1,6 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+sr_run(r ARGS --stderr-emit-child success --stderr-dir-sr "${SR_TEST_ROOT}/sr-diag" "${SR_FAIL}")
+sr_assert_exit(r "${SR_TEST_FAIL_CMD_EXIT_CODE}")
+sr_assert_stderr_not_contains(r "${SR_TEST_CHILD_STDERR_MARKER}")
+sr_assert_stderr_not_contains(r "${SR_TEST_SRDIAG_TXT_PREFIX}")

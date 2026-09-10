@@ -7,6 +7,7 @@
 #include "TextHelpers.h"
 #include "SRBufferLimiter.h"
 #include "SRParentEmitPolicy.h"
+#include "SRConfigsBuilderTypes.h"
 
 namespace {
 
@@ -86,49 +87,26 @@ static std::wstring FormatPrefixedLine_(
 }
 
  // Initializes the lifecycle diagnostics collector for a new run.
- // This sets the parent-emit mode and execution timeline.
+ // This sets diagnostics configuration, parent-emit policy, and execution timeline.
 
 
 bool SRLifecycleDiagnostics::Init(
-    SR::EmitMode emitMode,
+    const SR::SRLifecycleDiagnosticsConfig& config,
+    const SRParentEmitPolicy& parentEmitPolicy,
     ExecutionTimeline* executionTimelineOrNull
 ) noexcept {
-
-
-    emitMode_ = emitMode;
+    debugEnabled_ = config.debug;
+    verboseEnabled_ = config.verbose;
+    parentEmitPolicy_ = &parentEmitPolicy;
     executionTimeline_ = executionTimelineOrNull;
-
 
     return true;
 }
 
-// Updates whether DebugLine() should emit/store debug entries.
-void SRLifecycleDiagnostics::SetDebugEnabled(bool value) noexcept {
-    debugEnabled_ = value;
-}
-  
-// Updates whether VerboseLine() should emit/store verbose entries.
-void SRLifecycleDiagnostics::SetVerboseEnabled(bool value) noexcept {
-    verboseEnabled_ = value;
-}
-
-// Updates the current lifecycle parent-emit mode.
-// This does not modify runtime suppression latches.
-void SRLifecycleDiagnostics::SetEmitMode(SR::EmitMode value) noexcept {
-    emitMode_ = value;
-}
-void SRLifecycleDiagnostics::SetStderrEmitSource(SR::StderrEmitSource value) noexcept {
-    stderrEmitSource_ = value;
-}
 void SRLifecycleDiagnostics::SetBufferLimiter(
     SRBufferLimiter* bufferLimitOrNull
 ) noexcept {
     bufferLimit_ = bufferLimitOrNull;
-}
-void SRLifecycleDiagnostics::SetParentEmitPolicy(
-    const SRParentEmitPolicy* parentEmitPolicyOrNull
-) noexcept {
-    parentEmitPolicy_ = parentEmitPolicyOrNull;
 }
 
 
@@ -284,10 +262,16 @@ void SRLifecycleDiagnostics::EmitLineWithSeverity_(
         SR::ReplayPayloadStorage replayPayloadStorage =
             SR::ReplayPayloadStorage::NotNeeded;
 
+        const SR::StderrEmitSource stderrEmitSource =
+            parentEmitPolicy_
+                ? parentEmitPolicy_->StderrEmitSource()
+                : SR::StderrEmitSource::SrAndChild;
+
         const bool routeToActiveView =
-            stderrEmitSource_ == SR::StderrEmitSource::SrAndChild ||
-            stderrEmitSource_ == SR::StderrEmitSource::Sr ||
-            stderrEmitSource_ == SR::StderrEmitSource::SrAndChildInclStdout;
+            stderrEmitSource == SR::StderrEmitSource::SrAndChild ||
+            stderrEmitSource == SR::StderrEmitSource::Sr ||
+            stderrEmitSource == SR::StderrEmitSource::SrAndChildInclStdout;
+
 
         if (routeToActiveView &&
             parentEmitPolicy_ &&

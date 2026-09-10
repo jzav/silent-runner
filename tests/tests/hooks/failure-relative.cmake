@@ -1,0 +1,6 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+sr_run(r ARGS --run-on-failure failure-hook.cmd "${SR_FAIL}")
+sr_assert_exit(r "${SR_TEST_FAIL_CMD_EXIT_CODE}")
+set(marker "${SR_TEST_ROOT}/failure.marker")
+sr_wait_for_path("${marker}")

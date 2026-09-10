@@ -10,6 +10,8 @@
 
 namespace FileHelpers {
 
+std::wstring GetComSpec();
+
 // Returns true if a regular file exists at the given path.
 // Returns false if the file does not exist or the path points to a directory.
 bool FileExists(const std::wstring& path) noexcept;
@@ -36,7 +38,7 @@ std::wstring BuildIdSuffix(SR::IdSuffixMode mode);
 // Build execution ID from non-empty parts in this order:
 //   idPrefix + idBase + generatedSuffix
 // using '_' as separator. If all parts are empty, returns
-// MakeDefaultExecutionIdUtcPid().
+// BuildDefaultExecutionIdUtcPid().
 std::wstring BuildExecutionId(
     const std::wstring& idPrefix,
     const std::wstring& idBase,

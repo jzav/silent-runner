@@ -1,4 +1,5 @@
 #include "SRWorkerCommonPolicy.h"
+#include "SRConfigsBuilderTypes.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -51,7 +52,7 @@ bool TryGenerateParsingToken_(
 } // namespace
 
 bool SRWorkerCommonPolicy::Init(
-    const SR::Options& opt
+    const SR::SRWorkerCommonPolicyConfig& config
 ) noexcept {
     needsParsingToken_ = false;
     parsingToken_.clear();
@@ -82,19 +83,19 @@ bool SRWorkerCommonPolicy::Init(
 
 
     const bool fileSinkNeedsParsingToken =
-        !opt.stderrDir.empty() ||
-        !opt.stderrSrDir.empty() ||
-        !opt.stderrSrAndChildInclStdoutDir.empty();
+        !config.stderrDir.empty() ||
+        !config.stderrDirSr.empty() ||
+        !config.stderrDirInclStdout.empty();
 
 
     const bool parentEmitNeedsParsingToken =
-        opt.stderrEmit != SR::EmitMode::Never &&
+        config.stderrEmit != SR::EmitMode::Never &&
         (
-            opt.stderrEmitSource ==
+            config.stderrEmitSource ==
                 SR::StderrEmitSource::SrAndChild ||
-            opt.stderrEmitSource ==
+            config.stderrEmitSource ==
                 SR::StderrEmitSource::Sr ||
-            opt.stderrEmitSource ==
+            config.stderrEmitSource ==
                 SR::StderrEmitSource::SrAndChildInclStdout
         );
 

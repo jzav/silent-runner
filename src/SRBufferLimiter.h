@@ -7,6 +7,10 @@
 #include "CoreHelpers.h"
 #include "SRTypes.h"
 
+namespace SR {
+struct SRBufferLimiterConfig;
+}
+
 class SRLifecycleDiagnostics;
 
 class SRBufferLimiter {
@@ -29,7 +33,7 @@ public:
     SRBufferLimiter& operator=(const SRBufferLimiter&) = delete;
 
     void Init(
-        const SR::Options& opt,
+        const SR::SRBufferLimiterConfig& config,
         SRLifecycleDiagnostics* diagnosticsOrNull
     ) noexcept;
 
@@ -57,6 +61,9 @@ public:
     EventOperation FirstEventFailureOperation() const noexcept;
     const wchar_t* FirstEventFailureOperationName() const noexcept;
     DWORD FirstEventFailureGle() const noexcept;
+    uint64_t StdoutMaxBytes() const noexcept { return stdoutMax_; }
+    uint64_t StderrMaxBytes() const noexcept { return stderrMax_; }
+    uint64_t TotalMaxBytes() const noexcept { return totalMax_; }
     
     uint64_t stdoutMax_ = 0;
     uint64_t stderrMax_ = 0;

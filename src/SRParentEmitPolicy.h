@@ -4,6 +4,7 @@
 
 #include "SRJobTypes.h"
 #include "SRTypes.h"
+#include "SRConfigsBuilderTypes.h"
 
 // Shared runtime policy for parent stdout/stderr delivery.
 //
@@ -13,8 +14,7 @@
 // - EmitModeConfig: runtime/finalize mutable parent emit modes.
 //
 // - EmitSourceConfig: source selection plus replayable persistent source
-//   availability copied from finalized SR::Options after
-//   ArgumentParser::FinalizeReplayPolicyOptions().
+//   availability derived from the generated SRParentEmitPolicyConfig.
 //   The persistent source topology is static for a prepared run; the selected
 //   stderr source is runtime/finalize mutable but belongs to source selection.
 //
@@ -29,62 +29,36 @@ public:
     SRParentEmitPolicy(const SRParentEmitPolicy&) = delete;
     SRParentEmitPolicy& operator=(const SRParentEmitPolicy&) = delete;
 
-    bool Init() noexcept {
-        emitModeConfig_.stdoutEmitMode.store(
-            SR::EmitMode::Stream,
-            std::memory_order_relaxed
-        );
-        emitModeConfig_.stderrEmitMode.store(
-            SR::EmitMode::Stream,
-            std::memory_order_relaxed
-        );
+    bool Init(
+        const SR::SRParentEmitPolicyConfig& config
+    ) noexcept {
+        SetStdoutEmitMode(config.stdoutEmit);
+        SetStderrEmitMode(config.stderrEmit);
+        SetStderrEmitSource(config.stderrEmitSource);
 
-        emitSourceConfig_.stderrEmitSource.store(
-            SR::StderrEmitSource::SrAndChild,
-            std::memory_order_relaxed
-        );
-        emitSourceConfig_.hasReplayablePersistentStdoutTxtSource = false;
-        emitSourceConfig_.hasReplayablePersistentStdoutJsonlSource = false;
-        
-        emitSourceConfig_.hasReplayablePersistentStderrSrAndChildTxtSource = false;
-        emitSourceConfig_.hasReplayablePersistentStderrSrAndChildJsonlSource = false;
-        emitSourceConfig_.hasReplayablePersistentStderrChildTxtSource = false;
-        emitSourceConfig_.hasReplayablePersistentStderrChildJsonlSource = false;
-        emitSourceConfig_.hasReplayablePersistentStderrSrTxtSource = false;
-        emitSourceConfig_.hasReplayablePersistentStderrSrJsonlSource = false;
-        emitSourceConfig_.hasReplayablePersistentStderrSrAndChildInclStdoutTxtSource = false;
-        emitSourceConfig_.hasReplayablePersistentStderrSrAndChildInclStdoutJsonlSource = false;
-
-        return true;
-    }
-
-    void SetFromFinalizedOptions(const SR::Options& opt) noexcept {
         emitSourceConfig_.hasReplayablePersistentStdoutTxtSource =
-            opt.hasReplayablePersistentStdoutTxtSource;
+            !config.stdoutDir.empty();
         emitSourceConfig_.hasReplayablePersistentStdoutJsonlSource =
-            opt.hasReplayablePersistentStdoutJsonlSource;
+            !config.stdoutDirJsonl.empty();
 
         emitSourceConfig_.hasReplayablePersistentStderrSrAndChildTxtSource =
-            opt.hasReplayablePersistentStderrSrAndChildTxtSource;
+            !config.stderrDir.empty();
         emitSourceConfig_.hasReplayablePersistentStderrSrAndChildJsonlSource =
-            opt.hasReplayablePersistentStderrSrAndChildJsonlSource;
+            !config.stderrDirJsonl.empty();
         emitSourceConfig_.hasReplayablePersistentStderrChildTxtSource =
-            opt.hasReplayablePersistentStderrChildTxtSource;
+            !config.stderrDirChild.empty();
         emitSourceConfig_.hasReplayablePersistentStderrChildJsonlSource =
-            opt.hasReplayablePersistentStderrChildJsonlSource;
+            !config.stderrDirChildJsonl.empty();
         emitSourceConfig_.hasReplayablePersistentStderrSrTxtSource =
-            opt.hasReplayablePersistentStderrSrTxtSource;
+            !config.stderrDirSr.empty();
         emitSourceConfig_.hasReplayablePersistentStderrSrJsonlSource =
-            opt.hasReplayablePersistentStderrSrJsonlSource;
+            !config.stderrDirSrJsonl.empty();
         emitSourceConfig_.hasReplayablePersistentStderrSrAndChildInclStdoutTxtSource =
-            opt.hasReplayablePersistentStderrSrAndChildInclStdoutTxtSource;
+            !config.stderrDirInclStdout.empty();
         emitSourceConfig_.hasReplayablePersistentStderrSrAndChildInclStdoutJsonlSource =
-            opt.hasReplayablePersistentStderrSrAndChildInclStdoutJsonlSource;
+            !config.stderrDirInclStdoutJsonl.empty();
 
-
-        SetStdoutEmitMode(opt.stdoutEmit);
-        SetStderrEmitMode(opt.stderrEmit);
-        SetStderrEmitSource(opt.stderrEmitSource);
+        return true;
     }
 
     void SetStdoutEmitMode(SR::EmitMode mode) noexcept {
@@ -106,6 +80,16 @@ public:
             source,
             std::memory_order_relaxed
         );
+    }
+    SR::EmitMode StdoutEmitMode() const noexcept {
+        return RetrieveStdoutEmitMode_();
+    }
+    
+    SR::EmitMode StderrEmitMode() const noexcept {
+        return RetrieveStderrEmitMode_();
+    }
+    SR::StderrEmitSource StderrEmitSource() const noexcept {
+        return RetrieveStderrEmitSource_();
     }
 
     SR::EmitMode RetrieveTargetEmitMode(
@@ -235,8 +219,9 @@ private:
             SR::StderrEmitSource::SrAndChild
         };
 
-        // Replayable persistent source topology is copied from finalized
-        // options and is not changed during a prepared run.
+// Replayable persistent source topology is derived from the generated
+// config during Init() and is not changed during a prepared run.
+
         bool hasReplayablePersistentStdoutTxtSource = false;
         bool hasReplayablePersistentStdoutJsonlSource = false;
 

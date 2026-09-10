@@ -2,7 +2,8 @@
 
 #include <cwchar>
 
-#include "CmdBuilder.h"
+#include "FileHelpers.h"
+
 #include "CoreHelpers.h"
 #include "TextHelpers.h"
 
@@ -117,7 +118,7 @@ bool RunHookDetached(
         return false;
     }
 
-    const std::wstring comspec = CmdBuilder::GetComSpec();
+    const std::wstring comspec = FileHelpers::GetComSpec();
     std::wstring commandLine = BuildHookCommandLine_(comspec, hookPath);
 
     STARTUPINFOW si{};

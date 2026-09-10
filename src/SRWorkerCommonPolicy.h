@@ -4,13 +4,16 @@
 #include <vector>
 
 
-#include "SRTypes.h"
 #include "SRJobTypes.h"
+
+namespace SR {
+struct SRWorkerCommonPolicyConfig;
+}
 
 // Common configuration shared by multiple workers.
 //
 // The parsing token is generated during initialization when required by
-// the finalized command-line options. The token remains immutable for
+// the finalized configuration. The token remains immutable for
 // the lifetime of the process.
 class SRWorkerCommonPolicy {
 public:
@@ -22,7 +25,7 @@ public:
     SRWorkerCommonPolicy& operator=(SRWorkerCommonPolicy&&) = delete;
 
     bool Init(
-        const SR::Options& opt
+        const SR::SRWorkerCommonPolicyConfig& config
     ) noexcept;
 
     bool NeedsParsingToken() const noexcept;

@@ -1,0 +1,8 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+sr_run(r ARGS --id-base ctest-hook-failure --run-on-failure hook-env.cmd "${SR_FAIL}")
+sr_assert_exit(r "${SR_TEST_FAIL_CMD_EXIT_CODE}")
+set(env_file "${SR_TEST_ROOT}/hook-env.txt")
+sr_wait_for_path("${env_file}")
+sr_assert_file_contains("${env_file}" "EXIT_CODE=[${SR_TEST_FAIL_CMD_EXIT_CODE}]")
+sr_assert_file_contains("${env_file}" "EXECUTION_ID=[ctest-hook-failure]")

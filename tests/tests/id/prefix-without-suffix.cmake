@@ -1,0 +1,7 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+set(log_dir "${SR_TEST_ROOT}/logs")
+set(expected "${log_dir}/prefixonly_stdout_success.log")
+sr_run(r ARGS --id-prefix prefixonly --stdout-dir "${log_dir}" --stdout-emit never "${SR_STDOUT_CMD}")
+sr_assert_exit(r 0)
+sr_assert_path_exists("${expected}")

@@ -1,0 +1,8 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+set(target "${SR_TEST_ROOT}/absolute-cwd")
+file(MAKE_DIRECTORY "${target}")
+cmake_path(NATIVE_PATH target NORMALIZE target_native)
+sr_run(r ARGS --cwd "${target_native}" "${SR_PRINT_CWD}")
+sr_assert_exit(r 0)
+sr_assert_stdout_contains(r "${target_native}")

@@ -1,0 +1,8 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+sr_run(r ARGS --id-base ctest-hook-success --run-on-success hook-env.cmd "${SR_OK}")
+sr_assert_exit(r 0)
+set(env_file "${SR_TEST_ROOT}/hook-env.txt")
+sr_wait_for_path("${env_file}")
+sr_assert_file_contains("${env_file}" "EXIT_CODE=[0]")
+sr_assert_file_contains("${env_file}" "EXECUTION_ID=[ctest-hook-success]")

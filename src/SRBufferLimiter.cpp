@@ -1,4 +1,5 @@
 #include "SRBufferLimiter.h"
+#include "SRConfigsBuilderTypes.h"
 #include "SRLifecycleDiagnostics.h"
 
 
@@ -6,7 +7,7 @@
 #include <windows.h>
 
 void SRBufferLimiter::Init(
-    const SR::Options& opt,
+    const SR::SRBufferLimiterConfig& config,
     SRLifecycleDiagnostics* diagnosticsOrNull
 ) noexcept {
     diagnostics_ = diagnosticsOrNull;
@@ -18,9 +19,9 @@ void SRBufferLimiter::Init(
     );
     firstEventFailureGle_.store(0, std::memory_order_relaxed);
 
-    stdoutMax_ = opt.stdoutMaxBufferBytes;
-    stderrMax_ = opt.stderrMaxBufferBytes;
-    totalMax_  = opt.maxTotalBufferBytes;
+    stdoutMax_ = config.stdoutMaxBufferBytes;
+    stderrMax_ = config.stderrMaxBufferBytes;
+    totalMax_  = config.stdTotalMaxBufferBytes;
 
     ResetRuntimeState();
 

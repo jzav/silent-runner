@@ -1,0 +1,5 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+sr_run(r ARGS "${SR_ECHO_ARGS}" --debug)
+sr_assert_exit(r 0)
+sr_assert_stdout_contains(r "ARG1=[--debug]")

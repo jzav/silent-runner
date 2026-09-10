@@ -1,0 +1,113 @@
+SilentRunner regression coverage plan
+=====================================
+
+REGISTERED TESTS: 222
+
+COVERED IN THIS CMAKE/CTEST SUITE
+---------------------------------
+
+[covered] Parser / CLI
+  - unknown options, missing values, duplicate options
+  - case-insensitive options
+  - --name value and --name=value forms
+  - --utf8 / --utf-8 alias and duplicate alias handling
+  - --verbose and --inherit-stdin acceptance
+  - child options after the command remain child arguments
+
+[covered] Numeric parsing / boundaries
+  - timeout: 0, 1-ms acceptance, UINT32_MAX, text, negative, overflow
+  - each buffer limit: 0, normal value, UINT64_MAX, text, negative, overflow
+
+[covered] Execution ID
+  - prefix/base validation
+  - all suffix modes
+  - case-insensitive suffix value
+  - base-only and prefix-only IDs
+  - default timestamp+pid filename shape
+
+[covered] Path validation
+  - every path-taking option reaches common path validation
+  - leading/trailing whitespace, double quote, <, >, |, ?, * branches
+
+[covered] cwd
+  - relative existing / creatable
+  - absolute existing
+  - spaces and = form
+  - path pointing to a file fails
+  - actual child cwd
+  - relative log path remains based on SilentRunner inherited cwd, not --cwd
+
+[covered] Run hooks
+  - success/failure hooks, relative and absolute
+  - opposite hook is not run
+  - relative hook resolution is independent of --cwd
+  - hook working directory follows --cwd
+  - exit-code / execution-ID environment
+  - retained log path environment
+  - removed log path becomes empty environment value
+  - detached hook completion is handled by bounded polling
+
+[covered] ScriptOrExe / RawCommand
+  - no args, multiple args, spaces, child --help / --debug arguments
+  - script path containing spaces
+  - -c and /c
+  - raw chaining, pipe, redirection
+  - missing raw command and unexpected extra argv
+
+[covered] UTF-8
+  - code page 65001
+
+[covered] Timeout (non-process-tree mechanics)
+  - exit code 124
+  - child completes before timeout
+  - pre-timeout stdout survives failure emission
+  - failure retention on timeout
+  - failure hook on timeout
+
+[covered] Parent emission
+  - complete stdout result-conditioned mode matrix
+  - stderr combined / child / SR / incl-stdout source mode matrices
+  - all six pairwise stderr-source mutual-exclusion combinations
+
+[covered] Persistent logging
+  - all five logical destinations in TXT and JSONL
+  - success/failure final names
+  - payload/structure checks
+  - nested directory creation
+  - all 10 destinations enabled in parallel
+  - probe logging
+
+[covered] Log retention
+  - all five keep-log policies
+  - always / success / failure against success and failure outcomes
+  - default always behavior
+  - JSONL shares its logical output's keep-log policy
+
+[covered] ComSpec / help / defaults / cross-feature cases
+  - ComSpec fallback and explicit inherited ComSpec
+  - help and case-insensitive help
+  - default stdout stream, default combined stderr stream, default ScriptOrExe
+  - cwd + relative hook/log path interactions
+  - hook + retention interactions
+
+DEFERRED FOR NOW
+----------------------
+
+[deferred] Interactive / exact stdin inheritance behavior
+  Reason: needs a fixture that deliberately reads/blocks on inherited stdin.
+
+[deferred] Process-tree termination proof on timeout
+  Reason: needs a child fixture that spawns descendants and records survival.
+
+[deferred] Exact Stream-vs-End/replay timing
+  Reason: content is covered, but proving arrival while the child is still
+          running needs synchronization/timing instrumentation.
+
+[deferred] Buffer-limiter dropped-payload runtime mechanics
+  Reason: numeric configuration is covered; deterministic byte/event drop
+          accounting needs a controlled high-volume generator fixture.
+
+[deferred] Extreme argv quoting edge cases
+  Reason: ordinary spaces/path quoting are covered; exact empty-argument,
+          nested-quote, backslash/quote and tab edge cases are better verified
+          with a tiny argc/argv fixture executable than a .cmd script.

@@ -29,17 +29,13 @@ std::wstring FormatDiagnosticLine_(
 } // namespace
 
 void SRLogGatewayStderr::Init(
-    SR::EmitMode emitMode,
-    SR::StderrEmitSource emitSource,
-    const SRParentEmitPolicy* parentEmitPolicyOrNull,
+    const SRParentEmitPolicy& parentEmitPolicy,
     SRBufferLimiter* bufferLimitOrNull,
     ExecutionTimeline* executionTimelineOrNull
 ) noexcept {
 
 
-    emitMode_ = emitMode;
-    emitSource_ = emitSource;
-    parentEmitPolicy_ = parentEmitPolicyOrNull;
+    parentEmitPolicy_ = &parentEmitPolicy;
     executionTimeline_ = executionTimelineOrNull;
 
 
@@ -86,10 +82,15 @@ void SRLogGatewayStderr::RouteDiagnosticLineUtf16(
 bool SRLogGatewayStderr::ShouldRouteToActiveStderrView_(
     SR::StderrEmitSource source
 ) const noexcept {
-    if (emitSource_ == SR::StderrEmitSource::SrAndChild ||
-        emitSource_ == SR::StderrEmitSource::SrAndChildInclStdout) return true;
+    const SR::StderrEmitSource emitSource =
+        parentEmitPolicy_
+            ? parentEmitPolicy_->StderrEmitSource()
+            : SR::StderrEmitSource::SrAndChild;
 
-    return emitSource_ == source;
+    if (emitSource == SR::StderrEmitSource::SrAndChild ||
+        emitSource == SR::StderrEmitSource::SrAndChildInclStdout) return true;
+
+    return emitSource == source;
 }
 
 

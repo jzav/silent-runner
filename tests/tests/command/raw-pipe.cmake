@@ -1,0 +1,5 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+sr_run(r ARGS -c "echo PIPE_OK | findstr PIPE_OK")
+sr_assert_exit(r 0)
+sr_assert_stdout_contains(r "PIPE_OK")

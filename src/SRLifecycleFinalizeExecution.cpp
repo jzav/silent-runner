@@ -10,6 +10,7 @@
 #include "ErrorHelpers.h"
 #include "LogWriter.h"
 #include "FileHelpers.h"
+#include "SRConfigsBuilderTypes.h"
 #include "SRExecutionTimeline.h"
 #include "SRExecutionTimelineDiagnostics.h"
 #include "SRLifecycleDiagnostics.h"
@@ -24,23 +25,24 @@
 #include "SRTypes.h"
 #include "SRRuntime.h"
 #include "SRWorkerSupervisor.h"
+#include "SRWorkerTypes.h"
 
-bool FlushPreparedRuntimeFiles(
-    SRPreparedRuntime& prepared,
+bool FlushLogFileWriters(
+    SRLogFileWriters& writers,
     SRLifecycleDiagnostics& lifecycleDiag
 ) {
-    if (prepared.stderrLogWriter.IsOpen()) {
+    if (writers.stderrLogWriter.IsOpen()) {
         DWORD gle = 0;
-        if (!prepared.stderrLogWriter.Flush(&gle)) {
+        if (!writers.stderrLogWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
                 L"FlushFileBuffers(stderr-sr-and-child log) failed; " + ErrorHelpers::FormatGle(gle)
             );
             return false;
         }
     }
-    if (prepared.stderrChildLogWriter.IsOpen()) {
+    if (writers.stderrChildLogWriter.IsOpen()) {
         DWORD gle = 0;
-        if (!prepared.stderrChildLogWriter.Flush(&gle)) {
+        if (!writers.stderrChildLogWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
                 L"FlushFileBuffers(stderr-child log) failed; " + ErrorHelpers::FormatGle(gle)
             );
@@ -48,18 +50,18 @@ bool FlushPreparedRuntimeFiles(
         }
     }
 
-    if (prepared.stderrSrLogWriter.IsOpen()) {
+    if (writers.stderrSrLogWriter.IsOpen()) {
         DWORD gle = 0;
-        if (!prepared.stderrSrLogWriter.Flush(&gle)) {
+        if (!writers.stderrSrLogWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
                 L"FlushFileBuffers(stderr-sr log) failed; " + ErrorHelpers::FormatGle(gle)
             );
             return false;
         }
     }
-    if (prepared.stderrSrAndChildInclStdoutLogWriter.IsOpen()) {
+    if (writers.stderrSrAndChildInclStdoutLogWriter.IsOpen()) {
         DWORD gle = 0;
-        if (!prepared.stderrSrAndChildInclStdoutLogWriter.Flush(&gle)) {
+        if (!writers.stderrSrAndChildInclStdoutLogWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
                 L"FlushFileBuffers(stderr-sr-and-child-incl-stdout log) failed; " + ErrorHelpers::FormatGle(gle)
             );
@@ -67,9 +69,9 @@ bool FlushPreparedRuntimeFiles(
         }
     }
 
-    if (prepared.stdoutLogWriter.IsOpen()) {
+    if (writers.stdoutLogWriter.IsOpen()) {
         DWORD gle = 0;
-        if (!prepared.stdoutLogWriter.Flush(&gle)) {
+        if (!writers.stdoutLogWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
                 L"FlushFileBuffers(stdout log) failed; " + ErrorHelpers::FormatGle(gle)
             );
@@ -77,18 +79,18 @@ bool FlushPreparedRuntimeFiles(
         }
     }
 
-    if (prepared.stderrJsonlWriter.IsOpen()) {
+    if (writers.stderrJsonlWriter.IsOpen()) {
         DWORD gle = 0;
-        if (!prepared.stderrJsonlWriter.Flush(&gle)) {
+        if (!writers.stderrJsonlWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
                 L"FlushFileBuffers(stderr-sr-and-child JSONL log) failed; " + ErrorHelpers::FormatGle(gle)
             );
             return false;
         }
     }
-    if (prepared.stderrChildJsonlWriter.IsOpen()) {
+    if (writers.stderrChildJsonlWriter.IsOpen()) {
         DWORD gle = 0;
-        if (!prepared.stderrChildJsonlWriter.Flush(&gle)) {
+        if (!writers.stderrChildJsonlWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
                 L"FlushFileBuffers(stderr-child JSONL log) failed; " + ErrorHelpers::FormatGle(gle)
             );
@@ -96,18 +98,18 @@ bool FlushPreparedRuntimeFiles(
         }
     }
 
-    if (prepared.stderrSrJsonlWriter.IsOpen()) {
+    if (writers.stderrSrJsonlWriter.IsOpen()) {
         DWORD gle = 0;
-        if (!prepared.stderrSrJsonlWriter.Flush(&gle)) {
+        if (!writers.stderrSrJsonlWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
                 L"FlushFileBuffers(stderr-sr JSONL log) failed; " + ErrorHelpers::FormatGle(gle)
             );
             return false;
         }
     }
-    if (prepared.stderrSrAndChildInclStdoutJsonlWriter.IsOpen()) {
+    if (writers.stderrSrAndChildInclStdoutJsonlWriter.IsOpen()) {
         DWORD gle = 0;
-        if (!prepared.stderrSrAndChildInclStdoutJsonlWriter.Flush(&gle)) {
+        if (!writers.stderrSrAndChildInclStdoutJsonlWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
                 L"FlushFileBuffers(stderr-sr-and-child-incl-stdout JSONL log) failed; " + ErrorHelpers::FormatGle(gle)
             );
@@ -115,9 +117,9 @@ bool FlushPreparedRuntimeFiles(
         }
     }
 
-    if (prepared.stdoutJsonlWriter.IsOpen()) {
+    if (writers.stdoutJsonlWriter.IsOpen()) {
         DWORD gle = 0;
-        if (!prepared.stdoutJsonlWriter.Flush(&gle)) {
+        if (!writers.stdoutJsonlWriter.Flush(&gle)) {
             lifecycleDiag.ErrorLine(
                 L"FlushFileBuffers(stdout JSONL log) failed; " + ErrorHelpers::FormatGle(gle)
             );
@@ -129,39 +131,39 @@ bool FlushPreparedRuntimeFiles(
 }
 
 
-// Close all prepared log writers that may exist in any lifecycle finalization path.
-void ClosePreparedRuntimeFiles(
-    SRPreparedRuntime& prepared
+    // Close all log file writers that may exist in any lifecycle finalization path.
+void CloseLogFileWriters(
+    SRLogFileWriters& writers
 ) {
-    if (prepared.stdoutLogWriter.IsOpen()) {
-        prepared.stdoutLogWriter.Close();
+    if (writers.stdoutLogWriter.IsOpen()) {
+        writers.stdoutLogWriter.Close();
     }
-    if (prepared.stderrLogWriter.IsOpen()) {
-        prepared.stderrLogWriter.Close();
+    if (writers.stderrLogWriter.IsOpen()) {
+        writers.stderrLogWriter.Close();
     }
-    if (prepared.stderrChildLogWriter.IsOpen()) {
-        prepared.stderrChildLogWriter.Close();
+    if (writers.stderrChildLogWriter.IsOpen()) {
+        writers.stderrChildLogWriter.Close();
     }
-    if (prepared.stderrSrLogWriter.IsOpen()) {
-        prepared.stderrSrLogWriter.Close();
+    if (writers.stderrSrLogWriter.IsOpen()) {
+        writers.stderrSrLogWriter.Close();
     }
-    if (prepared.stderrSrAndChildInclStdoutLogWriter.IsOpen()) {
-        prepared.stderrSrAndChildInclStdoutLogWriter.Close();
+    if (writers.stderrSrAndChildInclStdoutLogWriter.IsOpen()) {
+        writers.stderrSrAndChildInclStdoutLogWriter.Close();
     }
-    if (prepared.stdoutJsonlWriter.IsOpen()) {
-        prepared.stdoutJsonlWriter.Close();
+    if (writers.stdoutJsonlWriter.IsOpen()) {
+        writers.stdoutJsonlWriter.Close();
     }
-    if (prepared.stderrJsonlWriter.IsOpen()) {
-        prepared.stderrJsonlWriter.Close();
+    if (writers.stderrJsonlWriter.IsOpen()) {
+        writers.stderrJsonlWriter.Close();
     }
-    if (prepared.stderrChildJsonlWriter.IsOpen()) {
-        prepared.stderrChildJsonlWriter.Close();
+    if (writers.stderrChildJsonlWriter.IsOpen()) {
+        writers.stderrChildJsonlWriter.Close();
     }
-    if (prepared.stderrSrJsonlWriter.IsOpen()) {
-        prepared.stderrSrJsonlWriter.Close();
+    if (writers.stderrSrJsonlWriter.IsOpen()) {
+        writers.stderrSrJsonlWriter.Close();
     }
-    if (prepared.stderrSrAndChildInclStdoutJsonlWriter.IsOpen()) {
-        prepared.stderrSrAndChildInclStdoutJsonlWriter.Close();
+    if (writers.stderrSrAndChildInclStdoutJsonlWriter.IsOpen()) {
+        writers.stderrSrAndChildInclStdoutJsonlWriter.Close();
     }
 }
 
@@ -196,9 +198,9 @@ static const std::wstring& DetermineFinalLogPath_(
 // replay mode, or logging configuration.
 // The lifecycle phase is provided externally as contextual origin.
 int FinalizeExecution(
-    const SR::Options& opt,
-    SRPreparedRuntime& prepared,
-    const SR::LogPaths& logPaths,
+    const SR::FinalizeExecutionConfig& config,
+    SRWorkers& workers,
+    SRLogFiles& logFiles,
     SRParentEmitPolicy& parentEmitPolicy,
     const std::string& parsingToken,
     int exitCode,
@@ -206,21 +208,24 @@ int FinalizeExecution(
     const SRRuntimeResult* runtimeResultOrNull,
     ExecutionTimeline* executionTimelineOrNull
 ) {
+    const SR::LogPaths& logPaths = logFiles.paths;
+    const SR::LogFileCreationResults& creationResults = logFiles.creationResults;
+    SRLogFileWriters& writers = logFiles.writers;
     // Finalization is best-effort and must not short-circuit on controlled
     // cleanup/log failures. Such failures may downgrade exitCode to 255
     // and clear hook-visible log paths. The selected post-execution hook is
-    // started only after routing, workers, and prepared log writers are finalized.
+    // started only after routing, workers, and log file writers are finalized.
     
     bool noDiagnosticChannel = false;
 
-    if (prepared.workerSupervisor) {
+    if (workers.supervisor) {
         const SR::WorkerFailureRecords workerFailures =
-            prepared.workerSupervisor->RetrieveWorkerFailures();
+            workers.supervisor->RetrieveWorkerFailures();
 
         if (!workerFailures.empty()) {
-            if (prepared.workerSupervisor->IsAnyWorkerAvailable()) {
+            if (workers.supervisor->IsAnyWorkerAvailable()) {
                 lifecycleDiag.ErrorLine(
-                    prepared.workerSupervisor->FormatWorkerFailureDiagnostics()
+                    workers.supervisor->FormatWorkerFailureDiagnostics()
                 );
                 SetInternalFailureExitCode_(exitCode);
             } else {
@@ -242,15 +247,15 @@ int FinalizeExecution(
         parentEmitPolicy.RetrieveTargetEmitMode(
             SR::JobTarget::StdoutParent
         );
+    const SR::StderrEmitSource stderrEmitSource =
+        parentEmitPolicy.StderrEmitSource();
+
     replayPolicySnapshot.stderrEmitMode =
         parentEmitPolicy.RetrieveTargetEmitMode(
-            SR::RetrieveStderrJobTarget(
-                opt.stderrEmitSource
-            )
+            SR::RetrieveStderrJobTarget(stderrEmitSource)
         );
-    
-        replayPolicySnapshot.stderrEmitSource =
-        opt.stderrEmitSource;
+    replayPolicySnapshot.stderrEmitSource =
+        stderrEmitSource;
 
     replayPolicySnapshot.needsStdoutReplayBuffer =
         parentEmitPolicy.NeedsStdoutReplayBuffer();
@@ -301,14 +306,14 @@ int FinalizeExecution(
     if (!noDiagnosticChannel && parentReplayRequested) {
         bool fileSinkPausedForReplay = false;
 
-        if (persistentReplaySyncNeeded && prepared.fileSinkWorker) {
+        if (persistentReplaySyncNeeded && workers.fileSink) {
             fileSinkPausedForReplay =
-                prepared.fileSinkWorker->Drain() &&
-                prepared.fileSinkWorker->PauseAfterCurrentJob();
+                workers.fileSink->Drain() &&
+                workers.fileSink->PauseAfterCurrentJob();
         }
 
-        if (timelineReplaySyncNeeded && prepared.parentEmitWorker) {
-            prepared.parentEmitWorker->Drain();
+        if (timelineReplaySyncNeeded && workers.parentEmit) {
+            workers.parentEmit->Drain();
         }
 
         if ((persistentReplaySyncNeeded || timelineReplaySyncNeeded) &&
@@ -319,7 +324,7 @@ int FinalizeExecution(
         }
 
         if (persistentReplaySyncNeeded &&
-            !FlushPreparedRuntimeFiles(prepared, lifecycleDiag)) {
+            !FlushLogFileWriters(writers, lifecycleDiag)) {
             SetInternalFailureExitCode_(exitCode);
         }
         if (stdoutBufferedEmitMode) {
@@ -332,7 +337,6 @@ int FinalizeExecution(
             parentEmitPolicy.SetStderrEmitMode(
                 SR::EmitMode::Stream
             );
-            lifecycleDiag.SetEmitMode(SR::EmitMode::Stream);
         }
 
         SRReplayTxtToParent replayTxtToParent;
@@ -340,7 +344,7 @@ int FinalizeExecution(
         SRParentReplayRouter parentReplayRouter;
 
         const bool replayInitialized =
-            prepared.jobsExchange &&
+            workers.jobsExchange &&
             replayTxtToParent.Init(
                 &lifecycleDiag,
                 parsingToken,
@@ -354,10 +358,10 @@ int FinalizeExecution(
             SetInternalFailureExitCode_(exitCode);
         } else {
             replayTxtToParent.SetJobsExchange(
-                *prepared.jobsExchange
+                *workers.jobsExchange
             );
             replayJsonlToParent.SetJobsExchange(
-                *prepared.jobsExchange
+                *workers.jobsExchange
             );
 
             if (executionTimelineOrNull) {
@@ -383,15 +387,15 @@ int FinalizeExecution(
         }
 
         if (fileSinkPausedForReplay &&
-            prepared.workerSupervisor &&
-            prepared.workerSupervisor->IsWorkerAvailable(
+            workers.supervisor &&
+            workers.supervisor->IsWorkerAvailable(
                 SR::JobTargetWorker::SRFileSinkWorker
             )) {
-            prepared.fileSinkWorker->Resume();
+            workers.fileSink->Resume();
         }
     }
 
-    if (!FlushPreparedRuntimeFiles(prepared, lifecycleDiag)) {
+    if (!FlushLogFileWriters(writers, lifecycleDiag)) {
         SetInternalFailureExitCode_(exitCode);
     }
 
@@ -422,11 +426,11 @@ int FinalizeExecution(
 
     bool fileSinkPausedForLogFinalization = false;
 
-    if (prepared.fileSinkWorker) {
+    if (workers.fileSink) {
         fileSinkPausedForLogFinalization =
-            prepared.fileSinkWorker->PauseAfterCurrentJob();
+            workers.fileSink->PauseAfterCurrentJob();
     }
-    ClosePreparedRuntimeFiles(prepared);
+    CloseLogFileWriters(writers);
 
     bool stdoutFinalLogAvailable = false;
     bool stderrFinalLogAvailable = false;
@@ -439,8 +443,11 @@ int FinalizeExecution(
     bool stderrSrJsonlFinalLogAvailable = false;
     bool stderrSrAndChildInclStdoutJsonlFinalLogAvailable = false;
 
-    if (!opt.stdoutDir.empty() && !logPaths.running.stdoutTxt.empty()) {
-        if (LogWriter::ShouldKeepLogFile(opt.stdoutDirKeepLog, logFinalizationSuccess)) {
+    if (creationResults.stdoutTxt) {
+
+
+        if (LogWriter::ShouldKeepLogFile(config.stdoutDirKeepLog, logFinalizationSuccess)) {
+
 
             stdoutLogPathForHook = DetermineFinalLogPath_(
                 logFinalizationSuccess,
@@ -485,8 +492,11 @@ int FinalizeExecution(
         }
     }
 
-    if (!opt.stderrDir.empty() && !logPaths.running.stderrSrAndChildTxt.empty()) {
-        if (LogWriter::ShouldKeepLogFile(opt.stderrDirKeepLog, logFinalizationSuccess)) {
+    if (creationResults.stderrSrAndChildTxt) {
+
+
+        if (LogWriter::ShouldKeepLogFile(config.stderrDirKeepLog, logFinalizationSuccess)) {
+
 
             stderrLogPathForHook = DetermineFinalLogPath_(
                 logFinalizationSuccess,
@@ -531,8 +541,11 @@ int FinalizeExecution(
         }
     }
 
-    if (!opt.stderrChildDir.empty() && !logPaths.running.stderrChildTxt.empty()) {
-        if (LogWriter::ShouldKeepLogFile(opt.stderrChildDirKeepLog, logFinalizationSuccess)) {
+    if (creationResults.stderrChildTxt) {
+
+
+        if (LogWriter::ShouldKeepLogFile(config.stderrDirChildKeepLog, logFinalizationSuccess)) {
+
 
             stderrChildLogPathForHook = DetermineFinalLogPath_(
                 logFinalizationSuccess,
@@ -577,8 +590,11 @@ int FinalizeExecution(
         }
     }
 
-    if (!opt.stderrSrDir.empty() && !logPaths.running.stderrSrTxt.empty()) {
-        if (LogWriter::ShouldKeepLogFile(opt.stderrSrDirKeepLog, logFinalizationSuccess)) {
+    if (creationResults.stderrSrTxt) {
+
+
+        if (LogWriter::ShouldKeepLogFile(config.stderrDirSrKeepLog, logFinalizationSuccess)) {
+
 
             stderrSrLogPathForHook = DetermineFinalLogPath_(
                 logFinalizationSuccess,
@@ -622,8 +638,11 @@ int FinalizeExecution(
             }
         }
     }
-    if (!opt.stderrSrAndChildInclStdoutDir.empty() && !logPaths.running.stderrSrAndChildInclStdoutTxt.empty()) {
-        if (LogWriter::ShouldKeepLogFile(opt.stderrSrAndChildInclStdoutDirKeepLog, logFinalizationSuccess)) {
+    if (creationResults.stderrSrAndChildInclStdoutTxt) {
+
+
+        if (LogWriter::ShouldKeepLogFile(config.stderrDirInclStdoutKeepLog, logFinalizationSuccess)) {
+
             stderrSrAndChildInclStdoutLogPathForHook = DetermineFinalLogPath_(
                 logFinalizationSuccess,
                 logPaths.success.stderrSrAndChildInclStdoutTxt,
@@ -673,8 +692,11 @@ int FinalizeExecution(
             }
         }
     }
-    if (!opt.stdoutJsonlDir.empty() && !logPaths.running.stdoutJsonl.empty()) {
-        if (LogWriter::ShouldKeepLogFile(opt.stdoutDirKeepLog, logFinalizationSuccess)) {
+    if (creationResults.stdoutJsonl) {
+
+
+        if (LogWriter::ShouldKeepLogFile(config.stdoutDirKeepLog, logFinalizationSuccess)) {
+
 
             stdoutJsonlLogPathForFinal = DetermineFinalLogPath_(
                 logFinalizationSuccess,
@@ -719,8 +741,11 @@ int FinalizeExecution(
         }
     }
 
-    if (!opt.stderrJsonlDir.empty() && !logPaths.running.stderrSrAndChildJsonl.empty()) {
-        if (LogWriter::ShouldKeepLogFile(opt.stderrDirKeepLog, logFinalizationSuccess)) {
+    if (creationResults.stderrSrAndChildJsonl) {
+
+
+        if (LogWriter::ShouldKeepLogFile(config.stderrDirKeepLog, logFinalizationSuccess)) {
+
 
             stderrJsonlLogPathForFinal = DetermineFinalLogPath_(
                 logFinalizationSuccess,
@@ -765,8 +790,11 @@ int FinalizeExecution(
         }
     }
 
-    if (!opt.stderrChildJsonlDir.empty() && !logPaths.running.stderrChildJsonl.empty()) {
-        if (LogWriter::ShouldKeepLogFile(opt.stderrChildDirKeepLog, logFinalizationSuccess)) {
+    if (creationResults.stderrChildJsonl) {
+
+
+        if (LogWriter::ShouldKeepLogFile(config.stderrDirChildKeepLog, logFinalizationSuccess)) {
+
 
             stderrChildJsonlLogPathForFinal = DetermineFinalLogPath_(
                 logFinalizationSuccess,
@@ -811,8 +839,11 @@ int FinalizeExecution(
         }
     }
 
-    if (!opt.stderrSrJsonlDir.empty() && !logPaths.running.stderrSrJsonl.empty()) {
-        if (LogWriter::ShouldKeepLogFile(opt.stderrSrDirKeepLog, logFinalizationSuccess)) {
+    if (creationResults.stderrSrJsonl) {
+
+
+        if (LogWriter::ShouldKeepLogFile(config.stderrDirSrKeepLog, logFinalizationSuccess)) {
+
 
             stderrSrJsonlLogPathForFinal = DetermineFinalLogPath_(
                 logFinalizationSuccess,
@@ -855,8 +886,10 @@ int FinalizeExecution(
             }
         }
     }
-    if (!opt.stderrSrAndChildInclStdoutJsonlDir.empty() && !logPaths.running.stderrSrAndChildInclStdoutJsonl.empty()) {
-        if (LogWriter::ShouldKeepLogFile(opt.stderrSrAndChildInclStdoutDirKeepLog, logFinalizationSuccess)) {
+    if (creationResults.stderrSrAndChildInclStdoutJsonl) {
+
+        if (LogWriter::ShouldKeepLogFile(config.stderrDirInclStdoutKeepLog, logFinalizationSuccess)) {
+
             stderrSrAndChildInclStdoutJsonlLogPathForFinal = DetermineFinalLogPath_(
                 logFinalizationSuccess,
                 logPaths.success.stderrSrAndChildInclStdoutJsonl,
@@ -913,7 +946,7 @@ int FinalizeExecution(
 
     if (stdoutFinalLogAvailable) {
         DWORD gle = 0;
-        if (prepared.stdoutLogWriter.OpenAppendFile(stdoutLogPathForHook, &gle)) {
+        if (writers.stdoutLogWriter.OpenAppendFile(stdoutLogPathForHook, &gle)) {
             lifecycleDiag.DebugLine(
                 L"Reopened stdout log for append OK; path=" + stdoutLogPathForHook
             );
@@ -930,7 +963,7 @@ int FinalizeExecution(
 
     if (stderrFinalLogAvailable) {
         DWORD gle = 0;
-        if (prepared.stderrLogWriter.OpenAppendFile(stderrLogPathForHook, &gle)) {
+        if (writers.stderrLogWriter.OpenAppendFile(stderrLogPathForHook, &gle)) {
             lifecycleDiag.DebugLine(
                 L"Reopened stderr-sr-and-child log for append OK; path=" + stderrLogPathForHook
             );
@@ -946,7 +979,7 @@ int FinalizeExecution(
 
     if (stderrChildFinalLogAvailable) {
         DWORD gle = 0;
-        if (prepared.stderrChildLogWriter.OpenAppendFile(stderrChildLogPathForHook, &gle)) {
+        if (writers.stderrChildLogWriter.OpenAppendFile(stderrChildLogPathForHook, &gle)) {
             lifecycleDiag.DebugLine(
                 L"Reopened stderr-child log for append OK; path=" + stderrChildLogPathForHook
             );
@@ -963,7 +996,7 @@ int FinalizeExecution(
 
     if (stderrSrFinalLogAvailable) {
         DWORD gle = 0;
-        if (prepared.stderrSrLogWriter.OpenAppendFile(stderrSrLogPathForHook, &gle)) {
+        if (writers.stderrSrLogWriter.OpenAppendFile(stderrSrLogPathForHook, &gle)) {
             lifecycleDiag.DebugLine(
                 L"Reopened stderr-sr log for append OK; path=" + stderrSrLogPathForHook
             );
@@ -978,7 +1011,7 @@ int FinalizeExecution(
     }
     if (stderrSrAndChildInclStdoutFinalLogAvailable) {
         DWORD gle = 0;
-        if (prepared.stderrSrAndChildInclStdoutLogWriter.OpenAppendFile(stderrSrAndChildInclStdoutLogPathForHook, &gle)) {
+        if (writers.stderrSrAndChildInclStdoutLogWriter.OpenAppendFile(stderrSrAndChildInclStdoutLogPathForHook, &gle)) {
             lifecycleDiag.DebugLine(
                 L"Reopened stderr-sr-and-child-incl-stdout log for append OK; path=" +
                 stderrSrAndChildInclStdoutLogPathForHook
@@ -996,7 +1029,7 @@ int FinalizeExecution(
     }
     if (stdoutJsonlFinalLogAvailable) {
         DWORD gle = 0;
-        if (prepared.stdoutJsonlWriter.OpenAppendFile(stdoutJsonlLogPathForFinal, &gle)) {
+        if (writers.stdoutJsonlWriter.OpenAppendFile(stdoutJsonlLogPathForFinal, &gle)) {
             lifecycleDiag.DebugLine(
                 L"Reopened stdout JSONL log for append OK; path=" + stdoutJsonlLogPathForFinal
             );
@@ -1013,7 +1046,7 @@ int FinalizeExecution(
 
     if (stderrJsonlFinalLogAvailable) {
         DWORD gle = 0;
-        if (prepared.stderrJsonlWriter.OpenAppendFile(stderrJsonlLogPathForFinal, &gle)) {
+        if (writers.stderrJsonlWriter.OpenAppendFile(stderrJsonlLogPathForFinal, &gle)) {
             lifecycleDiag.DebugLine(
                 L"Reopened stderr-sr-and-child JSONL log for append OK; path=" + stderrJsonlLogPathForFinal
             );
@@ -1030,7 +1063,7 @@ int FinalizeExecution(
 
     if (stderrChildJsonlFinalLogAvailable) {
         DWORD gle = 0;
-        if (prepared.stderrChildJsonlWriter.OpenAppendFile(stderrChildJsonlLogPathForFinal, &gle)) {
+        if (writers.stderrChildJsonlWriter.OpenAppendFile(stderrChildJsonlLogPathForFinal, &gle)) {
             lifecycleDiag.DebugLine(
                 L"Reopened stderr-child JSONL log for append OK; path=" + stderrChildJsonlLogPathForFinal
             );
@@ -1047,7 +1080,7 @@ int FinalizeExecution(
 
     if (stderrSrJsonlFinalLogAvailable) {
         DWORD gle = 0;
-        if (prepared.stderrSrJsonlWriter.OpenAppendFile(stderrSrJsonlLogPathForFinal, &gle)) {
+        if (writers.stderrSrJsonlWriter.OpenAppendFile(stderrSrJsonlLogPathForFinal, &gle)) {
             lifecycleDiag.DebugLine(
                 L"Reopened stderr-sr JSONL log for append OK; path=" + stderrSrJsonlLogPathForFinal
             );
@@ -1063,7 +1096,7 @@ int FinalizeExecution(
     }
     if (stderrSrAndChildInclStdoutJsonlFinalLogAvailable) {
         DWORD gle = 0;
-        if (prepared.stderrSrAndChildInclStdoutJsonlWriter.OpenAppendFile(
+        if (writers.stderrSrAndChildInclStdoutJsonlWriter.OpenAppendFile(
                 stderrSrAndChildInclStdoutJsonlLogPathForFinal,
                 &gle
             )) {
@@ -1085,41 +1118,41 @@ int FinalizeExecution(
 
 
     if (fileSinkPausedForLogFinalization) {
-        prepared.fileSinkWorker->AttachLogWriters(
-            stdoutFinalLogAvailable && prepared.stdoutLogWriter.IsOpen(),
-            prepared.stdoutLogWriter.IsOpen() ? &prepared.stdoutLogWriter : nullptr,
+        workers.fileSink->AttachLogWriters(
+            stdoutFinalLogAvailable && writers.stdoutLogWriter.IsOpen(),
+            writers.stdoutLogWriter.IsOpen() ? &writers.stdoutLogWriter : nullptr,
             stdoutLogPathForHook,
-            stderrFinalLogAvailable && prepared.stderrLogWriter.IsOpen(),
-            prepared.stderrLogWriter.IsOpen() ? &prepared.stderrLogWriter : nullptr,
+            stderrFinalLogAvailable && writers.stderrLogWriter.IsOpen(),
+            writers.stderrLogWriter.IsOpen() ? &writers.stderrLogWriter : nullptr,
             stderrLogPathForHook,
-            stderrChildFinalLogAvailable && prepared.stderrChildLogWriter.IsOpen(),
-            prepared.stderrChildLogWriter.IsOpen() ? &prepared.stderrChildLogWriter : nullptr,
+            stderrChildFinalLogAvailable && writers.stderrChildLogWriter.IsOpen(),
+            writers.stderrChildLogWriter.IsOpen() ? &writers.stderrChildLogWriter : nullptr,
             stderrChildLogPathForHook,
-            stderrSrFinalLogAvailable && prepared.stderrSrLogWriter.IsOpen(),
-            prepared.stderrSrLogWriter.IsOpen() ? &prepared.stderrSrLogWriter : nullptr,
+            stderrSrFinalLogAvailable && writers.stderrSrLogWriter.IsOpen(),
+            writers.stderrSrLogWriter.IsOpen() ? &writers.stderrSrLogWriter : nullptr,
             stderrSrLogPathForHook,
-            stderrSrAndChildInclStdoutFinalLogAvailable && prepared.stderrSrAndChildInclStdoutLogWriter.IsOpen(),
-            prepared.stderrSrAndChildInclStdoutLogWriter.IsOpen() ? &prepared.stderrSrAndChildInclStdoutLogWriter : nullptr,
+            stderrSrAndChildInclStdoutFinalLogAvailable && writers.stderrSrAndChildInclStdoutLogWriter.IsOpen(),
+            writers.stderrSrAndChildInclStdoutLogWriter.IsOpen() ? &writers.stderrSrAndChildInclStdoutLogWriter : nullptr,
             stderrSrAndChildInclStdoutLogPathForHook
         );
-        prepared.fileSinkWorker->AttachJsonlWriters(
-            stdoutJsonlFinalLogAvailable && prepared.stdoutJsonlWriter.IsOpen(),
-            prepared.stdoutJsonlWriter.IsOpen() ? &prepared.stdoutJsonlWriter : nullptr,
+        workers.fileSink->AttachJsonlWriters(
+            stdoutJsonlFinalLogAvailable && writers.stdoutJsonlWriter.IsOpen(),
+            writers.stdoutJsonlWriter.IsOpen() ? &writers.stdoutJsonlWriter : nullptr,
             stdoutJsonlLogPathForFinal,
-            stderrJsonlFinalLogAvailable && prepared.stderrJsonlWriter.IsOpen(),
-            prepared.stderrJsonlWriter.IsOpen() ? &prepared.stderrJsonlWriter : nullptr,
+            stderrJsonlFinalLogAvailable && writers.stderrJsonlWriter.IsOpen(),
+            writers.stderrJsonlWriter.IsOpen() ? &writers.stderrJsonlWriter : nullptr,
             stderrJsonlLogPathForFinal,
-            stderrChildJsonlFinalLogAvailable && prepared.stderrChildJsonlWriter.IsOpen(),
-            prepared.stderrChildJsonlWriter.IsOpen() ? &prepared.stderrChildJsonlWriter : nullptr,
+            stderrChildJsonlFinalLogAvailable && writers.stderrChildJsonlWriter.IsOpen(),
+            writers.stderrChildJsonlWriter.IsOpen() ? &writers.stderrChildJsonlWriter : nullptr,
             stderrChildJsonlLogPathForFinal,
-            stderrSrJsonlFinalLogAvailable && prepared.stderrSrJsonlWriter.IsOpen(),
-            prepared.stderrSrJsonlWriter.IsOpen() ? &prepared.stderrSrJsonlWriter : nullptr,
+            stderrSrJsonlFinalLogAvailable && writers.stderrSrJsonlWriter.IsOpen(),
+            writers.stderrSrJsonlWriter.IsOpen() ? &writers.stderrSrJsonlWriter : nullptr,
             stderrSrJsonlLogPathForFinal,
-            stderrSrAndChildInclStdoutJsonlFinalLogAvailable && prepared.stderrSrAndChildInclStdoutJsonlWriter.IsOpen(),
-            prepared.stderrSrAndChildInclStdoutJsonlWriter.IsOpen() ? &prepared.stderrSrAndChildInclStdoutJsonlWriter : nullptr,
+            stderrSrAndChildInclStdoutJsonlFinalLogAvailable && writers.stderrSrAndChildInclStdoutJsonlWriter.IsOpen(),
+            writers.stderrSrAndChildInclStdoutJsonlWriter.IsOpen() ? &writers.stderrSrAndChildInclStdoutJsonlWriter : nullptr,
             stderrSrAndChildInclStdoutJsonlLogPathForFinal
         );
-        prepared.fileSinkWorker->Resume();
+        workers.fileSink->Resume();
     }
 
 
@@ -1135,22 +1168,23 @@ int FinalizeExecution(
     }
 
 
-    if (prepared.fileSinkWorker &&
-        prepared.workerSupervisor &&
-        prepared.workerSupervisor->IsWorkerAvailable(
+    if (workers.fileSink &&
+        workers.supervisor &&
+        workers.supervisor->IsWorkerAvailable(
             SR::JobTargetWorker::SRFileSinkWorker
         )) {
-        prepared.fileSinkWorker->Drain();
+        workers.fileSink->Drain();
     }
-    if (prepared.parentEmitWorker &&
-        prepared.workerSupervisor &&
-        prepared.workerSupervisor->IsWorkerAvailable(
+    if (workers.parentEmit &&
+        workers.supervisor &&
+        workers.supervisor->IsWorkerAvailable(
             SR::JobTargetWorker::SRParentEmitWorker
         )) {
-        prepared.parentEmitWorker->Drain();
+        workers.parentEmit->Drain();
     }
 
-    if (opt.verbose && !noDiagnosticChannel && executionTimelineOrNull && prepared.jobsExchange) {
+    if (config.verbose && !noDiagnosticChannel && executionTimelineOrNull && workers.jobsExchange) {
+
         SR::EventSummary finalHarvestEventSummary;
         if (executionTimelineOrNull->BuildFinalHarvestEventSummary(
                 finalHarvestEventSummary
@@ -1168,36 +1202,37 @@ int FinalizeExecution(
 
             SR::PendingJobs finalHarvestJobs;
             finalHarvestJobs.push_back(std::move(finalHarvestJob));
-            prepared.jobsExchange->EnqueuePendingJobs(finalHarvestJobs);
+            workers.jobsExchange->EnqueuePendingJobs(finalHarvestJobs);
 
-            if (prepared.fileSinkWorker &&
-                prepared.workerSupervisor &&
-                prepared.workerSupervisor->IsWorkerAvailable(
+            if (workers.fileSink &&
+                workers.supervisor &&
+                workers.supervisor->IsWorkerAvailable(
                     SR::JobTargetWorker::SRFileSinkWorker
                 )) {
-                prepared.fileSinkWorker->Drain();
+                workers.fileSink->Drain();
             }
-            if (prepared.parentEmitWorker &&
-                prepared.workerSupervisor &&
-                prepared.workerSupervisor->IsWorkerAvailable(
+            if (workers.parentEmit &&
+                workers.supervisor &&
+                workers.supervisor->IsWorkerAvailable(
                     SR::JobTargetWorker::SRParentEmitWorker
                 )) {
-                prepared.parentEmitWorker->Drain();
+                workers.parentEmit->Drain();
             }
         }
     }
 
-    if (prepared.fileSinkWorker) {
-        prepared.fileSinkWorker->DrainAndStop();
+    if (workers.fileSink) {
+        workers.fileSink->DrainAndStop();
     }
-    if (prepared.parentEmitWorker) {
-        prepared.parentEmitWorker->DrainAndStop();
+    if (workers.parentEmit) {
+        workers.parentEmit->DrainAndStop();
     }
-    ClosePreparedRuntimeFiles(prepared);
-    if (!(IsSuccess_(exitCode) ? opt.runOnSuccess : opt.runOnFailure).empty()) {
+    CloseLogFileWriters(writers);
+    if (!(IsSuccess_(exitCode) ? config.runOnSuccessPath : config.runOnFailurePath).empty()) {
+
         const std::vector<SRRunHook::EnvironmentVariable> hookEnvironment{
             { L"SILENTRUNNER_EXIT_CODE", std::to_wstring(exitCode) },
-            { L"SILENTRUNNER_EXECUTION_ID", prepared.executionId },
+            { L"SILENTRUNNER_EXECUTION_ID", config.executionId },
             { L"SILENTRUNNER_STDOUT_LOG", stdoutFinalLogAvailable ? stdoutLogPathForHook : L"" },
             { L"SILENTRUNNER_STDOUT_JSONL_LOG", stdoutJsonlFinalLogAvailable ? stdoutJsonlLogPathForFinal : L"" },
             { L"SILENTRUNNER_STDERR_LOG", stderrFinalLogAvailable ? stderrLogPathForHook : L"" },
@@ -1221,8 +1256,10 @@ int FinalizeExecution(
         DWORD hookPid = 0;
 
         if (!SRRunHook::RunHookDetached(
-                IsSuccess_(exitCode) ? opt.runOnSuccess : opt.runOnFailure,
-                opt.cwd,
+                IsSuccess_(exitCode) ? config.runOnSuccessPath : config.runOnFailurePath,
+
+                config.cwd,
+
                 hookEnvironment,
                 hookGle,
                 hookPid
@@ -1231,7 +1268,8 @@ int FinalizeExecution(
                 std::wstring(L"[RUN-HOOK] Run-on-") +
                 (IsSuccess_(exitCode) ? L"success" : L"failure") +
                 L" hook start failed; path=" +
-                (IsSuccess_(exitCode) ? opt.runOnSuccess : opt.runOnFailure) +
+                (IsSuccess_(exitCode) ? config.runOnSuccessPath : config.runOnFailurePath) +
+
                 L" " + ErrorHelpers::FormatGle(hookGle)
             );
         } else {
@@ -1240,7 +1278,8 @@ int FinalizeExecution(
                 (IsSuccess_(exitCode) ? L"success" : L"failure") +
                 L" hook started; pid=" + std::to_wstring(hookPid) +
                 L" path=" +
-                (IsSuccess_(exitCode) ? opt.runOnSuccess : opt.runOnFailure)
+                (IsSuccess_(exitCode) ? config.runOnSuccessPath : config.runOnFailurePath)
+
             );
         }
     }

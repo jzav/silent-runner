@@ -332,8 +332,6 @@ bool ParseTxtStringFieldValue_(
     return true;
 }
 
-
-
 bool TryParseUInt64Text_(
     std::string_view text,
     uint64_t& value
@@ -370,6 +368,8 @@ bool TryParseUInt64Text_(
 
 
 namespace TextHelpers {
+
+
 bool EqualsOrdinalIgnoreCase(
     std::wstring_view value,
     std::wstring_view expected
@@ -436,6 +436,52 @@ bool EndsWith(
         ) == 0;
 }
 
+bool TryParseUInt64(
+    std::wstring_view text,
+    uint64_t& value
+) noexcept {
+    if (text.empty()) {
+        return false;
+    }
+    uint64_t parsed = 0;
+    for (wchar_t ch : text) {
+        if (ch < L'0' || ch > L'9') {
+            return false;
+        }
+        const unsigned digit =
+            static_cast<unsigned>(ch - L'0');
+        if (parsed >
+            (std::numeric_limits<uint64_t>::max() - digit) /
+                10) {
+            return false;
+        }
+        parsed = parsed * 10 + digit;
+    }
+    value = parsed;
+    return true;
+}
+
+bool TryParseUInt32(
+    std::wstring_view text,
+    uint32_t& value
+) noexcept {
+    uint64_t parsed = 0;
+    if (!TryParseUInt64(text, parsed) ||
+        parsed > std::numeric_limits<uint32_t>::max()) {
+        return false;
+    }
+
+    value = static_cast<uint32_t>(parsed);
+    return true;
+}
+
+void TrimTrailingNewlines(std::wstring& value) {
+    while (!value.empty() &&
+           (value.back() == L'\n' ||
+            value.back() == L'\r')) {
+        value.pop_back();
+    }
+}
 
 void ReplaceAll(
     std::string& text,

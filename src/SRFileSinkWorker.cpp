@@ -86,6 +86,22 @@ bool SRFileSinkWorker::Init(SRLifecycleDiagnostics* diagnostics) {
     {
         std::scoped_lock lock(domainMutex_, failureMutex_);
         domain_ = WorkerDomain{};
+        for (std::size_t workerConfigIndex = 0;
+             workerConfigIndex < domain_.targetConfigs.size();
+             ++workerConfigIndex) {
+            const SR::JobTarget target =
+                domain_.targetConfigs[workerConfigIndex].target;
+
+            if (SR::JobTargetWorkerOf(target) !=
+                    SR::JobTargetWorker::SRFileSinkWorker ||
+                SR::JobTargetWorkerConfigIndexOf(target) !=
+                    workerConfigIndex) {
+                ProbeLine_(
+                    L"SRFileSinkWorker::Init target config index invariant failed"
+                );
+                return false;
+            }
+        }
     }
     
     stderrSrAndChildTxtLastWrittenPayloadType_.reset();

@@ -1,0 +1,6 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+cmake_path(NATIVE_PATH SR_SUCCESS_HOOK NORMALIZE hook_native)
+sr_run(r ARGS --run-on-success "${hook_native}" "${SR_OK}")
+sr_assert_exit(r 0)
+sr_wait_for_path("${SR_TEST_ROOT}/success.marker")

@@ -2,10 +2,13 @@
 
 #include <string>
 #include "SRTypes.h"
+namespace SR {
+struct FinalizeExecutionConfig;
+}
 
 
-
-struct SRPreparedRuntime;
+struct SRWorkers;
+struct SRLogFiles;
 struct SRRuntimeResult;
 class SRLifecycleDiagnostics;
 class ExecutionTimeline;
@@ -13,9 +16,11 @@ class SRParentEmitPolicy;
 
 
 int FinalizeExecution(
-    const SR::Options& opt,
-    SRPreparedRuntime& prepared,
-    const SR::LogPaths& logPaths,
+    const SR::FinalizeExecutionConfig& config,
+
+    SRWorkers& workers,
+
+    SRLogFiles& logFiles,
     SRParentEmitPolicy& parentEmitPolicy,
     const std::string& parsingToken,
 

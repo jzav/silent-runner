@@ -36,9 +36,7 @@ public:
     // Init routing targets.
     // NOTE: Pointers are borrowed (owned by SRRuntime stack / orchestration).
     void Init(
-        SR::EmitMode emitMode,
-        SR::StderrEmitSource emitSource,
-        const SRParentEmitPolicy* parentEmitPolicyOrNull,
+        const SRParentEmitPolicy& parentEmitPolicy,
         SRBufferLimiter* bufferLimitOrNull,
         ExecutionTimeline* executionTimelineOrNull
     ) noexcept;
@@ -79,8 +77,6 @@ private:
     // keep mutex out-of-line (8 bytes pointer instead of full mutex object).
     std::unique_ptr<std::mutex> mutex_;
 
-    SR::EmitMode emitMode_ = SR::EmitMode::Stream;
-    SR::StderrEmitSource emitSource_ = SR::StderrEmitSource::SrAndChild;
     const SRParentEmitPolicy* parentEmitPolicy_ = nullptr;
 
     SRBufferLimiter* bufferLimit_ = nullptr;

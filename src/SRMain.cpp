@@ -12,10 +12,12 @@
 #include <new>
 #include <cstdlib>
 #include <memory>
+#include <cstdint>
 
 #include "SRTypes.h"
+#include "SRConfigsBuilder.h"
 #include "SRRuntime.h"
-#include "ArgumentParser.h"
+#include "HelpGenerator.h"
 #include "FileHelpers.h"
 #include "ErrorHelpers.h"
 #include "ParentStdEmitter.h"
@@ -24,6 +26,7 @@
 #include "SRLifecycleFinalizeExecution.h"
 #include "SRParentEmitPolicy.h"
 #include "SRWorkerCommonPolicy.h"
+#include "SRWorkerTypes.h"
 #include "SRBufferLimiter.h"
 
 
@@ -34,16 +37,66 @@
 
 namespace {
 
+struct LocalFreeArgsDeleter {
+    void operator()(wchar_t** args) const noexcept {
+        if (args) {
+            LocalFree(args);
+        }
+    }
+};
+
+using LocalFreeArgsPtr =
+    std::unique_ptr<wchar_t*, LocalFreeArgsDeleter>;
+
 [[noreturn]] void SilentRunnerTerminateHandler() noexcept;
 
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     std::set_terminate(&SilentRunnerTerminateHandler);
+
+    int argsCount = 0;
+    LocalFreeArgsPtr argsVector(
+        CommandLineToArgvW(
+            GetCommandLineW(),
+            &argsCount
+        )
+    );
+
+    if (!argsVector) {
+        const DWORD gle = GetLastError();
+        SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
+            FileHelpers::MakeRunUtcTimestamp(),
+            SR::DiagnosticSeverity::Fatal,
+            SR::LifecyclePhase::Prepare,
+            L"CommandLineToArgvW failed; " + ErrorHelpers::FormatGle(gle)
+        );
+        return 2;
+    }
+
+    SR::SRConfigsBuilder configsBuilder;
+    if (!configsBuilder.Build(argsCount, argsVector.get())) {
+        SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
+            FileHelpers::MakeRunUtcTimestamp(),
+            SR::DiagnosticSeverity::Fatal,
+            SR::LifecyclePhase::Prepare,
+            configsBuilder.err
+        );
+        return 2;
+    }
+    auto& configs = configsBuilder.configs;
+
+    if (configsBuilder.helpRequested) {
+        ParentStdEmitter::EmitStdoutUtf16(
+            HelpGenerator::Generate() + L"\n"
+        );
+        return 0;
+    }
     
     auto executionTimeline = std::make_shared<ExecutionTimeline>();
     
-    if (!executionTimeline->Init()) {
+    if (!executionTimeline->Init(configsBuilder.configs.executionTimeline)) {
+
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
             FileHelpers::MakeRunUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
@@ -64,7 +117,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     }
 
     SRParentEmitPolicy parentEmitPolicy;
-    if (!parentEmitPolicy.Init()) {
+    if (!parentEmitPolicy.Init(configsBuilder.configs.parentEmitPolicy)) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
             FileHelpers::MakeRunUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
@@ -77,13 +130,11 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     SRBufferLimiter* bufferLimitPtr = nullptr;
 
     
-    parentEmitPolicy.SetStdoutEmitMode(SR::EmitMode::Stream);
-    parentEmitPolicy.SetStderrEmitMode(SR::EmitMode::Stream);
-    parentEmitPolicy.SetStderrEmitSource(SR::StderrEmitSource::SrAndChild);
 
     SRLifecycleDiagnostics lifecycleDiag;
     if (!lifecycleDiag.Init(
-        SR::EmitMode::Stream,
+        configsBuilder.configs.lifecycleDiagnostics,
+        parentEmitPolicy,
         executionTimeline.get()
     )) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
@@ -97,22 +148,21 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     executionTimeline->SetLifecycleDiagnostics(lifecycleDiag);
 
     SRPrepareResult prepareResult;
-    SRPreparedRuntime& prepared = prepareResult.prepared;
-    SR::LogPaths logPaths;
-       
-    prepared.workerSupervisor = std::make_unique<SR::SRWorkerSupervisor>();
-    prepared.fileSinkWorker = std::make_unique<SRFileSinkWorker>();
-    prepared.parentEmitWorker = std::make_unique<SRParentEmitWorker>();
-    prepared.jobsExchange = std::make_unique<SRJobsExchange>();
+    SRWorkers workers;
+           
+    workers.supervisor = std::make_unique<SR::SRWorkerSupervisor>();
+    workers.fileSink = std::make_unique<SRFileSinkWorker>();
+    workers.parentEmit = std::make_unique<SRParentEmitWorker>();
+    workers.jobsExchange = std::make_unique<SRJobsExchange>();
 
-    prepared.fileSinkWorker->SetWorkerSupervisor(
-        prepared.workerSupervisor.get()
+    workers.fileSink->SetWorkerSupervisor(
+        workers.supervisor.get()
     );
-    prepared.parentEmitWorker->SetWorkerSupervisor(
-        prepared.workerSupervisor.get()
+    workers.parentEmit->SetWorkerSupervisor(
+        workers.supervisor.get()
     );
 
-    if (!prepared.fileSinkWorker->Init(&lifecycleDiag)) {
+    if (!workers.fileSink->Init(&lifecycleDiag)) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
             FileHelpers::MakeRunUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
@@ -122,7 +172,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 255;
     }
 
-    if (!prepared.parentEmitWorker->Init(&lifecycleDiag, &parentEmitPolicy)) {
+    if (!workers.parentEmit->Init(&lifecycleDiag, &parentEmitPolicy)) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
             FileHelpers::MakeRunUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
@@ -132,7 +182,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 255;
     }
 
-    if (!prepared.jobsExchange->Init(&lifecycleDiag)) {
+    if (!workers.jobsExchange->Init(&lifecycleDiag)) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
             FileHelpers::MakeRunUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
@@ -142,11 +192,11 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 255;
     }
 
-    prepared.jobsExchange->SetWorkerSupervisor(*prepared.workerSupervisor);
-    prepared.jobsExchange->SetFileSinkWorker(*prepared.fileSinkWorker);
-    prepared.jobsExchange->SetParentEmitWorker(*prepared.parentEmitWorker);
+    workers.jobsExchange->SetWorkerSupervisor(*workers.supervisor);
+    workers.jobsExchange->SetFileSinkWorker(*workers.fileSink);
+    workers.jobsExchange->SetParentEmitWorker(*workers.parentEmit);
 
-    if (!prepared.fileSinkWorker->StartPaused()) {
+    if (!workers.fileSink->StartPaused()) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
             FileHelpers::MakeRunUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
@@ -156,7 +206,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 255;
     }
 
-    if (!prepared.parentEmitWorker->Start()) {
+    if (!workers.parentEmit->Start()) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
             FileHelpers::MakeRunUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
@@ -166,39 +216,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 255;
     }
     
-    executionTimeline->SetJobsExchange(*prepared.jobsExchange);
+    executionTimeline->SetJobsExchange(*workers.jobsExchange);
 
 
-    int argc = 0;
-    wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (!argv) {
-        const DWORD gle = GetLastError();
-        SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
-            SR::DiagnosticSeverity::Fatal,
-            SR::LifecyclePhase::Prepare,
-            L"CommandLineToArgvW failed; " + ErrorHelpers::FormatGle(gle)
-        );
-        return 2;
-    }
 
-    SR::Options opt;
-    std::wstring parseErr;
-    if (!ArgumentParser::ParseArgs(argc, argv, opt, parseErr)) {
-        if (!parseErr.empty()) {
-            SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-                FileHelpers::MakeRunUtcTimestamp(),
-                SR::DiagnosticSeverity::Fatal,
-                SR::LifecyclePhase::Prepare,
-                parseErr
-            );
-        }
-        LocalFree(argv);
-        return 2;
-    }
     
     SRWorkerCommonPolicy workerCommonPolicy;
-    if (!workerCommonPolicy.Init(opt)) {
+    if (!workerCommonPolicy.Init(configsBuilder.configs.workerCommonPolicy)) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
             FileHelpers::MakeRunUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
@@ -206,70 +230,58 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
             L"Failed to initialize worker common policy"
         );
 
-        LocalFree(argv);
         return 255;
     }
 
 
-    prepared.fileSinkWorker->SetParsingTokenPolicy(
+    workers.fileSink->SetParsingTokenPolicy(
         workerCommonPolicy.ParsingToken(),
         workerCommonPolicy.FileSinkParsingTokenTargets()
     );
-    prepared.parentEmitWorker->SetParsingTokenPolicy(
+    workers.parentEmit->SetParsingTokenPolicy(
         workerCommonPolicy.ParsingToken(),
         workerCommonPolicy.ParentParsingTokenTargets()
     );
   
     
-    parentEmitPolicy.SetFromFinalizedOptions(opt);
     const bool needStdoutReplayBuffer =
         parentEmitPolicy.NeedsStdoutReplayBuffer();
     const bool needStderrReplayBuffer =
         parentEmitPolicy.NeedsStderrReplayBuffer();
 
     if (needStdoutReplayBuffer || needStderrReplayBuffer) {
-        bufferLimiter.Init(opt, &lifecycleDiag);
+        bufferLimiter.Init(configsBuilder.configs.bufferLimiter, &lifecycleDiag);
         bufferLimitPtr = &bufferLimiter;
     }
 
-    lifecycleDiag.SetParentEmitPolicy(&parentEmitPolicy);
     lifecycleDiag.SetBufferLimiter(bufferLimitPtr);
 
 
     executionTimeline->SetParentEmitPolicy(parentEmitPolicy);
-    executionTimeline->SetVerboseEnabled(opt.verbose);
-
-    lifecycleDiag.SetDebugEnabled(opt.debug);
-    lifecycleDiag.SetVerboseEnabled(opt.verbose);
-    lifecycleDiag.SetEmitMode(opt.stderrEmit);
-    lifecycleDiag.SetStderrEmitSource(opt.stderrEmitSource);
     
     lifecycleDiag.InfoLine(
         L"SilentRunner starts; std::terminate handler registered"
     );
 
-    if (opt.showHelp) {
-        lifecycleDiag.InfoLine(
-            L"--help requested; printing usage and exiting"
-        );
-        ParentStdEmitter::EmitStdoutUtf16(ArgumentParser::BuildUsageText() + L"\n");
-        LocalFree(argv);
-        return 0;
-    }
-    
     lifecycleDiag.DebugLine(
         L"PrepareRuntime phase starts"
     );
 
     try {
-        PrepareRuntime(opt, lifecycleDiag, logPaths, prepareResult);
+        PrepareRuntime(
+            configs,
+            *workers.fileSink,
+            parentEmitPolicy,
+            lifecycleDiag,
+            prepareResult
+        );
     } catch (const std::bad_alloc&) {
         lifecycleDiag.FatalErrorLine(
             L"PrepareRuntime phase failed: std::bad_alloc"
         );
-        const int finalExitCode = FinalizeExecution(opt, prepareResult.prepared, logPaths, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, nullptr, executionTimeline.get());
+        const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, nullptr, executionTimeline.get());
 
-        LocalFree(argv);
+
         return finalExitCode;
     } catch (const std::exception& ex) {
         const std::wstring detail = FileHelpers::Utf8ToWide(ex.what());
@@ -282,71 +294,37 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
                 L"PrepareRuntime phase failed: unhandled std::exception"
             );
         }
-        const int finalExitCode = FinalizeExecution(opt, prepareResult.prepared, logPaths, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, nullptr, executionTimeline.get());
+        const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, nullptr, executionTimeline.get());
 
-        LocalFree(argv);
+
         return finalExitCode;
     } catch (...) {
         lifecycleDiag.FatalErrorLine(
             L"PrepareRuntime phase failed: unhandled unknown exception"
         );
-        const int finalExitCode = FinalizeExecution(opt, prepareResult.prepared, logPaths, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, nullptr, executionTimeline.get());
+        const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, nullptr, executionTimeline.get());
 
-        LocalFree(argv);
+
         return finalExitCode;
     }
 
     if (!prepareResult.ok) {
 
-        const int finalExitCode = FinalizeExecution(opt, prepareResult.prepared, logPaths, parentEmitPolicy, workerCommonPolicy.ParsingToken(), prepareResult.earlyExitCode, lifecycleDiag, nullptr, executionTimeline.get());
+        const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), prepareResult.earlyExitCode, lifecycleDiag, nullptr, executionTimeline.get());
 
-        LocalFree(argv);
+
         return finalExitCode;
     }
 
-    if (!prepared.fileSinkWorker || !prepared.parentEmitWorker || !prepared.jobsExchange) {
+    if (!workers.fileSink || !workers.parentEmit || !workers.jobsExchange) {
         lifecycleDiag.FatalErrorLine(
             L"PrepareRuntime phase failed: worker infrastructure missing"
         );
-        const int finalExitCode = FinalizeExecution(opt, prepared, logPaths, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, nullptr, executionTimeline.get());
-        LocalFree(argv);
+        const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, nullptr, executionTimeline.get());
+
         return finalExitCode;
     }
-    prepared.fileSinkWorker->AttachLogWriters(
-        !opt.stdoutDir.empty(),
-        &prepared.stdoutLogWriter,
-        logPaths.running.stdoutTxt,
-        !opt.stderrDir.empty(),
-        &prepared.stderrLogWriter,
-        logPaths.running.stderrSrAndChildTxt,
-        !opt.stderrChildDir.empty(),
-        &prepared.stderrChildLogWriter,
-        logPaths.running.stderrChildTxt,
-        !opt.stderrSrDir.empty(),
-        &prepared.stderrSrLogWriter,
-        logPaths.running.stderrSrTxt,
-        !opt.stderrSrAndChildInclStdoutDir.empty(),
-        &prepared.stderrSrAndChildInclStdoutLogWriter,
-        logPaths.running.stderrSrAndChildInclStdoutTxt
-    );
-    prepared.fileSinkWorker->AttachJsonlWriters(
-        !opt.stdoutJsonlDir.empty(),
-        &prepared.stdoutJsonlWriter,
-        logPaths.running.stdoutJsonl,
-        !opt.stderrJsonlDir.empty(),
-        &prepared.stderrJsonlWriter,
-        logPaths.running.stderrSrAndChildJsonl,
-        !opt.stderrChildJsonlDir.empty(),
-        &prepared.stderrChildJsonlWriter,
-        logPaths.running.stderrChildJsonl,
-        !opt.stderrSrJsonlDir.empty(),
-        &prepared.stderrSrJsonlWriter,
-        logPaths.running.stderrSrJsonl,
-        !opt.stderrSrAndChildInclStdoutJsonlDir.empty(),
-        &prepared.stderrSrAndChildInclStdoutJsonlWriter,
-        logPaths.running.stderrSrAndChildInclStdoutJsonl
-    );
-    prepared.fileSinkWorker->Resume();
+    workers.fileSink->Resume();
 
     if (!executionTimeline->EndPhase(executionTimeline->PrepareContext())) {
         lifecycleDiag.FatalErrorLine(
@@ -356,7 +334,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     }
 
     lifecycleDiag.DebugLine(
-        L"PrepareRuntime phase ends; executionId=" + prepared.executionId
+        L"PrepareRuntime phase ends"
     );
 
 
@@ -379,21 +357,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     bool runtimeFatal = false;
     try {
         runtimeResult = RunHiddenWithRouting(
-            prepared.fullCmdLineForCreateProcess,
-            prepared.executionId,
-            prepared.generatedSuffix,
-            prepared.effectiveIdSuffixMode,
-            prepared.useDefaultSuffixMode,
+            configsBuilder.configs.runHiddenWithRouting,
+            prepareResult.logFiles.paths,
+            prepareResult.fullCmdLineForCreateProcess,
+            prepareResult.stdoutStdHandleProbe,
+            prepareResult.stderrStdHandleProbe,
+            prepareResult.specialCharactersDebugMessage,
+            prepareResult.unboundedReplayBufferDebugMessages,
             lifecycleDiag,
             executionTimeline,
             parentEmitPolicy,
             workerCommonPolicy,
-            bufferLimitPtr,
-            opt,
-            logPaths,
-            prepared.stdoutStdHandleProbe,
-            prepared.stderrStdHandleProbe
-
+            bufferLimitPtr
         );
     } catch (const std::bad_alloc&) {
         lifecycleDiag.FatalErrorLine(
@@ -426,11 +401,11 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     // FinalizeExecution still performs any eligible parent replay before shutdown.
 
     if (runtimeFatal || (runtimeResult.fatal && !runtimeResult.childStarted)) {
-        const int finalExitCode = FinalizeExecution(opt, prepareResult.prepared, logPaths, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, &runtimeResult, executionTimeline.get());
+        const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, &runtimeResult, executionTimeline.get());
+
 
         // emitJsonSummaryFullIfRequested(runtimeResult, finalExitCode);
 
-        LocalFree(argv);
         return finalExitCode;
     }
 
@@ -450,10 +425,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
             std::to_wstring(runtimeResult.exitCode)
     );
 
-    const int finalExitCode = FinalizeExecution(opt, prepareResult.prepared, logPaths, parentEmitPolicy, workerCommonPolicy.ParsingToken(), finalizationExitCode, lifecycleDiag, &runtimeResult, executionTimeline.get());
+    const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), finalizationExitCode, lifecycleDiag, &runtimeResult, executionTimeline.get());
     // emitJsonSummaryFullIfRequested(runtimeResult, finalExitCode);
 
-    LocalFree(argv);
     return finalExitCode;
 }
 

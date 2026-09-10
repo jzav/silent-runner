@@ -10,6 +10,15 @@ using CoreHelpers::UniqueHandle;
 
 namespace FileHelpers {
 
+std::wstring GetComSpec() {
+    wchar_t buf[MAX_PATH];
+    DWORD n = GetEnvironmentVariableW(L"ComSpec", buf, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) {
+        return std::wstring(buf, n);
+    }
+    return L"C:\\Windows\\System32\\cmd.exe";
+}
+
 bool FileExists(const std::wstring& path) noexcept {
     const DWORD attrs = GetFileAttributesW(path.c_str());
     if (attrs == INVALID_FILE_ATTRIBUTES) {

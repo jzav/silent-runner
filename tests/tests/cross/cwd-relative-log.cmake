@@ -1,0 +1,7 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init()
+file(MAKE_DIRECTORY "${SR_TEST_ROOT}/childcwd")
+sr_run(r ARGS --cwd childcwd --id-base cross-cwd-log --stdout-dir logs --stdout-emit never "${SR_STDOUT_CMD}")
+sr_assert_exit(r 0)
+sr_assert_path_exists("${SR_TEST_ROOT}/logs/cross-cwd-log_stdout_success.log")
+sr_assert_path_not_exists("${SR_TEST_ROOT}/childcwd/logs/cross-cwd-log_stdout_success.log")

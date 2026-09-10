@@ -598,76 +598,28 @@ struct LogPathSet {
     std::wstring stderrSrAndChildInclStdoutJsonl;
 };
 
+struct LogFileCreationResults {
+    bool probe = false;
+    bool stdoutTxt = false;
+    bool stdoutJsonl = false;
+
+    bool stderrSrAndChildTxt = false;
+    bool stderrSrAndChildJsonl = false;
+
+    bool stderrChildTxt = false;
+    bool stderrChildJsonl = false;
+
+    bool stderrSrTxt = false;
+    bool stderrSrJsonl = false;
+    bool stderrSrAndChildInclStdoutTxt = false;
+    bool stderrSrAndChildInclStdoutJsonl = false;
+};
+
 struct LogPaths {
     LogPathSet running;
     LogPathSet success;
     LogPathSet failure;
-};
-
-
-
-// =====================================================================================
-// Shared options (domain config)
-// =====================================================================================
-
-struct Options {
-    bool showHelp = false;
-    bool debug = false;
-    bool verbose = false;
-
-    bool inheritStdin = false;
-    bool utf8 = false;        // prefixes inner with: chcp 65001>nul &
-    uint32_t timeoutMs = 0;   // 0 = infinite
-    std::wstring cwd;
-
-    ExecutionMode executionMode = ExecutionMode::ScriptOrExe;
-
-    std::wstring stdoutDir;
-    std::wstring stderrDir;
-    std::wstring stderrChildDir;
-    std::wstring stderrSrDir;
-    std::wstring stdoutJsonlDir;
-    std::wstring stderrJsonlDir;
-    std::wstring stderrChildJsonlDir;
-    std::wstring stderrSrJsonlDir;
-    std::wstring stderrSrAndChildInclStdoutDir;
-    std::wstring stderrSrAndChildInclStdoutJsonlDir;
-    std::wstring probeDir;
-
-
-    std::wstring runOnSuccess;
-    std::wstring runOnFailure;
-    std::wstring idPrefix;    // optional ID prefix
-    std::wstring idBase;      // optional ID base
-    IdSuffixMode idSuffix = IdSuffixMode::None;
-
-    EmitMode stdoutEmit = EmitMode::Stream;  // default
-    EmitMode stderrEmit = EmitMode::Stream;  // default
-    StderrEmitSource stderrEmitSource = StderrEmitSource::SrAndChild;
-
-    KeepLogMode stdoutDirKeepLog = KeepLogMode::Always; // default
-    KeepLogMode stderrDirKeepLog = KeepLogMode::Always; // default
-    KeepLogMode stderrChildDirKeepLog = KeepLogMode::Always;
-    KeepLogMode stderrSrDirKeepLog = KeepLogMode::Always;
-    KeepLogMode stderrSrAndChildInclStdoutDirKeepLog = KeepLogMode::Always;
-
-    uint64_t stdoutMaxBufferBytes = 0; // 0 = unlimited (RAM only)
-    uint64_t stderrMaxBufferBytes = 0; // 0 = unlimited (RAM only)
-    uint64_t maxTotalBufferBytes  = 0; // 0 = unlimited (RAM only)
-    bool hasReplayablePersistentStdoutTxtSource = false;
-    bool hasReplayablePersistentStdoutJsonlSource = false;
-    bool hasReplayablePersistentStderrSrAndChildTxtSource = false;
-    bool hasReplayablePersistentStderrSrAndChildJsonlSource = false;
-    bool hasReplayablePersistentStderrChildTxtSource = false;
-    bool hasReplayablePersistentStderrChildJsonlSource = false;
-    bool hasReplayablePersistentStderrSrTxtSource = false;
-    bool hasReplayablePersistentStderrSrJsonlSource = false;
-    bool hasReplayablePersistentStderrSrAndChildInclStdoutTxtSource = false;
-    bool hasReplayablePersistentStderrSrAndChildInclStdoutJsonlSource = false;
-
-
-    std::wstring inner; // inner command passed to cmd.exe /d /s /c "...".
-    std::vector<std::wstring> parserDebugMessages;
+    std::wstring probe;
 };
 
 #undef SR_EXECUTION_MODE_TABLE

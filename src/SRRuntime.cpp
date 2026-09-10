@@ -12,6 +12,8 @@
 #include <memory>
 
 #include "SRRuntime.h"
+#include "SRConfigsBuilderTypes.h"
+
 
 #include "CoreHelpers.h"
 #include "ErrorHelpers.h"
@@ -83,23 +85,20 @@ static void StopAndUnblockReaders(
 }
 
 SRRuntimeResult RunHiddenWithRouting(
+    const SR::RunHiddenWithRoutingConfig& config,
+    const SR::LogPaths& logPaths,
     const std::wstring& fullCmdLineForCreateProcess,
-    const std::wstring& executionId,
-    const std::wstring& generatedSuffix,
-    SR::IdSuffixMode effectiveIdSuffixMode,
-    bool useDefaultSuffixMode,
+    const HandleHelpers::StdHandleWriteProbeResult& stdoutStdHandleProbe,
+    const HandleHelpers::StdHandleWriteProbeResult& stderrStdHandleProbe,
+    const std::wstring& specialCharactersDebugMessage,
+    const std::vector<std::wstring>& unboundedReplayBufferDebugMessages,
     SRLifecycleDiagnostics& lifecycleDiag,
     std::shared_ptr<ExecutionTimeline> executionTimeline,
     const SRParentEmitPolicy& parentEmitPolicy,
     const SRWorkerCommonPolicy& workerCommonPolicy,
-    SRBufferLimiter* bufferLimitPtr,
-    const SR::Options& opt,
-    const SR::LogPaths& logPaths,
-    const HandleHelpers::StdHandleWriteProbeResult& stdoutStdHandleProbe,
-    const HandleHelpers::StdHandleWriteProbeResult& stderrStdHandleProbe
-
-
+    SRBufferLimiter* bufferLimitPtr
 ) {
+
     // -------------------------------------------------------
     // Gateway setup (must happen before any INFO/DEBUG is logged)
     // -------------------------------------------------------
@@ -120,17 +119,14 @@ SRRuntimeResult RunHiddenWithRouting(
 
 
     stdoutRouter.Init(
-        opt.stdoutEmit,
-        &parentEmitPolicy,
+        parentEmitPolicy,
         bufferLimitPtr,
         executionTimeline.get()
     );
 
 
     stderrRouter.Init(
-        opt.stderrEmit,
-        opt.stderrEmitSource,
-        &parentEmitPolicy,
+        parentEmitPolicy,
         bufferLimitPtr,
         executionTimeline.get()
     );
@@ -145,7 +141,7 @@ SRRuntimeResult RunHiddenWithRouting(
     //   and dedicated workers, not directly from SRRuntime.
 
     diag.Init(
-        opt.debug,
+        config.debug,
         &stderrRouter
     );
 
@@ -193,34 +189,45 @@ SRRuntimeResult RunHiddenWithRouting(
         return BuildRuntimeResult(255);
     }
 
-    diag.InfoLine(L"ID_PREFIX=" + (opt.idPrefix.empty() ? std::wstring(L"none") : opt.idPrefix));
-    diag.InfoLine(L"ID_BASE=" + (opt.idBase.empty() ? std::wstring(L"none") : opt.idBase));
+    diag.InfoLine(L"ID_PREFIX=" + (config.idPrefix.empty() ? std::wstring(L"none") : config.idPrefix));
+    diag.InfoLine(L"ID_BASE=" + (config.idBase.empty() ? std::wstring(L"none") : config.idBase));
 
-    std::wstring suffixMode = SR::IdSuffixModeToString(effectiveIdSuffixMode);
-    if (useDefaultSuffixMode) {
+    std::wstring suffixMode = SR::IdSuffixModeToString(config.effectiveIdSuffixMode);
+
+    if (config.useDefaultSuffixMode) {
+
         suffixMode += L" (default)";
     }
     diag.InfoLine(L"ID_SUFFIX_MODE=" + suffixMode);
-    diag.InfoLine(L"ID_SUFFIX=" + (generatedSuffix.empty() ? std::wstring(L"none") : generatedSuffix));
-    diag.InfoLine(L"EXECUTION_ID=" + executionId);
+    diag.InfoLine(L"ID_SUFFIX=" + (config.generatedSuffix.empty() ? std::wstring(L"none") : config.generatedSuffix));
+
+    diag.InfoLine(L"EXECUTION_ID=" + config.executionId);
+
     if (!workerCommonPolicy.ParsingToken().empty()) {
         diag.InfoLine(
             L"PARSINGTOKEN=" +
             FileHelpers::Utf8ToWide(workerCommonPolicy.ParsingToken())
         );
     }
-    diag.InfoLine(L"EXECUTION_MODE=" + std::wstring(SR::ExecutionModeToString(opt.executionMode)));
+    diag.InfoLine(L"EXECUTION_MODE=" + std::wstring(SR::ExecutionModeToString(config.executionMode)));
 
-    for (const std::wstring& msg : opt.parserDebugMessages) {
+    if (!specialCharactersDebugMessage.empty()) {
+        diag.DebugLine(specialCharactersDebugMessage);
+    }
+
+    for (const std::wstring& msg : unboundedReplayBufferDebugMessages) {
         diag.DebugLine(msg);
     }
 
+
     diag.DebugStdHandleProbe(L"STDOUT", stdoutStdHandleProbe);
-    diag.InfoLine(L"STDOUT_EMIT=" + std::wstring(SR::EmitModeToString(opt.stdoutEmit)));
+
+    diag.InfoLine(L"STDOUT_EMIT=" + std::wstring(SR::EmitModeToString(parentEmitPolicy.StdoutEmitMode())));
     
     diag.DebugStdHandleProbe(L"STDERR", stderrStdHandleProbe);
-    diag.InfoLine(L"STDERR_EMIT=" + std::wstring(SR::EmitModeToString(opt.stderrEmit)));
-    diag.InfoLine(L"STDERR_EMIT_SOURCE=" + std::wstring(SR::StderrEmitSourceToString(opt.stderrEmitSource)));
+
+    diag.InfoLine(L"STDERR_EMIT=" + std::wstring(SR::EmitModeToString(parentEmitPolicy.StderrEmitMode())));
+    diag.InfoLine(L"STDERR_EMIT_SOURCE=" + std::wstring(SR::StderrEmitSourceToString(parentEmitPolicy.StderrEmitSource())));
 
     if (!logPaths.running.stdoutTxt.empty()) {
         diag.InfoLine(L"STDOUT_LOG_FILE=" + logPaths.running.stdoutTxt);
@@ -237,7 +244,8 @@ SRRuntimeResult RunHiddenWithRouting(
 
 
     diag.DebugLine(L"fullCmdLine=" + fullCmdLineForCreateProcess);
-    diag.InfoLine(L"timeoutMs=" + std::to_wstring(opt.timeoutMs));
+
+    diag.InfoLine(L"timeoutMs=" + std::to_wstring(config.timeoutMs));
     diag.DebugProcessChain(L"Self", GetCurrentProcessId());
 
     SECURITY_ATTRIBUTES sa{};
@@ -291,7 +299,7 @@ SRRuntimeResult RunHiddenWithRouting(
     UniqueHandle childIn; // inheritable handle we pass to the child (best effort)
     HANDLE sourceStdin = nullptr;
 
-    if (opt.inheritStdin) {
+    if (config.inheritStdin) {
         sourceStdin = GetStdHandle(STD_INPUT_HANDLE);
         if (!sourceStdin || sourceStdin == INVALID_HANDLE_VALUE) sourceStdin = nullptr;
     }
@@ -330,7 +338,7 @@ SRRuntimeResult RunHiddenWithRouting(
     }
 
     if (!childIn.valid()) {
-        if (opt.inheritStdin) {
+        if (config.inheritStdin) {
             std::wstring msg = L"--inherit-stdin requested but an inheritable stdin handle could not be created";
             if (stdinDupGle != 0) {
                 msg += L"; ";
@@ -407,11 +415,12 @@ SRRuntimeResult RunHiddenWithRouting(
         // lpCurrentDirectory.
         //
         // Important:
-        // - opt.cwd changes the working directory of the child process.
+        // - --cwd changes only the child current directory through lpCurrentDirectory.
         // - SilentRunner itself does not call SetCurrentDirectoryW here.
         // - Therefore, SR option paths such as --stdout-dir/--stderr-dir are not
-        //   resolved against opt.cwd.
+        //   resolved against --cwd.
         std::wstring cmd = fullCmdLineForCreateProcess; // CreateProcessW requires mutable buffer
+
         BOOL ok = CreateProcessW(
             nullptr,
             cmd.data(),
@@ -420,7 +429,7 @@ SRRuntimeResult RunHiddenWithRouting(
             TRUE,
             EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW | CREATE_SUSPENDED,
             nullptr,
-            opt.cwd.empty() ? nullptr : opt.cwd.c_str(),
+            config.cwd.empty() ? nullptr : config.cwd.c_str(),
             &siex.StartupInfo,
             &pi
         );
@@ -608,13 +617,13 @@ SRRuntimeResult RunHiddenWithRouting(
 
         if (limitEvent) {
             HANDLE waitHandles[2] = { childProc.get(), limitEvent };
-            wait = (opt.timeoutMs == 0)
+            wait = (config.timeoutMs == 0)
                 ? WaitForMultipleObjects(2, waitHandles, FALSE, INFINITE)
-                : WaitForMultipleObjects(2, waitHandles, FALSE, opt.timeoutMs);
+                : WaitForMultipleObjects(2, waitHandles, FALSE, config.timeoutMs);
         } else {
-            wait = (opt.timeoutMs == 0)
+            wait = (config.timeoutMs == 0)
                 ? WaitForSingleObject(childProc.get(), INFINITE)
-                : WaitForSingleObject(childProc.get(), opt.timeoutMs);
+                : WaitForSingleObject(childProc.get(), config.timeoutMs);
         }
 
         if (bufferLimitPtr && bufferLimitPtr->EventFailureDetected()) {
@@ -663,7 +672,7 @@ SRRuntimeResult RunHiddenWithRouting(
 
             ReportRuntimeFatal(
                 L"Fatal runtime stop: Timeout exceeded; timeout_ms=" +
-                std::to_wstring(opt.timeoutMs) +
+                std::to_wstring(config.timeoutMs) +
                 L" exit_code=124"
             );
 
@@ -684,9 +693,9 @@ SRRuntimeResult RunHiddenWithRouting(
 
             std::wstring bufferLimitFatalMessage =
                 L"Fatal runtime stop: Buffer limit exceeded; first_hit=" + which +
-                L" stdout_max=" + std::to_wstring(opt.stdoutMaxBufferBytes) +
-                L" stderr_max=" + std::to_wstring(opt.stderrMaxBufferBytes) +
-                L" total_max=" + std::to_wstring(opt.maxTotalBufferBytes) +
+                L" stdout_max=" + std::to_wstring(bufferLimitPtr ? bufferLimitPtr->StdoutMaxBytes() : 0) +
+                L" stderr_max=" + std::to_wstring(bufferLimitPtr ? bufferLimitPtr->StderrMaxBytes() : 0) +
+                L" total_max=" + std::to_wstring(bufferLimitPtr ? bufferLimitPtr->TotalMaxBytes() : 0) +
                 L" action=abort";
 
             ReportRuntimeFatal(bufferLimitFatalMessage);

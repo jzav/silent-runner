@@ -5,6 +5,10 @@
 #include "SRTypes.h"
 #include "SRExecutionTimeline.h"
 
+namespace SR {
+struct SRLifecycleDiagnosticsConfig;
+}
+
 class SRBufferLimiter;
 class SRParentEmitPolicy;
 
@@ -18,19 +22,15 @@ public:
     SRLifecycleDiagnostics& operator=(const SRLifecycleDiagnostics&) = delete;
 
     bool Init(
-        SR::EmitMode emitMode,
+        const SR::SRLifecycleDiagnosticsConfig& config,
+        const SRParentEmitPolicy& parentEmitPolicy,
         ExecutionTimeline* executionTimelineOrNull
     ) noexcept;
 
 
 
 
-    void SetDebugEnabled(bool value) noexcept;
-    void SetVerboseEnabled(bool value) noexcept;
-    void SetEmitMode(SR::EmitMode value) noexcept;
-    void SetStderrEmitSource(SR::StderrEmitSource value) noexcept;
     void SetBufferLimiter(SRBufferLimiter* bufferLimitOrNull) noexcept;
-    void SetParentEmitPolicy(const SRParentEmitPolicy* parentEmitPolicyOrNull) noexcept;
 
 
     bool TrySetProbeLogPath(const std::wstring& value) noexcept;
@@ -61,7 +61,6 @@ public:
     ) noexcept;
 
     bool IsDebugEnabled() const noexcept { return debugEnabled_; }
-    SR::EmitMode EmitMode() const noexcept { return emitMode_; }
 
 
 
@@ -78,8 +77,6 @@ private:
 private:
     bool debugEnabled_ = false;
     bool verboseEnabled_ = false;
-    SR::EmitMode emitMode_ = SR::EmitMode::Stream;
-    SR::StderrEmitSource stderrEmitSource_ = SR::StderrEmitSource::SrAndChild;
     SRBufferLimiter* bufferLimit_ = nullptr;
     const SRParentEmitPolicy* parentEmitPolicy_ = nullptr;
 

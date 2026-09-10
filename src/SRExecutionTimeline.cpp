@@ -3,6 +3,8 @@
 #include "FileHelpers.h"
 #include "TextHelpers.h"
 #include "SRLifecycleDiagnostics.h"
+#include "SRConfigsBuilderTypes.h"
+
 #include "SRReplayJobsBatch.h"
 
 
@@ -13,8 +15,11 @@
 #include <type_traits>
 
 
-bool ExecutionTimeline::Init() {
+bool ExecutionTimeline::Init(const SR::ExecutionTimelineConfig& config) {
+
     std::lock_guard<std::mutex> lock(mutex_);
+    verboseEnabled_.store(config.verbose, std::memory_order_relaxed);
+
 
     prepareTimeline_.Reset(
         SR::LifecyclePhase::Prepare,
@@ -103,9 +108,6 @@ void ExecutionTimeline::EnqueuePendingJobs_(
 void ExecutionTimeline::SetParentEmitPolicy(SRParentEmitPolicy& parentEmitPolicy) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     parentEmitPolicy_ = &parentEmitPolicy;
-}
-void ExecutionTimeline::SetVerboseEnabled(bool value) noexcept {
-    verboseEnabled_.store(value, std::memory_order_relaxed);
 }
 void ExecutionTimeline::SetLifecycleDiagnostics(
     SRLifecycleDiagnostics& lifecycleDiag

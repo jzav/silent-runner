@@ -31,6 +31,10 @@ bool EndsWith(
     std::wstring_view text,
     std::wstring_view suffix
 ) noexcept;
+bool TryParseUInt32(std::wstring_view text, uint32_t& value) noexcept;
+
+bool TryParseUInt64(std::wstring_view text, uint64_t& value) noexcept;
+void TrimTrailingNewlines(std::wstring& value);
 
 
 char ToUpperAscii(char ch) noexcept;

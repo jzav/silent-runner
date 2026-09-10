@@ -75,6 +75,23 @@ bool SRParentEmitWorker::Init(
     {
         std::scoped_lock lock(domainMutex_, failureLatchMutex_);
         domain_ = WorkerDomain{};
+        for (std::size_t workerConfigIndex = 0;
+             workerConfigIndex < domain_.targetConfigs.size();
+             ++workerConfigIndex) {
+            const SR::JobTarget target =
+                domain_.targetConfigs[workerConfigIndex].target;
+
+            if (SR::JobTargetWorkerOf(target) !=
+                    SR::JobTargetWorker::SRParentEmitWorker ||
+                SR::JobTargetWorkerConfigIndexOf(target) !=
+                    workerConfigIndex) {
+                ProbeLine_(
+                    L"SRParentEmitWorker::Init target config index invariant failed"
+                );
+                return false;
+            }
+        }
+
     }
 
     stderrSrAndChildParentLastWrittenPayloadType_.reset();
