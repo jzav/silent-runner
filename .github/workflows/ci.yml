@@ -73,6 +73,7 @@ jobs:
         run: >
           gh release create "${{ github.ref_name }}"
           "release/SilentRunner.exe#SilentRunner.exe"
+          --repo "${{ github.repository }}"
           --verify-tag
           --generate-notes
           --title "${{ github.ref_name }}"
