@@ -138,7 +138,7 @@ Options:
 
 ------------------------------------------------------------------------
 
-### Output Routing
+### Parent Emission
 
 Controls which output is emitted to the parent process and when it is
 emitted.
@@ -598,14 +598,6 @@ SilentRunner.exe -c "echo Starting... & task1.exe | task2.exe"
   executable path and individual child arguments.
 - All other settings retain their default behavior described in the first
   example.
-
-------------------------------------------------------------------------
-
-## Build
-
-Prebuilt binary is included in `bin/`. Release builder is included in
-`scripts/`. A GUI tester for running and inspecting SilentRunner commands
-is included in `tools/`.
 
 ------------------------------------------------------------------------
 

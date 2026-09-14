@@ -535,6 +535,14 @@ class SilentRunnerTesterApp:
 
         return command, working_dir
 
+    def _clear_pending_events(self) -> None:
+        while True:
+            try:
+                self.event_queue.get_nowait()
+            except queue.Empty:
+                break
+
+
     def _run_process(self) -> None:
         if self.running:
             messagebox.showwarning("SilentRunner Tester", "A process is already running.")
@@ -547,6 +555,7 @@ class SilentRunnerTesterApp:
             return
 
 
+        self._clear_pending_events()
         self._clear_outputs()
         self.exit_code_var.set("running")
         self.status_var.set("Running...")
