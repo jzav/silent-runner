@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Resolves a relative hook path against SilentRunner inherited cwd rather than --cwd.")
 file(MAKE_DIRECTORY "${SR_TEST_ROOT}/different-child-cwd")
 sr_run(r ARGS --cwd different-child-cwd --run-on-success success-hook.cmd "${SR_OK}")
 sr_assert_exit(r 0)

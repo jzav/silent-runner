@@ -1,31 +1,41 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(SilentRunnerCTest LANGUAGES NONE)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    project(SilentRunnerCTest LANGUAGES NONE)
+    include(CTest)
+endif()
 
-include(CTest)
 
 if(NOT BUILD_TESTING)
     return()
 endif()
 
-if(NOT DEFINED SILENTRUNNER_EXE)
-    message(FATAL_ERROR
-        "SILENTRUNNER_EXE is required.\n"
-        "Configure with:\n"
-        "  cmake -S . -B build -DSILENTRUNNER_EXE=C:/path/to/SilentRunner.exe"
-    )
-endif()
+if(TARGET SilentRunner)
+    # Integrated mode: test the executable produced by the current build.
+    # The path is resolved during generation; the EXE need not exist yet.
+    # Running ctest does not build the executable.
+    set(SILENTRUNNER_EXE "$<TARGET_FILE:SilentRunner>")
+else()
+    # Standalone mode: test an existing executable without compiling sources.
+    if(NOT DEFINED SILENTRUNNER_EXE OR SILENTRUNNER_EXE STREQUAL "")
+        message(FATAL_ERROR
+            "SILENTRUNNER_EXE is required.\n"
+            "Configure from the test suite directory with:\n"
+            "  cmake -S . -B build -DSILENTRUNNER_EXE=C:/path/to/SilentRunner.exe"
+        )
+    endif()
 
-cmake_path(
-    ABSOLUTE_PATH SILENTRUNNER_EXE
-    NORMALIZE
-    OUTPUT_VARIABLE SILENTRUNNER_EXE
-)
-
-if(NOT EXISTS "${SILENTRUNNER_EXE}")
-    message(FATAL_ERROR
-        "SilentRunner executable not found: ${SILENTRUNNER_EXE}"
+    cmake_path(
+        ABSOLUTE_PATH SILENTRUNNER_EXE
+        NORMALIZE
+        OUTPUT_VARIABLE SILENTRUNNER_EXE
     )
+
+    if(NOT EXISTS "${SILENTRUNNER_EXE}" OR IS_DIRECTORY "${SILENTRUNNER_EXE}")
+        message(FATAL_ERROR
+            "SilentRunner executable is not an existing file: ${SILENTRUNNER_EXE}"
+        )
+    endif()
 endif()
 
 set(SR_TESTS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -93,6 +103,7 @@ sr_add_script_test(id.suffix.case-insensitive    id/suffix-case-insensitive.cmak
 sr_add_script_test(id.default-timestamp-pid      id/default-timestamp-pid.cmake)
 sr_add_script_test(id.base-without-suffix        id/base-without-suffix.cmake)
 sr_add_script_test(id.prefix-without-suffix      id/prefix-without-suffix.cmake)
+sr_add_script_test(id.prefix-and-base            id/prefix-and-base.cmake)
 
 # path
 sr_add_script_test(path.probe-dir.invalid-character                       path/probe-dir-invalid-character.cmake)
@@ -140,6 +151,8 @@ sr_add_script_test(hooks.environment-success                       hooks/environ
 sr_add_script_test(hooks.environment-failure                       hooks/environment-failure.cmake)
 sr_add_script_test(hooks.environment-retained-log                  hooks/environment-retained-log.cmake)
 sr_add_script_test(hooks.environment-removed-log-empty             hooks/environment-removed-log-empty.cmake)
+sr_add_script_test(hooks.nonzero-exit                            hooks/nonzero-exit.cmake)
+sr_add_script_test(hooks.detached-nested-no-diagnostic-channel      hooks/detached-nested-no-diagnostic-channel.cmake)
 
 # command
 sr_add_script_test(command.script-no-args                  command/script-no-args.cmake)
@@ -204,9 +217,17 @@ sr_add_script_test(emit.stderr.incl-stdout.failure.success             emit/stde
 sr_add_script_test(emit.stderr.incl-stdout.failure.failure             emit/stderr-incl-stdout-failure-failure.cmake)
 sr_add_script_test(emit.stderr-source-conflict.combined-sr             emit/stderr-source-conflict-combined-sr.cmake)
 sr_add_script_test(emit.stderr-source-conflict.combined-incl-stdout    emit/stderr-source-conflict-combined-incl-stdout.cmake)
+sr_add_script_test(emit.stderr-source-conflict.combined-child           emit/stderr-source-conflict-combined-child.cmake)
 sr_add_script_test(emit.stderr-source-conflict.child-sr                emit/stderr-source-conflict-child-sr.cmake)
 sr_add_script_test(emit.stderr-source-conflict.child-incl-stdout       emit/stderr-source-conflict-child-incl-stdout.cmake)
 sr_add_script_test(emit.stderr-source-conflict.sr-incl-stdout          emit/stderr-source-conflict-sr-incl-stdout.cmake)
+# replay
+sr_add_script_test(replay.stdout-txt-end                      replay/stdout-txt-end.cmake)
+sr_add_script_test(replay.stdout-jsonl-end                    replay/stdout-jsonl-end.cmake)
+sr_add_script_test(replay.stdout-txt-success                  replay/stdout-txt-success.cmake)
+sr_add_script_test(replay.stderr-sr-txt-end                   replay/stderr-sr-txt-end.cmake)
+sr_add_script_test(replay.stderr-incl-stdout-jsonl-end         replay/stderr-incl-stdout-jsonl-end.cmake)
+sr_add_script_test(replay.stderr-sr-jsonl-failure              replay/stderr-sr-jsonl-failure.cmake)
 
 # logging
 sr_add_script_test(logging.stdout-txt                          logging/stdout-txt.cmake)
@@ -232,6 +253,11 @@ sr_add_script_test(logging.stderr-incl-stdout-jsonl.failure    logging/stderr-in
 sr_add_script_test(logging.probe-dir                           logging/probe-dir.cmake)
 sr_add_script_test(logging.creates-nested-directory            logging/creates-nested-directory.cmake)
 sr_add_script_test(logging.all-destinations-parallel           logging/all-destinations-parallel.cmake)
+sr_add_script_test(logging.collision.stdout-txt.running   logging/collision-stdout-txt-running.cmake)
+sr_add_script_test(logging.collision.stdout-txt.success   logging/collision-stdout-txt-success.cmake)
+sr_add_script_test(logging.collision.stdout-txt.failure   logging/collision-stdout-txt-failure.cmake)
+sr_add_script_test(logging.collision.stdout-jsonl.success logging/collision-stdout-jsonl-success.cmake)
+sr_add_script_test(logging.stdout-dir-points-to-file           logging/stdout-dir-points-to-file.cmake)
 
 # retention
 sr_add_script_test(retention.stdout.success-on-success                retention/stdout-success-on-success.cmake)
@@ -290,6 +316,7 @@ sr_add_script_test(buffer.total-overflow     buffer/total-overflow.cmake)
 # comspec
 sr_add_script_test(comspec.fallback-when-missing       comspec/fallback-when-missing.cmake)
 sr_add_script_test(comspec.explicit-inherited-value    comspec/explicit-inherited-value.cmake)
+sr_add_script_test(comspec.invalid-inherited-value     comspec/invalid-inherited-value.cmake)
 
 # help
 sr_add_script_test(help.basic               help/basic.cmake)
@@ -305,3 +332,4 @@ sr_add_script_test(cross.cwd-relative-hook                      cross/cwd-relati
 sr_add_script_test(cross.cwd-relative-log                       cross/cwd-relative-log.cmake)
 sr_add_script_test(cross.success-hook-with-success-retention    cross/success-hook-with-success-retention.cmake)
 sr_add_script_test(cross.failure-hook-with-failure-retention    cross/failure-hook-with-failure-retention.cmake)
+sr_add_script_test(cross.no-diagnostic-channel                  cross/no-diagnostic-channel.cmake)

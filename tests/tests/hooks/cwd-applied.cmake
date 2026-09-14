@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Runs the selected hook with the configured --cwd working directory.")
 file(MAKE_DIRECTORY "${SR_TEST_ROOT}/hook-workdir")
 sr_run(r ARGS --cwd hook-workdir --run-on-success hook-cwd.cmd "${SR_OK}")
 sr_assert_exit(r 0)

@@ -1,7 +1,7 @@
 SilentRunner regression coverage plan
 =====================================
 
-REGISTERED TESTS: 222
+REGISTERED TESTS: 239
 
 COVERED IN THIS CMAKE/CTEST SUITE
 ---------------------------------
@@ -11,7 +11,7 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - case-insensitive options
   - --name value and --name=value forms
   - --utf8 / --utf-8 alias and duplicate alias handling
-  - --verbose and --inherit-stdin acceptance
+  - --verbose behavior (implies debug and emits verbose diagnostics) and --inherit-stdin acceptance
   - child options after the command remain child arguments
 
 [covered] Numeric parsing / boundaries
@@ -23,6 +23,7 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - all suffix modes
   - case-insensitive suffix value
   - base-only and prefix-only IDs
+  - prefix + base composition in prefix_base order with one underscore and no implicit suffix
   - default timestamp+pid filename shape
 
 [covered] Path validation
@@ -43,9 +44,11 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - relative hook resolution is independent of --cwd
   - hook working directory follows --cwd
   - exit-code / execution-ID environment
-  - retained log path environment
-  - removed log path becomes empty environment value
+  - all 10 retained log-path environment variables
+  - all 10 log-path environment variables become empty when retention removes the logs
   - detached hook completion is handled by bounded polling
+  - detached success hook non-zero exit does not change the successful child result
+  - detached hook's nested SilentRunner returns 254 without a diagnostic channel while the outer execution remains successful
 
 [covered] ScriptOrExe / RawCommand
   - no args, multiple args, spaces, child --help / --debug arguments
@@ -55,12 +58,12 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - missing raw command and unexpected extra argv
 
 [covered] UTF-8
-  - code page 65001
+  - --utf8 injects code page 65001; default execution does not
 
 [covered] Timeout (non-process-tree mechanics)
   - exit code 124
   - child completes before timeout
-  - pre-timeout stdout survives failure emission
+  - pre-timeout stdout/stderr survive failure emission
   - failure retention on timeout
   - failure hook on timeout
 
@@ -69,6 +72,13 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - stderr combined / child / SR / incl-stdout source mode matrices
   - all six pairwise stderr-source mutual-exclusion combinations
 
+[covered] Persistent replay provenance
+  - end-mode stdout replay from persistent TXT and JSONL sources
+  - success-mode stdout replay from persistent TXT
+  - end-mode stderr-SR replay from TXT and stderr-incl-stdout replay from JSONL
+  - failure-mode stderr-SR replay from persistent JSONL
+  - normal debug replay plan confirms the selected Txt/Jsonl source
+
 [covered] Persistent logging
   - all five logical destinations in TXT and JSONL
   - success/failure final names
@@ -76,6 +86,9 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - nested directory creation
   - all 10 destinations enabled in parallel
   - probe logging
+  - running/success/failure candidate collisions with representative TXT/JSONL coverage
+  - collision preflight returns 255 without overwriting the existing file or starting the child
+  - --stdout-dir pointing to an existing regular file returns 255 without starting the child or changing the file contents
 
 [covered] Log retention
   - all five keep-log policies
@@ -85,10 +98,12 @@ COVERED IN THIS CMAKE/CTEST SUITE
 
 [covered] ComSpec / help / defaults / cross-feature cases
   - ComSpec fallback and explicit inherited ComSpec
-  - help and case-insensitive help
+  - inherited ComSpec pointing to a nonexistent executable returns 255 without fallback or child execution
+  - help, case-insensitive help, and complete public CLI surface
   - default stdout stream, default combined stderr stream, default ScriptOrExe
   - cwd + relative hook/log path interactions
   - hook + retention interactions
+  - no diagnostic channel returns 254 before starting the child
 
 DEFERRED FOR NOW
 ----------------------
@@ -103,6 +118,11 @@ DEFERRED FOR NOW
   Reason: content is covered, but proving arrival while the child is still
           running needs synchronization/timing instrumentation.
 
+[deferred] Exact cross-pipe chronology for mixed stderr / incl-stdout
+  Reason: stdout and stderr are drained by separate reader threads; proving
+         child write order across both streams needs a synchronized fixture
+         or additional instrumentation.
+         
 [deferred] Buffer-limiter dropped-payload runtime mechanics
   Reason: numeric configuration is covered; deterministic byte/event drop
           accounting needs a controlled high-volume generator fixture.

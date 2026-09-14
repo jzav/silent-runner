@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Keeps relative log path resolution independent of the configured child cwd.")
 file(MAKE_DIRECTORY "${SR_TEST_ROOT}/childcwd")
 sr_run(r ARGS --cwd childcwd --id-base cross-cwd-log --stdout-dir logs --stdout-emit never "${SR_STDOUT_CMD}")
 sr_assert_exit(r 0)

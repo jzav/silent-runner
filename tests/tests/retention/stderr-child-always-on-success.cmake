@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Keeps the child stderr log on success under always retention.")
 set(log_dir "${SR_TEST_ROOT}/logs")
 set(execution_id "ctest-ret-stderr-child-always-success")
 set(expected_log "${log_dir}/${execution_id}_stderr_child_success.log")

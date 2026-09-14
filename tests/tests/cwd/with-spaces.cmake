@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Accepts a relative --cwd path containing spaces.")
 set(relative_cwd "cwd with spaces")
 set(expected "${SR_TEST_ROOT}/${relative_cwd}")
 sr_run(r ARGS --cwd "${relative_cwd}" "${SR_PRINT_CWD}")

@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Uses the inherited ComSpec value when building the child command line.")
 if(NOT DEFINED ENV{ComSpec} OR "$ENV{ComSpec}" STREQUAL "")
     message(FATAL_ERROR "Windows ComSpec environment variable is not available to the test.")
 endif()

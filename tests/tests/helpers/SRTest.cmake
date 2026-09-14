@@ -26,8 +26,71 @@ set(SR_TEST_JSONL_PAYLOAD_BASE64_FIELD "\"payloadBase64\":")
 set(SR_TEST_EXIT_CLI_ERROR 2)
 set(SR_TEST_FAIL_CMD_EXIT_CODE 7)
 set(SR_TEST_EXIT_TIMEOUT 124)
+set(SR_TEST_EXIT_NO_DIAGNOSTIC_CHANNEL 254)
+set(SR_TEST_EXIT_INTERNAL 255)
+set(SR_TEST_PUBLIC_CLI_HELP_ENTRIES
+    "--help"
+    "--debug"
+    "--verbose"
+    "--probe-dir <dir>"
+    "--inherit-stdin"
+    "--utf8 or --utf-8"
+    "--timeout-ms <ms>"
+    "--cwd <dir>"
+    "--run-on-success <path>"
+    "--run-on-failure <path>"
+    "--id-prefix <value>"
+    "--id-base <value>"
+    "--id-suffix <timestamp|pid|timestamp+pid|pid+timestamp>"
+    "--stdout-emit <mode>"
+    "--stderr-emit <mode>"
+    "--stderr-emit-child <mode>"
+    "--stderr-emit-sr <mode>"
+    "--stderr-emit-incl-stdout <mode>"
+    "--stdout-max-buffer-bytes <bytes>"
+    "--stderr-max-buffer-bytes <bytes>"
+    "--std-total-max-buffer-bytes <bytes>"
+    "--stdout-dir <dir>"
+    "--stderr-dir <dir>"
+    "--stderr-dir-child <dir>"
+    "--stderr-dir-sr <dir>"
+    "--stderr-dir-incl-stdout <dir>"
+    "--stdout-dir-jsonl <dir>"
+    "--stderr-dir-jsonl <dir>"
+    "--stderr-dir-child-jsonl <dir>"
+    "--stderr-dir-sr-jsonl <dir>"
+    "--stderr-dir-incl-stdout-jsonl <dir>"
+    "--stdout-dir-keep-log <mode>"
+    "--stderr-dir-keep-log <mode>"
+    "--stderr-dir-child-keep-log <mode>"
+    "--stderr-dir-sr-keep-log <mode>"
+    "--stderr-dir-incl-stdout-keep-log <mode>"
+    "SilentRunner.exe [options] -c \"<command>\""
+)
 
 function(sr_test_init)
+    set(options)
+    set(one_value_args DESCRIPTION)
+    cmake_parse_arguments(SR_TEST_INIT "${options}" "${one_value_args}" "" ${ARGN})
+
+    if(SR_TEST_INIT_UNPARSED_ARGUMENTS)
+        message(FATAL_ERROR
+            "sr_test_init received unparsed arguments: ${SR_TEST_INIT_UNPARSED_ARGUMENTS}"
+        )
+    endif()
+
+    if(SR_TEST_INIT_KEYWORDS_MISSING_VALUES)
+        message(FATAL_ERROR
+            "sr_test_init is missing values for: ${SR_TEST_INIT_KEYWORDS_MISSING_VALUES}"
+        )
+    endif()
+
+    if(NOT DEFINED SR_TEST_INIT_DESCRIPTION OR SR_TEST_INIT_DESCRIPTION STREQUAL "")
+        message(FATAL_ERROR "sr_test_init requires DESCRIPTION.")
+    endif()
+
+    message(STATUS "[TEST] ${SR_TEST_INIT_DESCRIPTION}")
+
     string(REGEX REPLACE "[^A-Za-z0-9._-]" "_" safe_test_name "${SR_TEST_NAME}")
 
     set(test_root "${SR_TESTS_BINARY_DIR}/work/${safe_test_name}")
@@ -230,6 +293,22 @@ function(sr_assert_file_contains path expected)
             "Expected file to contain: [${expected}]\n"
             "File: ${path}\n"
             "Actual content:\n${file_text}"
+        )
+    endif()
+endfunction()
+
+function(sr_assert_file_equals path expected)
+    if(NOT EXISTS "${path}")
+        message(FATAL_ERROR "Expected file does not exist: ${path}")
+    endif()
+
+    file(READ "${path}" file_text)
+    if(NOT "${file_text}" STREQUAL "${expected}")
+        message(FATAL_ERROR
+            "Unexpected file content.\n"
+            "File: ${path}\n"
+            "Expected: [${expected}]\n"
+            "Actual:   [${file_text}]"
         )
     endif()
 endfunction()

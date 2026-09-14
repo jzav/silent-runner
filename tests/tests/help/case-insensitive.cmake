@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Accepts --help case-insensitively and prints help to stdout only.")
 sr_run(r ARGS --HeLp)
 sr_assert_exit(r 0)
 sr_assert_stdout_contains(r "Usage:")

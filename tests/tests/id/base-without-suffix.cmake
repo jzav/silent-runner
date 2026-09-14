@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Uses --id-base alone without adding a default suffix.")
 set(log_dir "${SR_TEST_ROOT}/logs")
 set(expected "${log_dir}/baseonly_stdout_success.log")
 sr_run(r ARGS --id-base baseonly --stdout-dir "${log_dir}" --stdout-emit never "${SR_STDOUT_CMD}")

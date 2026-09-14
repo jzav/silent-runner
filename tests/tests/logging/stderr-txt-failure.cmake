@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Writes child stderr to a combined stderr failure TXT log.")
 set(log_dir "${SR_TEST_ROOT}/logs")
 set(execution_id "ctest-stderr-txt-failure")
 set(expected_log "${log_dir}/${execution_id}_stderr_failure.log")

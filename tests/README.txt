@@ -5,7 +5,7 @@ This project is a black-box regression suite for SilentRunner.exe.
 It uses standard CMake/CTest orchestration and CMake script-mode tests.
 There is one CMakeLists.txt only: the one in the project root.
 
-Current registered test count: 222
+Current registered test count: 239
 
 Directory layout
 ----------------
@@ -27,6 +27,7 @@ Directory layout
         utf8/
         timeout/
         emit/
+        replay/
         logging/
         retention/
         buffer/
@@ -59,12 +60,25 @@ Configure and run
 Useful CTest commands
 ---------------------
 
-    ctest --test-dir build -N
-    ctest --test-dir build -V
-    ctest --test-dir build -R "hooks\."
-    ctest --test-dir build -L logging --output-on-failure
-    ctest --test-dir build -j 8 --output-on-failure
-    ctest --test-dir build --rerun-failed --output-on-failure
+List all registered tests without running them:
+	ctest --test-dir build -N
+
+Run tests in verbose mode. Displays each test's behavioral description
+and full test output:
+	ctest --test-dir build -V
+
+Run tests whose names match a regular expression:
+	ctest --test-dir build -R "hooks\."
+
+Run all tests with a given label and show output for failed tests:
+	ctest --test-dir build -L logging --output-on-failure
+
+Run tests in parallel using up to 8 jobs and show output for failed tests:
+	ctest --test-dir build -j 8 --output-on-failure
+
+Rerun only tests that failed in the previous CTest run and show their
+output if they fail again:
+	ctest --test-dir build --rerun-failed --output-on-failure
 
 Notes
 -----

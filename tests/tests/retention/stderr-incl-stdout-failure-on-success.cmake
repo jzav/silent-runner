@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Removes the stderr-including-stdout log on success under failure-only retention.")
 set(log_dir "${SR_TEST_ROOT}/logs")
 set(execution_id "ctest-ret-stderr-incl-failure-success")
 set(expected_log "${log_dir}/${execution_id}_stderr_incl_stdout_success.log")

@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Emits SR diagnostics only in success mode when the child succeeds, without child stderr.")
 sr_run(r ARGS --debug --stderr-emit-sr success "${SR_BOTH_CMD}")
 sr_assert_exit(r 0)
 sr_assert_stderr_contains(r "${SR_TEST_SRDIAG_TXT_PREFIX}")

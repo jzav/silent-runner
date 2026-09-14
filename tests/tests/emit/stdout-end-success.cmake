@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Emits child stdout in end mode when the child succeeds.")
 sr_run(r ARGS --stdout-emit end "${SR_STDOUT_CMD}")
 sr_assert_exit(r 0)
 sr_assert_stdout_contains(r "${SR_TEST_CHILD_STDOUT_MARKER}")

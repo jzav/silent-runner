@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Creates all ten persistent log destinations in parallel for one failed execution.")
 set(log_dir "${SR_TEST_ROOT}/logs")
 sr_run(r ARGS
     --id-base ctest-all-logs

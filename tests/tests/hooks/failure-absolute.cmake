@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Runs an absolute failure hook after a failed child execution.")
 cmake_path(NATIVE_PATH SR_FAILURE_HOOK NORMALIZE hook_native)
 sr_run(r ARGS --run-on-failure "${hook_native}" "${SR_FAIL}")
 sr_assert_exit(r "${SR_TEST_FAIL_CMD_EXIT_CODE}")

@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Creates missing nested log directories and writes the expected stdout log.")
 set(log_dir "${SR_TEST_ROOT}/one/two/three")
 set(expected_log "${log_dir}/ctest-nested_stdout_success.log")
 sr_run(r ARGS --id-base ctest-nested --stdout-dir "${log_dir}" --stdout-emit never "${SR_STDOUT_CMD}")

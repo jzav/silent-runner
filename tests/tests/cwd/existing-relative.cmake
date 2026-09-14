@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Runs the child inside an existing relative --cwd directory.")
 set(relative_cwd "existing-cwd")
 set(expected_cwd "${SR_TEST_ROOT}/${relative_cwd}")
 file(MAKE_DIRECTORY "${expected_cwd}")

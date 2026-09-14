@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Streams child stderr through the default combined stderr route.")
 sr_run(r ARGS "${SR_STDERR_CMD}")
 sr_assert_exit(r 0)
 sr_assert_stderr_contains(r "${SR_TEST_CHILD_STDERR_MARKER}")

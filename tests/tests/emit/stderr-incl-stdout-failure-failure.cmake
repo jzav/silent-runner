@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Emits child stdout and stderr to parent stderr in failure mode when the child fails.")
 sr_run(r ARGS --stderr-emit-incl-stdout failure "${SR_FAIL}")
 sr_assert_exit(r "${SR_TEST_FAIL_CMD_EXIT_CODE}")
 sr_assert_stderr_contains(r "${SR_TEST_CHILD_STDOUT_MARKER}")

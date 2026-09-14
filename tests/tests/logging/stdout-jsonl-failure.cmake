@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Writes child stdout as base64-backed events to a failure JSONL log.")
 set(log_dir "${SR_TEST_ROOT}/logs")
 set(execution_id "ctest-stdout-jsonl-failure")
 set(expected_log "${log_dir}/${execution_id}_stdout_failure.jsonl")

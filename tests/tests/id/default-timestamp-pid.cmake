@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Uses timestamp+PID as the default execution ID when no ID components are supplied.")
 set(log_dir "${SR_TEST_ROOT}/logs")
 sr_run(r ARGS --stdout-dir "${log_dir}" --stdout-emit never "${SR_STDOUT_CMD}")
 sr_assert_exit(r 0)

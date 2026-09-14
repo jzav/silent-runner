@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Keeps the stdout failure log with the default retention policy.")
 set(log_dir "${SR_TEST_ROOT}/logs")
 set(expected_log "${log_dir}/ctest-default-keep_stdout_failure.log")
 sr_run(r ARGS --id-base ctest-default-keep --stdout-dir "${log_dir}" --stdout-emit never "${SR_FAIL}")

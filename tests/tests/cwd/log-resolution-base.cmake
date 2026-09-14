@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Keeps relative log paths based on SilentRunner inherited cwd rather than --cwd.")
 file(MAKE_DIRECTORY "${SR_TEST_ROOT}/childcwd")
 set(expected_log "${SR_TEST_ROOT}/logs/ctest-cwd-log_stdout_success.log")
 set(wrong_log "${SR_TEST_ROOT}/childcwd/logs/ctest-cwd-log_stdout_success.log")

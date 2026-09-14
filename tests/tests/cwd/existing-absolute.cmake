@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Runs the child inside an existing absolute --cwd directory.")
 set(target "${SR_TEST_ROOT}/absolute-cwd")
 file(MAKE_DIRECTORY "${target}")
 cmake_path(NATIVE_PATH target NORMALIZE target_native)

@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Combines a successful execution, success-only log retention, and the success hook.")
 set(log_dir "${SR_TEST_ROOT}/logs")
 sr_run(r ARGS
     --id-base cross-success

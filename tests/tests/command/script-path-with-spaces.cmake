@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Runs a script whose path contains spaces.")
 set(dir "${SR_TEST_ROOT}/scripts with spaces")
 file(MAKE_DIRECTORY "${dir}")
 file(COPY "${SR_OK}" DESTINATION "${dir}")

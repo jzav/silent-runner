@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init()
+sr_test_init(DESCRIPTION "Suppresses child stderr in failure mode when the child succeeds and does not emit SR diagnostics.")
 sr_run(r ARGS --stderr-emit-child failure --stderr-dir-sr "${SR_TEST_ROOT}/sr-diag" "${SR_BOTH_CMD}")
 sr_assert_exit(r 0)
 sr_assert_stderr_not_contains(r "${SR_TEST_CHILD_STDERR_MARKER}")
