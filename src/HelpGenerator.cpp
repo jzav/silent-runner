@@ -6,7 +6,7 @@ namespace HelpGenerator {
 
 std::wstring Generate() {
     std::wstring err =
-        L"Usage:\n"
+        L"Usage of v1.0.0:\n"
         L"  SilentRunner.exe [options] <script-or-exe> [args...]\n"
         L"      Execute script or executable via cmd.exe /d /s /c.\n"
         L"      The file must be executable in the user's Windows environment.\n"
