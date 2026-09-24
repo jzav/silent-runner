@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init(DESCRIPTION "Falls back losslessly to Base64 when a child payload is invalid UTF-8 under text or dual JSONL presentation.")
+sr_test_init(DESCRIPTION "Falls back losslessly to Base64 when a child payload is invalid UTF-8 under text or dual JSONL representation.")
 
 # Exact invalid UTF-8 bytes:
 #   66 6f 80 ff 6f
@@ -22,11 +22,11 @@ if(NOT payload_file_size EQUAL 5)
     )
 endif()
 
-foreach(presentation IN ITEMS
+foreach(representation IN ITEMS
     text
     text+base64
 )
-    string(REPLACE "+" "-" case_name "${presentation}")
+    string(REPLACE "+" "-" case_name "${representation}")
 
     set(log_dir "${SR_TEST_ROOT}/logs-${case_name}")
     set(execution_id "ctest-invalid-utf8-${case_name}")
@@ -38,7 +38,7 @@ foreach(presentation IN ITEMS
         --id-base "${execution_id}"
         --stdout-dir-jsonl "${log_dir}"
         --stdout-event-framing lf
-        --jsonl-payload-presentation "${presentation}"
+        --jsonl-payload-representation "${representation}"
         --stdout-emit never
         "${child_cmd}"
     )
@@ -53,7 +53,7 @@ foreach(presentation IN ITEMS
 
     if(NOT record_count EQUAL 1)
         message(FATAL_ERROR
-            "Expected exactly one invalid-UTF-8 JSONL event for ${presentation}, got ${record_count}."
+            "Expected exactly one invalid-UTF-8 JSONL event for ${representation}, got ${record_count}."
         )
     endif()
 
@@ -82,7 +82,7 @@ foreach(presentation IN ITEMS
         OR NOT dropped_type STREQUAL "BOOLEAN"
         OR NOT byte_count_type STREQUAL "NUMBER")
         message(FATAL_ERROR
-            "Invalid UTF-8 was not preserved as exact Base64 under ${presentation}:\n${record}"
+            "Invalid UTF-8 was not preserved as exact Base64 under ${representation}:\n${record}"
         )
     endif()
 endforeach()

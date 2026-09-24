@@ -1,9 +1,9 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init(DESCRIPTION "Accepts every JSONL payload-presentation spelling and proves its canonical representation in generated JSONL.")
+sr_test_init(DESCRIPTION "Accepts every JSONL payload representation spelling and proves its canonical representation in generated JSONL.")
 
-function(assert_jsonl_presentation case_name expected_representation)
+function(assert_jsonl_representation case_name expected_representation)
     set(log_dir "${SR_TEST_ROOT}/logs-${case_name}")
-    set(execution_id "ctest-jsonl-presentation-${case_name}")
+    set(execution_id "ctest-jsonl-representation-${case_name}")
     set(expected_log
         "${log_dir}/${execution_id}_stdout_success.jsonl"
     )
@@ -101,38 +101,38 @@ function(assert_jsonl_presentation case_name expected_representation)
     endif()
 endfunction()
 
-assert_jsonl_presentation(
+assert_jsonl_representation(
     "text"
     "text"
-    --jsonl-payload-presentation text
+    --jsonl-payload-representation text
 )
 
-assert_jsonl_presentation(
+assert_jsonl_representation(
     "base64"
     "base64"
-    --jsonl-payload-presentation base64
+    --jsonl-payload-representation base64
 )
 
-assert_jsonl_presentation(
+assert_jsonl_representation(
     "text-base64"
     "text+base64"
-    --jsonl-payload-presentation text+base64
+    --jsonl-payload-representation text+base64
 )
 
-assert_jsonl_presentation(
+assert_jsonl_representation(
     "base64-text"
     "text+base64"
-    --jsonl-payload-presentation base64+text
+    --jsonl-payload-representation base64+text
 )
 
-assert_jsonl_presentation(
+assert_jsonl_representation(
     "mixed-case"
     "text+base64"
-    --JSONL-PAYLOAD-PRESENTATION TeXt+BaSe64
+    --JSONL-PAYLOAD-REPRESENTATION TeXt+BaSe64
 )
 
-assert_jsonl_presentation(
+assert_jsonl_representation(
     "equals-form"
     "text+base64"
-    "--jsonl-payload-presentation=BaSe64+TeXt"
+    "--jsonl-payload-representation=BaSe64+TeXt"
 )

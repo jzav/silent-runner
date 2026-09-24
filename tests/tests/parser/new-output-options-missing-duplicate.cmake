@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init(DESCRIPTION "Reports missing values and duplicate assignments for every new framing and JSONL-presentation option.")
+sr_test_init(DESCRIPTION "Reports missing values and duplicate assignments for every new framing and JSONL representation option.")
 
 function(assert_missing_value option)
     sr_run(r ARGS "${option}")
@@ -31,7 +31,7 @@ foreach(option IN ITEMS
     --stdout-event-newline-max-bytes
     --stderr-child-event-framing
     --stderr-child-event-newline-max-bytes
-    --jsonl-payload-presentation
+    --jsonl-payload-representation
 )
     assert_missing_value("${option}")
 endforeach()
@@ -63,7 +63,7 @@ assert_duplicate(
 )
 
 assert_duplicate(
-    "--jsonl-payload-presentation"
-    --jsonl-payload-presentation text
-    --jsonl-payload-presentation base64
+    "--jsonl-payload-representation"
+    --jsonl-payload-representation text
+    --jsonl-payload-representation base64
 )

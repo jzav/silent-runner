@@ -42,7 +42,7 @@ sr_run(r ARGS
     --id-base "${execution_id}"
     --stdout-dir-jsonl "${log_dir}"
     --stderr-dir-sr-jsonl "${log_dir}"
-    --jsonl-payload-presentation text+base64
+    --jsonl-payload-representation text+base64
     --stdout-event-framing lf
     --stdout-emit end
     --stderr-emit-sr end

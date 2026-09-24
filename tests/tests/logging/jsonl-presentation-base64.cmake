@@ -2,7 +2,7 @@ include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
 sr_test_init(DESCRIPTION "Writes explicit Base64 JSONL payloads for child stdout, child stderr, and SilentRunner diagnostics and replays them successfully.")
 
 set(log_dir "${SR_TEST_ROOT}/logs")
-set(execution_id "ctest-jsonl-presentation-base64")
+set(execution_id "ctest-jsonl-representation-base64")
 set(expected_log
     "${log_dir}/${execution_id}_stderr_incl_stdout_success.jsonl"
 )
@@ -18,7 +18,7 @@ sr_run(r ARGS
     --debug
     --id-base "${execution_id}"
     --stderr-dir-incl-stdout-jsonl "${log_dir}"
-    --jsonl-payload-presentation base64
+    --jsonl-payload-representation base64
     --stdout-event-framing lf
     --stderr-child-event-framing lf
     --stdout-emit never

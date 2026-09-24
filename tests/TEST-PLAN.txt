@@ -22,7 +22,7 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - child-output framing values: chunk, lf/newline alias, crlf, case-insensitive and = forms
   - invalid framing values, missing/duplicate new output options
   - newline-max dependency on non-chunk framing and argument-order independence
-  - JSONL payload-presentation values, alias canonicalization, invalid values, and basic output representation
+  - JSONL payload representation values, alias canonicalization, invalid values, and basic output representation
 
 [covered] Numeric parsing / boundaries
   - timeout: 0, 1-ms acceptance, UINT32_MAX, text, negative, overflow
@@ -112,7 +112,7 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - child payload replay is checked for non-duplication; JSONL provenance checks the default text representation
   - JSONL end replay preserves an exact unterminated payload ending in a comma
     across default text, explicit text, text+base64, base64+text, and base64
-    presentations, including exact parent payload and structured metadata
+    representations, including exact parent payload and structured metadata
   - JSONL text replay preserves quotes, backslashes, tabs, CR/LF, and multibyte UTF-8
     through serialization, structural parsing, and parent emission
   - explicit Base64 end replay verifies exact decoded child bytes, Jsonl provenance,

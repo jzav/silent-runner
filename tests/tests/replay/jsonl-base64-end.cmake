@@ -30,7 +30,7 @@ sr_run(r ARGS
     --id-base "${execution_id}"
     --stdout-dir-jsonl "${log_dir}"
     --stdout-event-framing lf
-    --jsonl-payload-presentation base64
+    --jsonl-payload-representation base64
     --stdout-emit end
     --stderr-emit-sr stream
     "${child_cmd}"

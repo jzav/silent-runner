@@ -51,7 +51,7 @@ sr_run(
         --id-base "${execution_id}"
         --stdout-dir-jsonl "${log_dir}"
         --stdout-event-framing crlf
-        --jsonl-payload-presentation text
+        --jsonl-payload-representation text
         --stdout-emit end
         --stderr-emit-sr stream
         "${child_cmd}"

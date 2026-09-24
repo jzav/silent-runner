@@ -10,7 +10,7 @@ sr_run(r ARGS
     --verbose
     --id-base "${execution_id}"
     --stderr-dir-sr-jsonl "${log_dir}"
-    --jsonl-payload-presentation text
+    --jsonl-payload-representation text
     --stdout-emit never
     "${SR_OK}"
 )

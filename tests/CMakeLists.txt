@@ -94,8 +94,8 @@ sr_add_script_test(parser.stdout-newline-max-boundaries           parser/stdout-
 sr_add_script_test(parser.stderr-child-newline-max-boundaries     parser/stderr-child-newline-max-boundaries.cmake)
 sr_add_script_test(parser.newline-max-requires-framing            parser/newline-max-requires-framing.cmake)
 sr_add_script_test(parser.new-output-options-missing-duplicate    parser/new-output-options-missing-duplicate.cmake)
-sr_add_script_test(parser.jsonl-payload-presentation-values       parser/jsonl-payload-presentation-values.cmake)
-sr_add_script_test(parser.jsonl-payload-presentation-invalid      parser/jsonl-payload-presentation-invalid.cmake)
+sr_add_script_test(parser.jsonl-payload-representation-values       parser/jsonl-payload-presentation-values.cmake)
+sr_add_script_test(parser.jsonl-payload-representation-invalid      parser/jsonl-payload-presentation-invalid.cmake)
 
 
 # id
@@ -298,8 +298,8 @@ sr_add_script_test(logging.stderr-sr-txt.failure               logging/stderr-sr
 sr_add_script_test(logging.stderr-sr-jsonl.success             logging/stderr-sr-jsonl-success.cmake)
 sr_add_script_test(logging.stderr-sr-jsonl.failure             logging/stderr-sr-jsonl-failure.cmake)
 sr_add_script_test(logging.verbose-final-summary-jsonl          logging/verbose-final-summary-jsonl.cmake)
-sr_add_script_test(logging.jsonl-presentation-base64            logging/jsonl-presentation-base64.cmake)
-sr_add_script_test(logging.jsonl-presentation-text-and-base64   logging/jsonl-presentation-text-and-base64.cmake)
+sr_add_script_test(logging.jsonl-representation-base64            logging/jsonl-presentation-base64.cmake)
+sr_add_script_test(logging.jsonl-representation-text-and-base64   logging/jsonl-presentation-text-and-base64.cmake)
 sr_add_script_test(logging.jsonl-invalid-utf8-fallback          logging/jsonl-invalid-utf8-fallback.cmake)
 sr_add_script_test(logging.jsonl-event-identity                      logging/jsonl-event-identity.cmake)
 
