@@ -159,7 +159,7 @@ metadata.
 JSONL therefore preserves every event boundary established by the configured
 child event framing.
 
-The `--jsonl-payload-presentation` option does not change event boundaries.
+The `--jsonl-payload-representation` option does not change event boundaries.
 It controls only how the payload of each individual event is represented inside
 its JSONL record.
 
@@ -355,7 +355,7 @@ result: `success` or `failure`.
 For example: `my-execution_stdout_running.log` →
 `my-execution_stdout_success.log` or `my-execution_stdout_failure.log`.
 
-The `--jsonl-payload-presentation` option controls how event payloads are
+The `--jsonl-payload-representation` option controls how event payloads are
 represented in JSONL logs. The default is text.
 
 -   `text` -- Write the payload as text.
@@ -379,7 +379,7 @@ Options:
 -   `--stderr-dir-sr-jsonl <dir>`
 -   `--stderr-dir-incl-stdout <dir>`
 -   `--stderr-dir-incl-stdout-jsonl <dir>`
--   `--jsonl-payload-presentation <text|base64|text+base64|base64+text>`
+-   `--jsonl-payload-representation <text|base64|text+base64|base64+text>`
 
 ------------------------------------------------------------------------
 
