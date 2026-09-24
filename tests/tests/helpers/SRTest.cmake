@@ -69,7 +69,7 @@ set(SR_TEST_PUBLIC_CLI_HELP_ENTRIES
     "--stderr-dir-child-jsonl <dir>"
     "--stderr-dir-sr-jsonl <dir>"
     "--stderr-dir-incl-stdout-jsonl <dir>"
-    "--jsonl-payload-presentation <text|base64|(text+base64|base64+text)>"
+    "--jsonl-payload-presentation <text|base64|text+base64|base64+text>"
     "--stdout-dir-keep-log <mode>"
     "--stderr-dir-keep-log <mode>"
     "--stderr-dir-child-keep-log <mode>"
