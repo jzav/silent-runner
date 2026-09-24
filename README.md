@@ -707,7 +707,7 @@ pathTo\SilentRunner.exe ^
   --stdout-dir "%TEMP%" ^
   --stderr-dir "%TEMP%" ^
   --run-on-success "%~dp0store-execution-data.cmd" ^
-  "%~dp0jq.exe" -c "select(.message | startswith(\"[JOB]\"))" ^
+  "%~dp0jq.exe" -c "select(.payloadText | startswith(\"[JOB]\"))" ^
   "%SILENTRUNNER_STDERR_SR_JSONL_LOG%"
 ```
 
@@ -736,7 +736,7 @@ rem Store the filtered data in SQLite or elsewhere.
   the retained SilentRunner diagnostic JSONL log.
 - [`jq`](https://jqlang.org/) is an external command-line tool for processing
   JSON data. Here it filters the structured diagnostic log to retain only
-  records whose `message` starts with `[JOB]`. `[JOB]` identifies process
+  records whose `payloadText` starts with `[JOB]`. `[JOB]` identifies process
   lifecycle diagnostics generated from Windows Job Object events.
 - `--stderr-dir "%TEMP%"` provides a persistent diagnostic channel for the
   nested SilentRunner. Since post-execution hooks do not inherit standard
