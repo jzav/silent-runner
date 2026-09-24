@@ -30,7 +30,7 @@ std::string PayloadBase64FromUtf8Text_(
 void PopulateSrDiagPayloadFields_(
     const std::wstring& message,
     bool payloadDropped,
-    JsonlPayloadPresentation payloadPresentation,
+    JsonlPayloadRepresentation payloadRepresentationMode,
     std::string& payloadRepresentation,
     std::wstring& payloadText,
     std::string& payloadBase64
@@ -39,28 +39,28 @@ void PopulateSrDiagPayloadFields_(
         return;
     }
 
-    switch (payloadPresentation) {
-        case JsonlPayloadPresentation::Text:
+    switch (payloadRepresentationMode) {
+        case JsonlPayloadRepresentation::Text:
             payloadRepresentation =
-                JsonlPayloadPresentationToToken(
-                    JsonlPayloadPresentation::Text
+                JsonlPayloadRepresentationToToken(
+                    JsonlPayloadRepresentation::Text
                 );
             payloadText = message;
             return;
 
-        case JsonlPayloadPresentation::Base64:
+        case JsonlPayloadRepresentation::Base64:
             payloadRepresentation =
-                JsonlPayloadPresentationToToken(
-                    JsonlPayloadPresentation::Base64
+                JsonlPayloadRepresentationToToken(
+                    JsonlPayloadRepresentation::Base64
                 );
             payloadBase64 =
                 PayloadBase64FromUtf8Text_(message);
             return;
 
-        case JsonlPayloadPresentation::TextAndBase64:
+        case JsonlPayloadRepresentation::TextAndBase64:
             payloadRepresentation =
-                JsonlPayloadPresentationToToken(
-                    JsonlPayloadPresentation::TextAndBase64
+                JsonlPayloadRepresentationToToken(
+                    JsonlPayloadRepresentation::TextAndBase64
                 );
             payloadText = message;
             payloadBase64 =
@@ -75,7 +75,7 @@ void PopulateSrDiagPayloadFields_(
 void PopulateChildPayloadFields_(
     const std::vector<char>& bytes,
     bool payloadDropped,
-    JsonlPayloadPresentation payloadPresentation,
+    JsonlPayloadRepresentation payloadRepresentationMode,
     std::string& payloadRepresentation,
     std::string& payloadText,
     std::string& payloadBase64
@@ -84,10 +84,10 @@ void PopulateChildPayloadFields_(
         return;
     }
 
-    if (payloadPresentation == JsonlPayloadPresentation::Base64) {
+    if (payloadRepresentationMode == JsonlPayloadRepresentation::Base64) {
         payloadRepresentation =
-            JsonlPayloadPresentationToToken(
-                JsonlPayloadPresentation::Base64
+            JsonlPayloadRepresentationToToken(
+                JsonlPayloadRepresentation::Base64
             );
         payloadBase64 =
             TextHelpers::PayloadBase64FromBytes(bytes);
@@ -96,8 +96,8 @@ void PopulateChildPayloadFields_(
 
     if (!TextHelpers::IsValidUtf8(bytes)) {
         payloadRepresentation =
-            JsonlPayloadPresentationToToken(
-                JsonlPayloadPresentation::Base64
+            JsonlPayloadRepresentationToToken(
+                JsonlPayloadRepresentation::Base64
             );
         payloadBase64 =
             TextHelpers::PayloadBase64FromBytes(bytes);
@@ -106,11 +106,11 @@ void PopulateChildPayloadFields_(
 
     payloadText.assign(bytes.begin(), bytes.end());
 
-    if (payloadPresentation ==
-        JsonlPayloadPresentation::TextAndBase64) {
+    if (payloadRepresentationMode ==
+        JsonlPayloadRepresentation::TextAndBase64) {
         payloadRepresentation =
-            JsonlPayloadPresentationToToken(
-                JsonlPayloadPresentation::TextAndBase64
+            JsonlPayloadRepresentationToToken(
+                JsonlPayloadRepresentation::TextAndBase64
             );
         payloadBase64 =
             TextHelpers::PayloadBase64FromBytes(bytes);
@@ -118,8 +118,8 @@ void PopulateChildPayloadFields_(
     }
 
     payloadRepresentation =
-        JsonlPayloadPresentationToToken(
-            JsonlPayloadPresentation::Text
+        JsonlPayloadRepresentationToToken(
+            JsonlPayloadRepresentation::Text
         );
 }
 
@@ -128,7 +128,7 @@ void PopulateChildPayloadFields_(
 
 SRPhaseTimelineEntrySchemaData::SrDiagData::SrDiagData(
     const SrDiagEntry& entry,
-    JsonlPayloadPresentation payloadPresentation
+    JsonlPayloadRepresentation payloadRepresentationMode
 )
     : source(&entry),
       payloadType(SR::JobPayloadTypeName(entry.payloadType)),
@@ -144,7 +144,7 @@ SRPhaseTimelineEntrySchemaData::SrDiagData::SrDiagData(
     PopulateSrDiagPayloadFields_(
         entry.message,
         payloadDropped,
-        payloadPresentation,
+        payloadRepresentationMode,
         payloadRepresentation,
         payloadText,
         payloadBase64
@@ -155,7 +155,7 @@ SRPhaseTimelineEntrySchemaData::SrDiagData::SrDiagData(
 
 SRPhaseTimelineEntrySchemaData::ChildStdoutData::ChildStdoutData(
     const ChildStdoutEntry& entry,
-    JsonlPayloadPresentation payloadPresentation
+    JsonlPayloadRepresentation payloadRepresentationMode
 )
     : source(&entry),
       payloadType(SR::JobPayloadTypeName(entry.payloadType)),
@@ -170,7 +170,7 @@ SRPhaseTimelineEntrySchemaData::ChildStdoutData::ChildStdoutData(
     PopulateChildPayloadFields_(
         entry.bytes,
         payloadDropped,
-        payloadPresentation,
+        payloadRepresentationMode,
         payloadRepresentation,
         payloadText,
         payloadBase64
@@ -180,7 +180,7 @@ SRPhaseTimelineEntrySchemaData::ChildStdoutData::ChildStdoutData(
 
 SRPhaseTimelineEntrySchemaData::ChildStderrData::ChildStderrData(
     const ChildStderrEntry& entry,
-    JsonlPayloadPresentation payloadPresentation
+    JsonlPayloadRepresentation payloadRepresentationMode
 )
     : source(&entry),
       payloadType(SR::JobPayloadTypeName(entry.payloadType)),
@@ -195,7 +195,7 @@ SRPhaseTimelineEntrySchemaData::ChildStderrData::ChildStderrData(
     PopulateChildPayloadFields_(
         entry.bytes,
         payloadDropped,
-        payloadPresentation,
+        payloadRepresentationMode,
         payloadRepresentation,
         payloadText,
         payloadBase64

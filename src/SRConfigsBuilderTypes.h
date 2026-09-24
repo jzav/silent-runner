@@ -53,7 +53,7 @@ enum class ConfigArgumentParsingMode {
     X(UInt32,                   uint32_t,                     L"uint32_t",                     ResolveUInt32) \
     X(UInt64,                   uint64_t,                     L"uint64_t",                     ResolveUInt64) \
     X(ChildEventFraming,        SR::ChildEventFraming,        L"SR::ChildEventFraming",        ResolveChildEventFraming) \
-    X(JsonlPayloadPresentation, SR::JsonlPayloadPresentation, L"SR::JsonlPayloadPresentation", ResolveJsonlPayloadPresentation) \
+    X(JsonlPayloadRepresentation, SR::JsonlPayloadRepresentation, L"SR::JsonlPayloadRepresentation", ResolveJsonlPayloadRepresentation) \
     X(IdSuffixMode,             SR::IdSuffixMode,             L"SR::IdSuffixMode",             ResolveIdSuffixMode) \
     X(EmitMode,                 SR::EmitMode,                 L"SR::EmitMode",                 ResolveEmitMode) \
     X(KeepLogMode,              SR::KeepLogMode,              L"SR::KeepLogMode",              ResolveKeepLogMode) \
@@ -123,7 +123,7 @@ namespace Resolution {
     X(StderrDirSrJsonl,                   L"StderrDirSrJsonl",                   L"--stderr-dir-sr-jsonl",               nullptr,  PersistentLogging,   Value,        WString) \
     X(StderrDirInclStdout,                L"StderrDirInclStdout",                L"--stderr-dir-incl-stdout",             nullptr,  PersistentLogging,   Value,        WString) \
     X(StderrDirInclStdoutJsonl,            L"StderrDirInclStdoutJsonl",            L"--stderr-dir-incl-stdout-jsonl",       nullptr,  PersistentLogging,   Value,        WString) \
-    X(JsonlPayloadPresentation,           L"JsonlPayloadPresentation",           L"--jsonl-payload-presentation",        nullptr,  PersistentLogging,   Value,        JsonlPayloadPresentation) \
+    X(JsonlPayloadRepresentation,           L"JsonlPayloadRepresentation",           L"--jsonl-payload-representation",        nullptr,  PersistentLogging,   Value,        JsonlPayloadRepresentation) \
     X(StdoutDirKeepLog,                   L"StdoutDirKeepLog",                   L"--stdout-dir-keep-log",               nullptr,  LogRetention,        Value,        KeepLogMode) \
     X(StderrDirKeepLog,                   L"StderrDirKeepLog",                   L"--stderr-dir-keep-log",               nullptr,  LogRetention,        Value,        KeepLogMode) \
     X(StderrDirChildKeepLog,               L"StderrDirChildKeepLog",               L"--stderr-dir-child-keep-log",         nullptr,  LogRetention,        Value,        KeepLogMode) \
@@ -235,7 +235,7 @@ enum class ConfigOwner {
     X(StderrDirInclStdout,             SRParentEmitPolicy,     stderrDirInclStdout) \
     X(StderrDirInclStdoutJsonl,         PrepareRuntime,        stderrDirInclStdoutJsonl) \
     X(StderrDirInclStdoutJsonl,         SRParentEmitPolicy,     stderrDirInclStdoutJsonl) \
-    X(JsonlPayloadPresentation,        SRFileSinkWorker,         jsonlPayloadPresentation) \
+    X(JsonlPayloadRepresentation,        SRFileSinkWorker,         jsonlPayloadRepresentation) \
     X(StdoutDirKeepLog,                FinalizeExecution,      stdoutDirKeepLog) \
     X(StderrDirKeepLog,                FinalizeExecution,      stderrDirKeepLog) \
     X(StderrDirChildKeepLog,            FinalizeExecution,      stderrDirChildKeepLog) \

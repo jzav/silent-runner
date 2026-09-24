@@ -170,17 +170,17 @@ bool ResolveChildEventFraming(
     return true;
 }
 
-bool ResolveJsonlPayloadPresentation(
+bool ResolveJsonlPayloadRepresentation(
     const ConfigArgumentData& configArgument,
-    SR::JsonlPayloadPresentation& value,
+    SR::JsonlPayloadRepresentation& value,
     std::wstring& err
 ) {
     if (!configArgument.optionValueSpecified) {
-        value = SR::JsonlPayloadPresentation::Text;
+        value = SR::JsonlPayloadRepresentation::Text;
         return true;
     }
 
-    if (!SR::TryParseJsonlPayloadPresentationIgnoreCase(
+    if (!SR::TryParseJsonlPayloadRepresentationIgnoreCase(
             configArgument.optionValue,
             value
         )) {

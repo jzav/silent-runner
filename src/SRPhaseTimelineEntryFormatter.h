@@ -67,15 +67,15 @@ public:
     // Formats one complete JSON object without the terminating LF.
     static std::string FormatJsonLine(
         const SrDiagEntry& entry,
-        JsonlPayloadPresentation payloadPresentation
+        JsonlPayloadRepresentation payloadRepresentationMode
     );
     static std::string FormatJsonLine(
         const ChildStdoutEntry& entry,
-        JsonlPayloadPresentation payloadPresentation
+        JsonlPayloadRepresentation payloadRepresentationMode
     );
     static std::string FormatJsonLine(
         const ChildStderrEntry& entry,
-        JsonlPayloadPresentation payloadPresentation
+        JsonlPayloadRepresentation payloadRepresentationMode
     );
 
 

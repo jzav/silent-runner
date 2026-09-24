@@ -118,8 +118,8 @@ private:
             SR::ChildOutputPresentation::Block;
         SR::ChildOutputPresentation stderrChildPresentation =
             SR::ChildOutputPresentation::Block;
-        SR::JsonlPayloadPresentation jsonlPayloadPresentation =
-            SR::JsonlPayloadPresentation::Text;
+        SR::JsonlPayloadRepresentation jsonlPayloadRepresentation =
+            SR::JsonlPayloadRepresentation::Text;
 
 
     };
@@ -131,8 +131,8 @@ private:
             SR::ChildOutputPresentation::Block;
         SR::ChildOutputPresentation stderrChildPresentation =
             SR::ChildOutputPresentation::Block;
-        SR::JsonlPayloadPresentation jsonlPayloadPresentation =
-            SR::JsonlPayloadPresentation::Text;
+        SR::JsonlPayloadRepresentation jsonlPayloadRepresentation =
+            SR::JsonlPayloadRepresentation::Text;
 
 
     };

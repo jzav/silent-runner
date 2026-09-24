@@ -36,8 +36,8 @@ public:
 
         explicit SrDiagData(
             const SrDiagEntry& entry,
-            JsonlPayloadPresentation payloadPresentation =
-                JsonlPayloadPresentation::Text
+            JsonlPayloadRepresentation payloadRepresentationMode =
+                JsonlPayloadRepresentation::Text
         );
 
     };
@@ -61,8 +61,8 @@ public:
 
         explicit ChildStdoutData(
             const ChildStdoutEntry& entry,
-            JsonlPayloadPresentation payloadPresentation =
-                JsonlPayloadPresentation::Text
+            JsonlPayloadRepresentation payloadRepresentationMode =
+                JsonlPayloadRepresentation::Text
         );
 
     };
@@ -84,8 +84,8 @@ public:
         ChildStderrData() = default;
         explicit ChildStderrData(
             const ChildStderrEntry& entry,
-            JsonlPayloadPresentation payloadPresentation =
-                JsonlPayloadPresentation::Text
+            JsonlPayloadRepresentation payloadRepresentationMode =
+                JsonlPayloadRepresentation::Text
         );
 
 

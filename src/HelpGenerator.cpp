@@ -6,7 +6,7 @@ namespace HelpGenerator {
 
 std::wstring Generate() {
     std::wstring err =
-        L"Usage of v1.1.2:\n"
+        L"Usage of v1.1.3:\n"
         L"  SilentRunner.exe [options] <script-or-exe> [args...]\n"
         L"      Execute script or executable via cmd.exe /d /s /c.\n"
         L"      The file must be executable in the user's Windows environment.\n"
@@ -94,7 +94,7 @@ std::wstring Generate() {
         L"  --stderr-dir-incl-stdout <dir>\n"
         L"  --stderr-dir-incl-stdout-jsonl <dir>\n"
         L"      Write stderr-sr-and-child-incl-stdout to log files.\n"
-        L"  --jsonl-payload-presentation <text|base64|text+base64|base64+text>\n"
+        L"  --jsonl-payload-representation <text|base64|text+base64|base64+text>\n"
         L"      Control payload representation in JSONL logs. Default: text.\n"
         L"      When text representation is requested, invalid UTF-8 child payloads fall back to base64.\n"
         L"      text+base64 and base64+text are equivalent and write both representations when text is valid.\n"

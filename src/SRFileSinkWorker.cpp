@@ -71,8 +71,8 @@ bool SRFileSinkWorker::Init(
             workerCommonPolicy.StdoutPresentation();
         domain_.config.stderrChildPresentation =
             workerCommonPolicy.StderrChildPresentation();
-        domain_.config.jsonlPayloadPresentation =
-            config.jsonlPayloadPresentation;
+        domain_.config.jsonlPayloadRepresentation =
+            config.jsonlPayloadRepresentation;
 
 
 
@@ -859,8 +859,8 @@ SRFileSinkWorker::WriteConfigSnapshot SRFileSinkWorker::RetrieveWriteConfig_(
         domain_.config.stdoutPresentation;
     snapshot.stderrChildPresentation =
         domain_.config.stderrChildPresentation;
-    snapshot.jsonlPayloadPresentation =
-        domain_.config.jsonlPayloadPresentation;
+    snapshot.jsonlPayloadRepresentation =
+        domain_.config.jsonlPayloadRepresentation;
 
 
 
@@ -1312,21 +1312,21 @@ bool SRFileSinkWorker::TryWriteJsonlTarget_(
         case SR::JobPayloadType::SrDiag:
             line = SR::SRPhaseTimelineEntryFormatter::FormatJsonLine(
                 job.srDiag,
-                writeConfig.jsonlPayloadPresentation
+                writeConfig.jsonlPayloadRepresentation
             );
             break;
 
         case SR::JobPayloadType::ChildStdout:
             line = SR::SRPhaseTimelineEntryFormatter::FormatJsonLine(
                 job.childStdout,
-                writeConfig.jsonlPayloadPresentation
+                writeConfig.jsonlPayloadRepresentation
             );
             break;
 
         case SR::JobPayloadType::ChildStderr:
             line = SR::SRPhaseTimelineEntryFormatter::FormatJsonLine(
                 job.childStderr,
-                writeConfig.jsonlPayloadPresentation
+                writeConfig.jsonlPayloadRepresentation
             );
             break;
     }

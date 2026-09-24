@@ -330,12 +330,12 @@ std::string SRPhaseTimelineEntryFormatter::FormatChildStderrTxtHeader(
 
 std::string SRPhaseTimelineEntryFormatter::FormatJsonLine(
     const SrDiagEntry& entry,
-    JsonlPayloadPresentation payloadPresentation
+    JsonlPayloadRepresentation payloadRepresentationMode
 ) {
     return FormatSrDiagJsonLine_(
         SRPhaseTimelineEntrySchemaData::SrDiagData(
             entry,
-            payloadPresentation
+            payloadRepresentationMode
         )
     );
 }
@@ -343,12 +343,12 @@ std::string SRPhaseTimelineEntryFormatter::FormatJsonLine(
 
 std::string SRPhaseTimelineEntryFormatter::FormatJsonLine(
     const ChildStdoutEntry& entry,
-    JsonlPayloadPresentation payloadPresentation
+    JsonlPayloadRepresentation payloadRepresentationMode
 ) {
     return FormatChildStdoutJsonLine_(
         SRPhaseTimelineEntrySchemaData::ChildStdoutData(
             entry,
-            payloadPresentation
+            payloadRepresentationMode
         )
     );
 }
@@ -356,12 +356,12 @@ std::string SRPhaseTimelineEntryFormatter::FormatJsonLine(
 
 std::string SRPhaseTimelineEntryFormatter::FormatJsonLine(
     const ChildStderrEntry& entry,
-    JsonlPayloadPresentation payloadPresentation
+    JsonlPayloadRepresentation payloadRepresentationMode
 ) {
     return FormatChildStderrJsonLine_(
         SRPhaseTimelineEntrySchemaData::ChildStderrData(
             entry,
-            payloadPresentation
+            payloadRepresentationMode
         )
     );
 }

@@ -258,55 +258,55 @@ inline void AppendKeepLogModeHelp(std::wstring& out) {
 }
  
 // =====================================================================================
-// JsonlPayloadPresentation
+// JsonlPayloadRepresentation
 // =====================================================================================
 
-#define SR_JSONL_PAYLOAD_PRESENTATION_TABLE(X) \
+#define SR_JSONL_PAYLOAD_REPRESENTATION_TABLE(X) \
     X(Text,          L"text",        L"",            "text") \
     X(Base64,        L"base64",      L"",            "base64") \
     X(TextAndBase64, L"text+base64", L"base64+text", "text+base64")
 
-enum class JsonlPayloadPresentation {
-#define SR_X_ENUM_JSONL_PAYLOAD_PRESENTATION(name, text, alias, token) name,
-    SR_JSONL_PAYLOAD_PRESENTATION_TABLE(
-        SR_X_ENUM_JSONL_PAYLOAD_PRESENTATION
+enum class JsonlPayloadRepresentation {
+#define SR_X_ENUM_JSONL_PAYLOAD_REPRESENTATION(name, text, alias, token) name,
+    SR_JSONL_PAYLOAD_REPRESENTATION_TABLE(
+        SR_X_ENUM_JSONL_PAYLOAD_REPRESENTATION
     )
-#undef SR_X_ENUM_JSONL_PAYLOAD_PRESENTATION
+#undef SR_X_ENUM_JSONL_PAYLOAD_REPRESENTATION
 };
 
-inline constexpr const char* JsonlPayloadPresentationToToken(
-    JsonlPayloadPresentation presentation
+inline constexpr const char* JsonlPayloadRepresentationToToken(
+    JsonlPayloadRepresentation representation
 ) noexcept {
-    switch (presentation) {
-#define SR_X_CASE_JSONL_PAYLOAD_PRESENTATION(name, text, alias, token) \
-        case JsonlPayloadPresentation::name: return token;
+    switch (representation) {
+#define SR_X_CASE_JSONL_PAYLOAD_REPRESENTATION(name, text, alias, token) \
+        case JsonlPayloadRepresentation::name: return token;
 
-        SR_JSONL_PAYLOAD_PRESENTATION_TABLE(
-            SR_X_CASE_JSONL_PAYLOAD_PRESENTATION
+        SR_JSONL_PAYLOAD_REPRESENTATION_TABLE(
+            SR_X_CASE_JSONL_PAYLOAD_REPRESENTATION
         )
-#undef SR_X_CASE_JSONL_PAYLOAD_PRESENTATION
+#undef SR_X_CASE_JSONL_PAYLOAD_REPRESENTATION
 
         default:
             return "<invalid>";
     }
 }
 
-inline bool TryParseJsonlPayloadPresentationIgnoreCase(
+inline bool TryParseJsonlPayloadRepresentationIgnoreCase(
     std::wstring_view value,
-    JsonlPayloadPresentation& out
+    JsonlPayloadRepresentation& out
 ) noexcept {
-#define SR_X_IF_JSONL_PAYLOAD_PRESENTATION(name, text, alias, token) \
+#define SR_X_IF_JSONL_PAYLOAD_REPRESENTATION(name, text, alias, token) \
     if (TextHelpers::EqualsOrdinalIgnoreCase(value, text) || \
         (alias[0] != L'\0' && \
          TextHelpers::EqualsOrdinalIgnoreCase(value, alias))) { \
-        out = JsonlPayloadPresentation::name; \
+        out = JsonlPayloadRepresentation::name; \
         return true; \
     }
 
-    SR_JSONL_PAYLOAD_PRESENTATION_TABLE(
-        SR_X_IF_JSONL_PAYLOAD_PRESENTATION
+    SR_JSONL_PAYLOAD_REPRESENTATION_TABLE(
+        SR_X_IF_JSONL_PAYLOAD_REPRESENTATION
     )
-#undef SR_X_IF_JSONL_PAYLOAD_PRESENTATION
+#undef SR_X_IF_JSONL_PAYLOAD_REPRESENTATION
 
     return false;
 }
