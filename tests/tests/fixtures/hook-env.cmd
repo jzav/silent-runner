@@ -1,5 +1,5 @@
 @echo off
-> "%~dp0hook-env.txt" (
+> "%~dp0hook-env.tmp" (
     echo EXIT_CODE=[%SILENTRUNNER_EXIT_CODE%]
     echo EXECUTION_ID=[%SILENTRUNNER_EXECUTION_ID%]
     echo STDOUT_LOG=[%SILENTRUNNER_STDOUT_LOG%]
@@ -13,4 +13,5 @@
     echo STDERR_INCL_STDOUT_LOG=[%SILENTRUNNER_STDERR_INCL_STDOUT_LOG%]
     echo STDERR_INCL_STDOUT_JSONL_LOG=[%SILENTRUNNER_STDERR_INCL_STDOUT_JSONL_LOG%]
 )
+move /y "%~dp0hook-env.tmp" "%~dp0hook-env.txt" >nul
 exit /b 0

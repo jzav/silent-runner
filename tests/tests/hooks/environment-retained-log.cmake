@@ -56,3 +56,17 @@ sr_assert_file_contains("${env_file}" "STDERR_SR_LOG=[${expected_stderr_sr_log_n
 sr_assert_file_contains("${env_file}" "STDERR_SR_JSONL_LOG=[${expected_stderr_sr_jsonl_log_native}]")
 sr_assert_file_contains("${env_file}" "STDERR_INCL_STDOUT_LOG=[${expected_stderr_incl_stdout_log_native}]")
 sr_assert_file_contains("${env_file}" "STDERR_INCL_STDOUT_JSONL_LOG=[${expected_stderr_incl_stdout_jsonl_log_native}]")
+foreach(path_var IN ITEMS
+    expected_stdout_log
+    expected_stdout_jsonl_log
+    expected_stderr_log
+    expected_stderr_jsonl_log
+    expected_stderr_child_log
+    expected_stderr_child_jsonl_log
+    expected_stderr_sr_log
+    expected_stderr_sr_jsonl_log
+    expected_stderr_incl_stdout_log
+    expected_stderr_incl_stdout_jsonl_log
+)
+    sr_assert_path_exists("${${path_var}}")
+endforeach()

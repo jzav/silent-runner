@@ -1,10 +1,13 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init(DESCRIPTION "Verifies persistent Jsonl replay provenance and parent payload for stderr-incl-stdout-jsonl-end.")
+sr_test_init(DESCRIPTION "Verifies persistent Jsonl replay provenance, default text representation, and non-duplicated mixed parent payload for stderr-incl-stdout-jsonl-end.")
 
-# Based on the anchored snapshot 2026-09-13_12-13-32.
 set(log_dir "${SR_TEST_ROOT}/logs")
 set(execution_id "ctest-replay-stderr-incl-stdout-jsonl-end")
 set(expected_log "${log_dir}/${execution_id}_stderr_incl_stdout_success.jsonl")
+set(expected_running_log "${log_dir}/${execution_id}_stderr_incl_stdout_running.jsonl")
+set(expected_stdout_payload "${SR_TEST_CHILD_STDOUT_MARKER}\r\n")
+set(expected_stderr_payload "${SR_TEST_CHILD_STDERR_MARKER}\r\n")
+cmake_path(NATIVE_PATH expected_running_log NORMALIZE expected_running_log_native)
 
 sr_run(r ARGS
     --debug
@@ -16,21 +19,19 @@ sr_run(r ARGS
 )
 sr_assert_exit(r 0)
 
-# The normal debug completion line identifies the selected parent target/source.
-# Checking only payload or log existence would also allow timeline replay.
 sr_assert_stderr_contains(r "[PARENT-REPLAY] Replay completed with result ok using plan: ")
-sr_assert_stderr_contains(r "stderr={target=StderrSrAndChildInclStdoutParent source=Jsonl path=")
+sr_assert_stderr_contains(r "stderr={target=StderrSrAndChildInclStdoutParent source=Jsonl path=${expected_running_log_native}}")
 
 sr_assert_stdout_empty(r)
-# This diagnostic predates replay; the completion diagnostic alone is insufficient.
+sr_assert_stderr_txt_header(r "SRDIAGEVENT")
+sr_assert_stderr_txt_header(r "CHILDSTDOUT")
+sr_assert_stderr_txt_header(r "CHILDSTDERR")
 sr_assert_stderr_contains(r "fullCmdLine=")
-sr_assert_stderr_contains(r "${SR_TEST_SRDIAG_TXT_PREFIX}")
-sr_assert_stderr_contains(r "${SR_TEST_CHILD_STDOUT_MARKER}")
-sr_assert_stderr_contains(r "${SR_TEST_CHILD_STDERR_MARKER}")
+sr_assert_stderr_occurrence_count(r "${SR_TEST_CHILD_STDOUT_MARKER}" 1)
+sr_assert_stderr_occurrence_count(r "${SR_TEST_CHILD_STDERR_MARKER}" 1)
 
 sr_assert_file_not_empty("${expected_log}")
-sr_assert_file_contains("${expected_log}" "${SR_TEST_CHILD_STDOUT_JSONL_PREFIX}")
-sr_assert_file_contains("${expected_log}" "${SR_TEST_CHILD_STDERR_JSONL_PREFIX}")
-sr_assert_file_contains("${expected_log}" "${SR_TEST_SRDIAG_JSONL_PREFIX}")
-sr_assert_file_contains("${expected_log}" "${SR_TEST_JSONL_PAYLOAD_BASE64_FIELD}")
+sr_assert_jsonl_default_text_payload("${expected_log}" "ChildStdout" "${expected_stdout_payload}")
+sr_assert_jsonl_default_text_payload("${expected_log}" "ChildStderr" "${expected_stderr_payload}")
+sr_assert_jsonl_default_text_records("${expected_log}" "SrDiagEvent")
 sr_assert_directory_file_count("${log_dir}" 1)

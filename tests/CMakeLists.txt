@@ -87,6 +87,16 @@ sr_add_script_test(parser.invalid-keep-log-mode                   parser/invalid
 sr_add_script_test(parser.invalid-id-suffix-mode                  parser/invalid-id-suffix-mode.cmake)
 sr_add_script_test(parser.id-base-equals-form                     parser/id-base-equals-form.cmake)
 sr_add_script_test(parser.option-after-child-is-child-argument    parser/option-after-child-is-child-argument.cmake)
+sr_add_script_test(parser.stdout-event-framing-values             parser/stdout-event-framing-values.cmake)
+sr_add_script_test(parser.stderr-child-event-framing-values       parser/stderr-child-event-framing-values.cmake)
+sr_add_script_test(parser.event-framing-invalid                   parser/event-framing-invalid.cmake)
+sr_add_script_test(parser.stdout-newline-max-boundaries           parser/stdout-newline-max-boundaries.cmake)
+sr_add_script_test(parser.stderr-child-newline-max-boundaries     parser/stderr-child-newline-max-boundaries.cmake)
+sr_add_script_test(parser.newline-max-requires-framing            parser/newline-max-requires-framing.cmake)
+sr_add_script_test(parser.new-output-options-missing-duplicate    parser/new-output-options-missing-duplicate.cmake)
+sr_add_script_test(parser.jsonl-payload-presentation-values       parser/jsonl-payload-presentation-values.cmake)
+sr_add_script_test(parser.jsonl-payload-presentation-invalid      parser/jsonl-payload-presentation-invalid.cmake)
+
 
 # id
 sr_add_script_test(id.valid-prefix               id/valid-prefix.cmake)
@@ -151,6 +161,9 @@ sr_add_script_test(hooks.environment-success                       hooks/environ
 sr_add_script_test(hooks.environment-failure                       hooks/environment-failure.cmake)
 sr_add_script_test(hooks.environment-retained-log                  hooks/environment-retained-log.cmake)
 sr_add_script_test(hooks.environment-removed-log-empty             hooks/environment-removed-log-empty.cmake)
+sr_add_script_test(hooks.environment-overrides-inherited             hooks/environment-overrides-inherited.cmake)
+
+
 sr_add_script_test(hooks.nonzero-exit                            hooks/nonzero-exit.cmake)
 sr_add_script_test(hooks.detached-nested-no-diagnostic-channel      hooks/detached-nested-no-diagnostic-channel.cmake)
 
@@ -167,6 +180,8 @@ sr_add_script_test(command.script-path-with-spaces         command/script-path-w
 sr_add_script_test(command.raw-chaining                    command/raw-chaining.cmake)
 sr_add_script_test(command.raw-pipe                        command/raw-pipe.cmake)
 sr_add_script_test(command.raw-redirection                 command/raw-redirection.cmake)
+sr_add_script_test(command.inherit-stdin-content                     command/inherit-stdin-content.cmake)
+
 
 # utf8
 sr_add_script_test(utf8.codepage-65001    utf8/codepage-65001.cmake)
@@ -221,16 +236,52 @@ sr_add_script_test(emit.stderr-source-conflict.combined-child           emit/std
 sr_add_script_test(emit.stderr-source-conflict.child-sr                emit/stderr-source-conflict-child-sr.cmake)
 sr_add_script_test(emit.stderr-source-conflict.child-incl-stdout       emit/stderr-source-conflict-child-incl-stdout.cmake)
 sr_add_script_test(emit.stderr-source-conflict.sr-incl-stdout          emit/stderr-source-conflict-sr-incl-stdout.cmake)
+sr_add_script_test(emit.lf-event-headers                       emit/lf-event-headers.cmake)
+
+# framing
+sr_add_script_test(framing.stdout-lf-events                  framing/stdout-lf-events.cmake)
+sr_add_script_test(framing.stderr-child-lf-events            framing/stderr-child-lf-events.cmake)
+sr_add_script_test(framing.crlf-exact-delimiter              framing/crlf-exact-delimiter.cmake)
+sr_add_script_test(framing.crlf-threshold-extra-byte         framing/crlf-threshold-extra-byte.cmake)
+sr_add_script_test(framing.crlf-threshold-non-lf             framing/crlf-threshold-non-lf.cmake)
+sr_add_script_test(framing.eof-tail                          framing/eof-tail.cmake)
+sr_add_script_test(framing.default-newline-threshold         framing/default-newline-threshold.cmake)
+sr_add_script_test(framing.independent-stream-settings       framing/independent-stream-settings.cmake)
+sr_add_script_test(framing.utf8-split-at-byte-threshold      framing/utf8-split-at-byte-threshold.cmake)
+
 # replay
 sr_add_script_test(replay.stdout-txt-end                      replay/stdout-txt-end.cmake)
 sr_add_script_test(replay.stdout-jsonl-end                    replay/stdout-jsonl-end.cmake)
+sr_add_script_test(replay.jsonl-text-trailing-comma             replay/jsonl-text-trailing-comma.cmake)
+sr_add_script_test(replay.jsonl-text-escaping-utf8              replay/jsonl-text-escaping-utf8.cmake)
+sr_add_script_test(replay.jsonl-base64-end                      replay/jsonl-base64-end.cmake)
+sr_add_script_test(replay.jsonl-dual-payload-end                replay/jsonl-dual-payload-end.cmake)
 sr_add_script_test(replay.stdout-txt-success                  replay/stdout-txt-success.cmake)
 sr_add_script_test(replay.stderr-sr-txt-end                   replay/stderr-sr-txt-end.cmake)
 sr_add_script_test(replay.stderr-incl-stdout-jsonl-end         replay/stderr-incl-stdout-jsonl-end.cmake)
 sr_add_script_test(replay.stderr-sr-jsonl-failure              replay/stderr-sr-jsonl-failure.cmake)
+sr_add_script_test(replay.stdout-txt-lf-events                 replay/stdout-txt-lf-events.cmake)
+sr_add_script_test(replay.stderr-incl-stdout-txt-framing       replay/stderr-incl-stdout-txt-framing.cmake)
+sr_add_script_test(replay.timeline-lf-events                   replay/timeline-lf-events.cmake)
+sr_add_script_test(replay.txt-event-without-final-newline      replay/txt-event-without-final-newline.cmake)
+sr_add_script_test(replay.txt-header-like-child-payload        replay/txt-header-like-child-payload.cmake)
+sr_add_script_test(replay.txt-large-event                      replay/txt-large-event.cmake)
+sr_add_script_test(replay.jsonl-preferred-over-txt             replay/jsonl-preferred-over-txt.cmake)
+sr_add_script_test(replay.unrelated-log-keeps-timeline          replay/unrelated-log-keeps-timeline.cmake)
+sr_add_script_test(replay.mixed-stdout-txt-stderr-jsonl         replay/mixed-stdout-txt-stderr-jsonl.cmake)
+sr_add_script_test(replay.before-retention-removal              replay/before-retention-removal.cmake)
+sr_add_script_test(replay.persistent-result-gating              replay/persistent-result-gating.cmake)
+sr_add_script_test(replay.stderr-child-txt-end                  replay/stderr-child-txt-end.cmake)
+sr_add_script_test(replay.stderr-combined-jsonl-end             replay/stderr-combined-jsonl-end.cmake)
+
+
+
 
 # logging
 sr_add_script_test(logging.stdout-txt                          logging/stdout-txt.cmake)
+sr_add_script_test(logging.lf-event-headers                    logging/lf-event-headers.cmake)
+
+
 sr_add_script_test(logging.stdout-jsonl                        logging/stdout-jsonl.cmake)
 sr_add_script_test(logging.stderr-child-txt                    logging/stderr-child-txt.cmake)
 sr_add_script_test(logging.stdout-txt.failure                  logging/stdout-txt-failure.cmake)
@@ -246,6 +297,12 @@ sr_add_script_test(logging.stderr-sr-txt.success               logging/stderr-sr
 sr_add_script_test(logging.stderr-sr-txt.failure               logging/stderr-sr-txt-failure.cmake)
 sr_add_script_test(logging.stderr-sr-jsonl.success             logging/stderr-sr-jsonl-success.cmake)
 sr_add_script_test(logging.stderr-sr-jsonl.failure             logging/stderr-sr-jsonl-failure.cmake)
+sr_add_script_test(logging.verbose-final-summary-jsonl          logging/verbose-final-summary-jsonl.cmake)
+sr_add_script_test(logging.jsonl-presentation-base64            logging/jsonl-presentation-base64.cmake)
+sr_add_script_test(logging.jsonl-presentation-text-and-base64   logging/jsonl-presentation-text-and-base64.cmake)
+sr_add_script_test(logging.jsonl-invalid-utf8-fallback          logging/jsonl-invalid-utf8-fallback.cmake)
+sr_add_script_test(logging.jsonl-event-identity                      logging/jsonl-event-identity.cmake)
+
 sr_add_script_test(logging.stderr-incl-stdout-txt.success      logging/stderr-incl-stdout-txt-success.cmake)
 sr_add_script_test(logging.stderr-incl-stdout-txt.failure      logging/stderr-incl-stdout-txt-failure.cmake)
 sr_add_script_test(logging.stderr-incl-stdout-jsonl.success    logging/stderr-incl-stdout-jsonl-success.cmake)
@@ -312,6 +369,12 @@ sr_add_script_test(buffer.total-max          buffer/total-max.cmake)
 sr_add_script_test(buffer.total-negative     buffer/total-negative.cmake)
 sr_add_script_test(buffer.total-text         buffer/total-text.cmake)
 sr_add_script_test(buffer.total-overflow     buffer/total-overflow.cmake)
+sr_add_script_test(buffer.stdout-limit-aborts                 buffer/stdout-limit-aborts.cmake)
+sr_add_script_test(buffer.stderr-limit-aborts                 buffer/stderr-limit-aborts.cmake)
+sr_add_script_test(buffer.total-limit-aborts                  buffer/total-limit-aborts.cmake)
+sr_add_script_test(buffer.persistent-replay-bypasses-limit    buffer/persistent-replay-bypasses-limit.cmake)
+
+
 
 # comspec
 sr_add_script_test(comspec.fallback-when-missing       comspec/fallback-when-missing.cmake)
@@ -333,3 +396,4 @@ sr_add_script_test(cross.cwd-relative-log                       cross/cwd-relati
 sr_add_script_test(cross.success-hook-with-success-retention    cross/success-hook-with-success-retention.cmake)
 sr_add_script_test(cross.failure-hook-with-failure-retention    cross/failure-hook-with-failure-retention.cmake)
 sr_add_script_test(cross.no-diagnostic-channel                  cross/no-diagnostic-channel.cmake)
+sr_add_script_test(cross.no-parent-diagnostics-with-sr-log           cross/no-parent-diagnostics-with-sr-log.cmake)

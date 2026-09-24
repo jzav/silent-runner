@@ -5,7 +5,7 @@ set(expected_stdout_log "${log_dir}/ctest-timeout_stdout_failure.log")
 set(expected_stderr_log "${log_dir}/ctest-timeout_stderr_failure.log")
 sr_run(r ARGS
     --id-base ctest-timeout
-    --timeout-ms 100
+    --timeout-ms 1500
     --stdout-dir "${log_dir}"
     --stdout-dir-keep-log failure
     --stderr-dir "${log_dir}"

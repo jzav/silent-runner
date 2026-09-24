@@ -1,7 +1,13 @@
 SilentRunner regression coverage plan
 =====================================
 
-REGISTERED TESTS: 239
+REGISTERED TESTS: 288
+
+
+
+
+
+
 
 COVERED IN THIS CMAKE/CTEST SUITE
 ---------------------------------
@@ -13,10 +19,26 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - --utf8 / --utf-8 alias and duplicate alias handling
   - --verbose behavior (implies debug and emits verbose diagnostics) and --inherit-stdin acceptance
   - child options after the command remain child arguments
+  - child-output framing values: chunk, lf/newline alias, crlf, case-insensitive and = forms
+  - invalid framing values, missing/duplicate new output options
+  - newline-max dependency on non-chunk framing and argument-order independence
+  - JSONL payload-presentation values, alias canonicalization, invalid values, and basic output representation
 
 [covered] Numeric parsing / boundaries
   - timeout: 0, 1-ms acceptance, UINT32_MAX, text, negative, overflow
   - each buffer limit: 0, normal value, UINT64_MAX, text, negative, overflow
+  - stdout/stderr-child newline maximum: 0 rejection, 1, UINT64_MAX, text, negative, overflow
+
+[covered] Child-output event framing runtime
+  - deterministic LF event boundaries for child stdout and child stderr
+  - CRLF framing recognizes only exact CRLF; lone LF and lone CR remain payload bytes
+  - CRLF threshold ending in CR consumes the following LF as the documented one-byte extension
+  - CRLF threshold ending in CR emits at the threshold when the following byte is not LF
+  - unterminated EOF tails are flushed for both LF and CRLF framing
+  - omitted newline-max-bytes applies the 524288-byte default threshold at runtime
+  - stdout and stderr-child framing modes and thresholds operate independently
+  - byte thresholds may split a multibyte UTF-8 code point; resulting invalid-UTF-8 events
+    fall back losslessly to Base64 per event
 
 [covered] Execution ID
   - prefix/base validation
@@ -40,12 +62,15 @@ COVERED IN THIS CMAKE/CTEST SUITE
 
 [covered] Run hooks
   - success/failure hooks, relative and absolute
-  - opposite hook is not run
+  - opposite hook is not observed during bounded post-execution polling
   - relative hook resolution is independent of --cwd
   - hook working directory follows --cwd
   - exit-code / execution-ID environment
   - all 10 retained log-path environment variables
   - all 10 log-path environment variables become empty when retention removes the logs
+  - SilentRunner-generated hook environment values override same-named inherited values,
+    including generated exit/execution values and empty unconfigured log-path values
+
   - detached hook completion is handled by bounded polling
   - detached success hook non-zero exit does not change the successful child result
   - detached hook's nested SilentRunner returns 254 without a diagnostic channel while the outer execution remains successful
@@ -56,6 +81,9 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - -c and /c
   - raw chaining, pipe, redirection
   - missing raw command and unexpected extra argv
+  - --inherit-stdin passes supplied parent stdin content to the child; without it,
+    child stdin remains NUL even when SilentRunner itself receives stdin content
+
 
 [covered] UTF-8
   - --utf8 injects code page 65001; default execution does not
@@ -71,20 +99,76 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - complete stdout result-conditioned mode matrix
   - stderr combined / child / SR / incl-stdout source mode matrices
   - all six pairwise stderr-source mutual-exclusion combinations
+  - LF-framed stdout Stream emission writes one parseable CHILDSTDOUT TXT header
+    per child event, with the expected payload byte count and no payload duplication
+
 
 [covered] Persistent replay provenance
   - end-mode stdout replay from persistent TXT and JSONL sources
   - success-mode stdout replay from persistent TXT
   - end-mode stderr-SR replay from TXT and stderr-incl-stdout replay from JSONL
   - failure-mode stderr-SR replay from persistent JSONL
-  - normal debug replay plan confirms the selected Txt/Jsonl source
+  - normal debug replay plan confirms the selected Txt/Jsonl source and exact *_running path
+  - child payload replay is checked for non-duplication; JSONL provenance checks the default text representation
+  - JSONL end replay preserves an exact unterminated payload ending in a comma
+    across default text, explicit text, text+base64, base64+text, and base64
+    presentations, including exact parent payload and structured metadata
+  - JSONL text replay preserves quotes, backslashes, tabs, CR/LF, and multibyte UTF-8
+    through serialization, structural parsing, and parent emission
+  - explicit Base64 end replay verifies exact decoded child bytes, Jsonl provenance,
+    correct parent target, and non-duplication
+  - dual text+base64 end replay exercises both child-byte and SR-diagnostic decoder paths
+  - LF-framed stdout TXT End replay preserves one header and payload per child event
+    and confirms Txt provenance from the exact *_running source
+  - stderr-incl-stdout TXT End replay preserves independent child stdout/stderr
+    event framing without assuming cross-pipe chronology
+  - LF-framed TXT replay preserves distinct, strictly increasing child eventOrderNo
+    identities from the persistent log through parent replay
+  - LF-framed TXT EOF replay preserves an unterminated final child event
+    byte-exactly without synthesizing a newline
+  - CRLF-framed TXT replay preserves an embedded LF line resembling a TXT
+    metadata header as child payload without a false segment split
+  - a single LF-framed TXT event larger than the 64 KiB replay read buffer
+    is preserved byte-exactly across replay buffer boundaries
+  - when TXT and JSONL persistent sources both exist for the same parent target,
+    JSONL is preferred and replay uses its exact *_running path
+  - a persistent log for an unrelated target does not disable Timeline buffering
+    and replay for a buffered parent target without its own persistent source
+  - stdout TXT and stderr-child JSONL sources can be selected and replayed
+    independently in the same execution
+  - persistent sources remain subject to success/failure result gating; a
+    non-matching execution result suppresses replay even when the log exists
+  - stderr-child TXT End replay and combined stderr JSONL End replay cover the
+    remaining per-target persistent replay source mappings
+
+
+
+
 
 [covered] Persistent logging
   - all five logical destinations in TXT and JSONL
   - success/failure final names
-  - payload/structure checks
+  - default JSONL text representation is parsed structurally with per-record payload type,
+    representation, dropped flag, byte count, and reconstructed child payload checks
+  - stdout and child-only stderr TXT logs verify parseable payload headers and routing isolation
+  - LF-framed stdout TXT logging writes one parseable CHILDSTDOUT header per event,
+    with the expected per-event payloadByteCount and non-duplicated payloads
+
+  - final verbose SR JSONL summary is unique and non-dropped, with
+    payloadByteCount equal to the reconstructed UTF-8 payload byte length
+  - explicit Base64 representation is structurally verified for ChildStdout, ChildStderr,
+    and SrDiagEvent, including exact child Base64 payloads and successful replay
+  - text+base64 and base64+text are verified as canonical text+base64 output with
+    matching text/Base64 data across child stdout, child stderr, and SR diagnostics
+  - invalid UTF-8 child bytes under text and dual presentation fall back losslessly
+    to Base64 without replacement or byte loss
+  - LF-framed JSONL child events structurally expose runtime phase identity,
+    phaseOrderNo=2, typed timestamp/order fields, and strictly increasing eventOrderNo
+    without assuming globally contiguous event numbers
+
   - nested directory creation
-  - all 10 destinations enabled in parallel
+  - all 10 destinations enabled in parallel with expected final names, payloads, routing isolation,
+    TXT headers, and structural JSONL validation
   - probe logging
   - running/success/failure candidate collisions with representative TXT/JSONL coverage
   - collision preflight returns 255 without overwriting the existing file or starting the child
@@ -95,6 +179,8 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - always / success / failure against success and failure outcomes
   - default always behavior
   - JSONL shares its logical output's keep-log policy
+  - persistent End replay consumes the *_running source before result-based
+    retention removes that log
 
 [covered] ComSpec / help / defaults / cross-feature cases
   - ComSpec fallback and explicit inherited ComSpec
@@ -104,12 +190,29 @@ COVERED IN THIS CMAKE/CTEST SUITE
   - cwd + relative hook/log path interactions
   - hook + retention interactions
   - no diagnostic channel returns 254 before starting the child
+  - an SR-only persistent log satisfies the diagnostic-channel requirement while a
+    child-only parent stderr view remains free of SilentRunner diagnostics
 
+
+[covered] Buffer-limiter runtime mechanics
+  - stdout per-stream exhaustion aborts the running child and returns exit code 125
+  - stderr per-stream exhaustion aborts the running child and returns exit code 125
+  - total-only exhaustion is distinguished from per-stream exhaustion and returns exit code 125
+  - a replayable persistent stdout JSONL source bypasses RAM replay-buffer reservation,
+    including configured stdout and total limits, and replays successfully from the log
 DEFERRED FOR NOW
 ----------------------
 
-[deferred] Interactive / exact stdin inheritance behavior
-  Reason: needs a fixture that deliberately reads/blocks on inherited stdin.
+[deferred] Deterministic proof that the opposite detached hook is not started
+  Reason: current negative hook tests only confirm that no marker appears during bounded
+          post-execution polling; a detached hook could in principle publish later.
+[deferred] NUL-containing byte-exact payloads
+  Reason: CRLF, exact threshold boundaries, UTF-8 threshold splits, and invalid UTF-8 are covered;
+          embedded NUL still needs a dedicated byte-exact fixture/capture case.
+
+[deferred] Interactive stdin inheritance timing / blocking
+  Reason: file-fed stdin content inheritance is covered; live console/pipe interaction
+          and blocking behavior still need synchronized instrumentation.
 
 [deferred] Process-tree termination proof on timeout
   Reason: needs a child fixture that spawns descendants and records survival.
@@ -123,9 +226,9 @@ DEFERRED FOR NOW
          child write order across both streams needs a synchronized fixture
          or additional instrumentation.
          
-[deferred] Buffer-limiter dropped-payload runtime mechanics
-  Reason: numeric configuration is covered; deterministic byte/event drop
-          accounting needs a controlled high-volume generator fixture.
+[deferred] Exact buffer dropped-byte/event accounting
+  Reason: deterministic overflow/abort behavior is covered; exact dropped-byte/event
+          accounting still needs a controlled high-volume generator fixture.
 
 [deferred] Extreme argv quoting edge cases
   Reason: ordinary spaces/path quoting are covered; exact empty-argument,
