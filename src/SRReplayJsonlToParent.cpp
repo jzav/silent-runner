@@ -13,6 +13,7 @@
 #include "SRLifecycleDiagnostics.h"
 #include "SRPendingJobTypes.h"
 #include "SRPhaseTimelineEntryJsonlParser.h"
+#include "TextHelpers.h"
 
 namespace {
 
@@ -94,6 +95,121 @@ bool DecodeBase64_(
 
     return true;
 }
+bool TryDecodeChildPayload_(
+    const std::string& payloadRepresentation,
+    const std::string& payloadText,
+    const std::string& payloadBase64,
+    std::vector<char>& decoded
+) {
+    decoded.clear();
+
+    if (payloadRepresentation == "text") {
+        if (!payloadBase64.empty()) {
+            return false;
+        }
+
+        decoded.assign(payloadText.begin(), payloadText.end());
+        return TextHelpers::IsValidUtf8(decoded);
+    }
+
+    if (payloadRepresentation == "base64") {
+        if (!payloadText.empty()) {
+            return false;
+        }
+
+        return DecodeBase64_(payloadBase64, decoded);
+    }
+
+    if (payloadRepresentation == "text+base64") {
+        decoded.assign(payloadText.begin(), payloadText.end());
+
+        if (!TextHelpers::IsValidUtf8(decoded)) {
+            return false;
+        }
+
+        std::vector<char> decodedBase64;
+        if (!DecodeBase64_(
+                payloadBase64,
+                decodedBase64
+            )) {
+            return false;
+        }
+
+        return decoded == decodedBase64;
+    }
+
+    return false;
+}
+
+bool TryDecodeSrDiagPayload_(
+    const std::string& payloadRepresentation,
+    const std::wstring& payloadText,
+    const std::string& payloadBase64,
+    std::wstring& decoded
+) {
+    decoded.clear();
+
+    if (payloadRepresentation == "text") {
+        if (!payloadBase64.empty()) {
+            return false;
+        }
+
+        decoded = payloadText;
+        return true;
+    }
+
+    if (payloadRepresentation == "base64") {
+        if (!payloadText.empty()) {
+            return false;
+        }
+
+        std::vector<char> decodedBytes;
+        if (!DecodeBase64_(
+                payloadBase64,
+                decodedBytes
+            )) {
+            return false;
+        }
+
+        const std::string utf8(
+            decodedBytes.begin(),
+            decodedBytes.end()
+        );
+
+        return TextHelpers::TryUtf8ToUtf16(
+            utf8,
+            decoded
+        );
+    }
+
+    if (payloadRepresentation == "text+base64") {
+        std::vector<char> decodedBytes;
+        if (!DecodeBase64_(
+                payloadBase64,
+                decodedBytes
+            )) {
+            return false;
+        }
+
+        const std::string utf8 =
+            TextHelpers::Utf16ToUtf8(payloadText);
+
+        const std::string decodedBase64Text(
+            decodedBytes.begin(),
+            decodedBytes.end()
+        );
+
+        if (utf8 != decodedBase64Text) {
+            return false;
+        }
+
+        decoded = payloadText;
+        return true;
+    }
+
+    return false;
+}
+
 
 
 bool TryBuildPendingJobKey_(
@@ -139,6 +255,7 @@ bool TryBuildPendingJob_(
 ) {
     SR::TimelineEntryKey key;
     SR::DiagnosticSeverity severity;
+    std::wstring message;
 
     if (!TryBuildPendingJobKey_(
             data.phase,
@@ -153,6 +270,26 @@ bool TryBuildPendingJob_(
         return false;
     }
 
+    if (data.payloadDropped) {
+        if (!data.payloadRepresentation.empty() ||
+            !data.payloadText.empty() ||
+            !data.payloadBase64.empty()) {
+            return false;
+        }
+    } else if (
+        !TryDecodeSrDiagPayload_(
+            data.payloadRepresentation,
+            data.payloadText,
+            data.payloadBase64,
+            message
+        ) ||
+        data.payloadByteCount != static_cast<uint64_t>(
+            TextHelpers::Utf16ToUtf8ByteCount(message)
+        )
+    ) {
+        return false;
+    }
+
     job = SR::PendingJob{};
     job.key = key;
     job.payloadType = SR::JobPayloadType::SrDiag;
@@ -160,7 +297,7 @@ bool TryBuildPendingJob_(
     job.srDiag.key = key;
     job.srDiag.timestampUtc = data.timestampUtc;
     job.srDiag.severity = severity;
-    job.srDiag.message = data.message;
+    job.srDiag.message = std::move(message);
     job.srDiag.payloadByteCount = data.payloadByteCount;
     job.srDiag.replayPayloadStorage =
         ReplayPayloadStorageFromSchemaData_(
@@ -169,6 +306,8 @@ bool TryBuildPendingJob_(
 
     return true;
 }
+
+
 
 bool TryBuildPendingJob_(
     const SR::SRPhaseTimelineEntrySchemaData::ChildStdoutData& data,
@@ -186,13 +325,22 @@ bool TryBuildPendingJob_(
         return false;
     }
 
-    if (!data.payloadDropped &&
-        (!DecodeBase64_(
-                data.payloadBase64,
-                bytes
-            ) ||
-         data.payloadByteCount !=
-            static_cast<uint64_t>(bytes.size()))) {
+    if (data.payloadDropped) {
+        if (!data.payloadRepresentation.empty() ||
+            !data.payloadText.empty() ||
+            !data.payloadBase64.empty()) {
+            return false;
+        }
+    } else if (
+        !TryDecodeChildPayload_(
+            data.payloadRepresentation,
+            data.payloadText,
+            data.payloadBase64,
+            bytes
+        ) ||
+        data.payloadByteCount !=
+            static_cast<uint64_t>(bytes.size())
+    ) {
         return false;
     }
 
@@ -229,13 +377,22 @@ bool TryBuildPendingJob_(
         return false;
     }
 
-    if (!data.payloadDropped &&
-        (!DecodeBase64_(
-                data.payloadBase64,
-                bytes
-            ) ||
-         data.payloadByteCount !=
-            static_cast<uint64_t>(bytes.size()))) {
+    if (data.payloadDropped) {
+        if (!data.payloadRepresentation.empty() ||
+            !data.payloadText.empty() ||
+            !data.payloadBase64.empty()) {
+            return false;
+        }
+    } else if (
+        !TryDecodeChildPayload_(
+            data.payloadRepresentation,
+            data.payloadText,
+            data.payloadBase64,
+            bytes
+        ) ||
+        data.payloadByteCount !=
+            static_cast<uint64_t>(bytes.size())
+    ) {
         return false;
     }
 
@@ -290,7 +447,7 @@ bool ReplayLine_(
 
     SR::SRPhaseTimelineEntrySchemaData::SchemaDataVariant schemaData;
 
-    if (!SR::SRPhaseTimelineEntryParser::TryParseJsonLine(
+    if (!SR::SRPhaseTimelineEntryJsonlParser::TryParseLine(
             line,
             schemaData
         )) {

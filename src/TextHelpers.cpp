@@ -369,6 +369,15 @@ bool TryParseUInt64Text_(
 
 namespace TextHelpers {
 
+bool TryUtf8ToUtf16(
+    const std::string& text,
+    std::wstring& value
+) {
+    return Utf8ToUtf16_(text, value);
+}
+
+
+
 
 bool EqualsOrdinalIgnoreCase(
     std::wstring_view value,
@@ -483,94 +492,6 @@ void TrimTrailingNewlines(std::wstring& value) {
     }
 }
 
-void ReplaceAll(
-    std::string& text,
-    std::string_view from,
-    std::string_view to
-) {
-    if (from.empty() || from == to) {
-        return;
-    }
-
-    std::string result;
-    result.reserve(text.size());
-
-    std::size_t pos = 0;
-
-    while (pos < text.size()) {
-
-        if (pos + from.size() <= text.size() &&
-            std::string_view(text.data() + pos, from.size()) == from)
-        {
-            result.append(to);
-            pos += from.size();
-        }
-        else {
-            result.push_back(text[pos]);
-            ++pos;
-        }
-    }
-
-    text.swap(result);
-}
-
-bool TryTokenizeCanonicalJsonObject(
-    std::string& text
-) {
-    if (text.size() < 2 ||
-        text.front() != '{' ||
-        text.back() != '}')
-    {
-        return false;
-    }
-
-    std::string result;
-    result.reserve(text.size() - 2);
-
-    std::size_t pos = 1;
-    const std::size_t end = text.size() - 1;
-
-    while (pos < end) {
-
-        if (pos + 2 <= end &&
-            text[pos] == ',' &&
-            text[pos + 1] == '"')
-        {
-            result.push_back('\n');
-            result.push_back('"');
-            pos += 2;
-        }
-        else {
-            result.push_back(text[pos]);
-            ++pos;
-        }
-    }
-
-    text.swap(result);
-    return true;
-}
-bool TryReadLine(
-    std::string_view text,
-    std::size_t& position,
-    std::string_view& line
-) noexcept {
-    if (position >= text.size()) {
-        line = {};
-        return false;
-    }
-
-    const std::size_t lineEnd = text.find('\n', position);
-
-    if (lineEnd == std::string_view::npos) {
-        line = text.substr(position);
-        position = text.size();
-        return true;
-    }
-
-    line = text.substr(position, lineEnd - position);
-    position = lineEnd + 1;
-    return true;
-}
 
 char ToUpperAscii(char ch) noexcept {
     if (ch >= 'a' && ch <= 'z') {
@@ -663,6 +584,24 @@ size_t Utf16ToUtf8ByteCount(const std::wstring& text) noexcept {
     return requiredByteCount > 0
         ? static_cast<size_t>(requiredByteCount)
         : 0;
+}
+bool IsValidUtf8(const std::vector<char>& bytes) noexcept {
+    if (bytes.empty()) {
+        return true;
+    }
+
+    if (bytes.size() > static_cast<size_t>(INT_MAX)) {
+        return false;
+    }
+
+    return MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        bytes.data(),
+        static_cast<int>(bytes.size()),
+        nullptr,
+        0
+    ) > 0;
 }
 
 uint64_t PayloadByteCountFromBytes(const std::vector<char>& bytes) noexcept {

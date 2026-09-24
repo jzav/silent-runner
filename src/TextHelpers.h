@@ -44,7 +44,11 @@ wchar_t ToUpperAscii(wchar_t ch) noexcept;
 std::wstring ToUpperAsciiCopy(std::wstring s);
 
 std::string Utf16ToUtf8(const std::wstring& text);
+bool TryUtf8ToUtf16(const std::string& text, std::wstring& value);
+
+
 size_t Utf16ToUtf8ByteCount(const std::wstring& text) noexcept;
+bool IsValidUtf8(const std::vector<char>& bytes) noexcept;
 uint64_t PayloadByteCountFromBytes(const std::vector<char>& bytes) noexcept;
 std::string PayloadBase64FromBytes(const std::vector<char>& bytes);
 
@@ -54,20 +58,6 @@ void AppendJsonWideStringField(std::string& out, const char* name, const std::ws
 void AppendJsonBoolField(std::string& out, const char* name, bool value);
 void AppendJsonUInt64Field(std::string& out, const char* name, uint64_t value);
 
-void ReplaceAll(
-    std::string& text,
-    std::string_view from,
-    std::string_view to
-);
-
-// Converts one canonical compact JSON object into LF-separated
-// "fieldName":value records in a single pass.
-bool TryTokenizeCanonicalJsonObject(std::string& text);
-bool TryReadLine(
-    std::string_view text,
-    std::size_t& position,
-    std::string_view& line
-) noexcept;
 
 
 

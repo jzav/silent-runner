@@ -1,5 +1,6 @@
 #include "SRPhaseTimelineEntryFormatter.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -51,10 +52,12 @@ void AppendTxtField_(
     const char* fieldName,
     Formatter formatter,
     const Data& data,
-    Member member
+    Member member,
+    std::size_t txtSpacesAfter
 ) {
     if constexpr (enabled) {
         formatter(header, fieldName, data.*member);
+        header.append(txtSpacesAfter, ' ');
     }
 }
 
@@ -63,7 +66,7 @@ std::string FormatSrDiagJsonLine_(
 ) {
 
     std::string line;
-    line.reserve(256 + data.message.size());
+    line.reserve(320 + data.payloadText.size() + data.payloadBase64.size());
     line += "{";
 
     bool firstField = true;
@@ -76,7 +79,8 @@ std::string FormatSrDiagJsonLine_(
     jsonParser, \
     txtEnabled, \
     txtFormatter, \
-    txtParser \
+    txtParser, \
+    txtSpacesAfter \
 ) \
     AppendJsonField_<jsonEnabled>( \
         line, \
@@ -104,7 +108,7 @@ std::string FormatChildStdoutJsonLine_(
 ) {
 
     std::string line;
-    line.reserve(256 + data.payloadBase64.size());
+    line.reserve(320 + data.payloadText.size() + data.payloadBase64.size());
     line += "{";
 
     bool firstField = true;
@@ -117,7 +121,8 @@ std::string FormatChildStdoutJsonLine_(
     jsonParser, \
     txtEnabled, \
     txtFormatter, \
-    txtParser \
+    txtParser, \
+    txtSpacesAfter \
 ) \
     AppendJsonField_<jsonEnabled>( \
         line, \
@@ -145,7 +150,7 @@ std::string FormatChildStderrJsonLine_(
 ) {
 
     std::string line;
-    line.reserve(256 + data.payloadBase64.size());
+    line.reserve(320 + data.payloadText.size() + data.payloadBase64.size());
     line += "{";
 
     bool firstField = true;
@@ -158,7 +163,8 @@ std::string FormatChildStderrJsonLine_(
     jsonParser, \
     txtEnabled, \
     txtFormatter, \
-    txtParser \
+    txtParser, \
+    txtSpacesAfter \
 ) \
     AppendJsonField_<jsonEnabled>( \
         line, \
@@ -196,14 +202,16 @@ std::string FormatSrDiagTxtHeader_(
     jsonParser, \
     txtEnabled, \
     txtFormatter, \
-    txtParser \
+    txtParser, \
+    txtSpacesAfter \
 ) \
     AppendTxtField_<txtEnabled>( \
         header, \
         fieldName, \
         txtFormatter, \
         data, \
-        member \
+        member, \
+        txtSpacesAfter \
     );
 
 
@@ -231,14 +239,16 @@ std::string FormatChildStdoutTxtHeader_(
     jsonParser, \
     txtEnabled, \
     txtFormatter, \
-    txtParser \
+    txtParser, \
+    txtSpacesAfter \
 ) \
     AppendTxtField_<txtEnabled>( \
         header, \
         fieldName, \
         txtFormatter, \
         data, \
-        member \
+        member, \
+        txtSpacesAfter \
     );
 
     SR_PHASE_TIMELINE_CHILD_STDOUT_SCHEMA_FIELD_TABLE(
@@ -264,14 +274,16 @@ std::string FormatChildStderrTxtHeader_(
     jsonParser, \
     txtEnabled, \
     txtFormatter, \
-    txtParser \
+    txtParser, \
+    txtSpacesAfter \
 ) \
     AppendTxtField_<txtEnabled>( \
         header, \
         fieldName, \
         txtFormatter, \
         data, \
-        member \
+        member, \
+        txtSpacesAfter \
     );
 
     SR_PHASE_TIMELINE_CHILD_STDERR_SCHEMA_FIELD_TABLE(
@@ -317,29 +329,43 @@ std::string SRPhaseTimelineEntryFormatter::FormatChildStderrTxtHeader(
 
 
 std::string SRPhaseTimelineEntryFormatter::FormatJsonLine(
-    const SrDiagEntry& entry
+    const SrDiagEntry& entry,
+    JsonlPayloadPresentation payloadPresentation
 ) {
     return FormatSrDiagJsonLine_(
-        SRPhaseTimelineEntrySchemaData::SrDiagData(entry)
+        SRPhaseTimelineEntrySchemaData::SrDiagData(
+            entry,
+            payloadPresentation
+        )
     );
 }
 
 
 std::string SRPhaseTimelineEntryFormatter::FormatJsonLine(
-    const ChildStdoutEntry& entry
+    const ChildStdoutEntry& entry,
+    JsonlPayloadPresentation payloadPresentation
 ) {
     return FormatChildStdoutJsonLine_(
-        SRPhaseTimelineEntrySchemaData::ChildStdoutData(entry)
+        SRPhaseTimelineEntrySchemaData::ChildStdoutData(
+            entry,
+            payloadPresentation
+        )
     );
-
 }
+
 
 std::string SRPhaseTimelineEntryFormatter::FormatJsonLine(
-    const ChildStderrEntry& entry
+    const ChildStderrEntry& entry,
+    JsonlPayloadPresentation payloadPresentation
 ) {
     return FormatChildStderrJsonLine_(
-        SRPhaseTimelineEntrySchemaData::ChildStderrData(entry)
+        SRPhaseTimelineEntrySchemaData::ChildStderrData(
+            entry,
+            payloadPresentation
+        )
     );
 }
+
+
 
 } // namespace SR

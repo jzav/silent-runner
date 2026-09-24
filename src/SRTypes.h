@@ -256,6 +256,134 @@ inline void AppendKeepLogModeHelp(std::wstring& out) {
     SR_KEEPLOGMODE_TABLE(SR_X_HELP)
 #undef SR_X_HELP
 }
+ 
+// =====================================================================================
+// JsonlPayloadPresentation
+// =====================================================================================
+
+#define SR_JSONL_PAYLOAD_PRESENTATION_TABLE(X) \
+    X(Text,          L"text",        L"",            "text") \
+    X(Base64,        L"base64",      L"",            "base64") \
+    X(TextAndBase64, L"text+base64", L"base64+text", "text+base64")
+
+enum class JsonlPayloadPresentation {
+#define SR_X_ENUM_JSONL_PAYLOAD_PRESENTATION(name, text, alias, token) name,
+    SR_JSONL_PAYLOAD_PRESENTATION_TABLE(
+        SR_X_ENUM_JSONL_PAYLOAD_PRESENTATION
+    )
+#undef SR_X_ENUM_JSONL_PAYLOAD_PRESENTATION
+};
+
+inline constexpr const char* JsonlPayloadPresentationToToken(
+    JsonlPayloadPresentation presentation
+) noexcept {
+    switch (presentation) {
+#define SR_X_CASE_JSONL_PAYLOAD_PRESENTATION(name, text, alias, token) \
+        case JsonlPayloadPresentation::name: return token;
+
+        SR_JSONL_PAYLOAD_PRESENTATION_TABLE(
+            SR_X_CASE_JSONL_PAYLOAD_PRESENTATION
+        )
+#undef SR_X_CASE_JSONL_PAYLOAD_PRESENTATION
+
+        default:
+            return "<invalid>";
+    }
+}
+
+inline bool TryParseJsonlPayloadPresentationIgnoreCase(
+    std::wstring_view value,
+    JsonlPayloadPresentation& out
+) noexcept {
+#define SR_X_IF_JSONL_PAYLOAD_PRESENTATION(name, text, alias, token) \
+    if (TextHelpers::EqualsOrdinalIgnoreCase(value, text) || \
+        (alias[0] != L'\0' && \
+         TextHelpers::EqualsOrdinalIgnoreCase(value, alias))) { \
+        out = JsonlPayloadPresentation::name; \
+        return true; \
+    }
+
+    SR_JSONL_PAYLOAD_PRESENTATION_TABLE(
+        SR_X_IF_JSONL_PAYLOAD_PRESENTATION
+    )
+#undef SR_X_IF_JSONL_PAYLOAD_PRESENTATION
+
+    return false;
+}
+
+
+// =====================================================================================
+// ChildEventFraming
+// =====================================================================================
+
+enum class ChildOutputPresentation {
+    Raw,
+    Block,
+    Event
+};
+
+#define SR_CHILD_EVENT_FRAMING_TABLE(X) \
+    X(Chunk, 0, L"chunk", L"",        Block) \
+    X(Lf,    1, L"lf",    L"newline", Event) \
+    X(Crlf,  2, L"crlf",  L"",        Event)
+
+enum class ChildEventFraming {
+#define SR_X_ENUM_CHILD_EVENT_FRAMING(name, value, text, alias, presentation) name = value,
+    SR_CHILD_EVENT_FRAMING_TABLE(SR_X_ENUM_CHILD_EVENT_FRAMING)
+#undef SR_X_ENUM_CHILD_EVENT_FRAMING
+};
+
+inline constexpr ChildOutputPresentation
+ChildEventFramingPresentationOf(
+    ChildEventFraming framing
+) noexcept {
+    switch (framing) {
+#define SR_X_CASE_CHILD_EVENT_FRAMING_PRESENTATION(name, value, text, alias, presentation) \
+        case ChildEventFraming::name: \
+            return ChildOutputPresentation::presentation;
+
+        SR_CHILD_EVENT_FRAMING_TABLE(
+            SR_X_CASE_CHILD_EVENT_FRAMING_PRESENTATION
+        )
+#undef SR_X_CASE_CHILD_EVENT_FRAMING_PRESENTATION
+        default:
+            return ChildOutputPresentation::Block;
+    }
+}
+
+inline constexpr uint64_t kDefaultChildEventNewlineMaxBytes =
+    512ull * 1024ull;
+
+inline constexpr const wchar_t* ChildEventFramingToString(
+    ChildEventFraming framing
+) noexcept {
+    switch (framing) {
+#define SR_X_CASE_CHILD_EVENT_FRAMING(name, value, text, alias, presentation) \
+        case ChildEventFraming::name: return text;
+        SR_CHILD_EVENT_FRAMING_TABLE(SR_X_CASE_CHILD_EVENT_FRAMING)
+#undef SR_X_CASE_CHILD_EVENT_FRAMING
+        default:
+            return L"<invalid>";
+    }
+}
+
+inline bool TryParseChildEventFramingIgnoreCase(
+    std::wstring_view s,
+    ChildEventFraming& out
+) noexcept {
+#define SR_X_IF_CHILD_EVENT_FRAMING(name, value, text, alias, presentation) \
+    if (TextHelpers::EqualsOrdinalIgnoreCase(s, text) || \
+        (alias[0] != L'\0' && \
+         TextHelpers::EqualsOrdinalIgnoreCase(s, alias))) { \
+        out = ChildEventFraming::name; \
+        return true; \
+    }
+    SR_CHILD_EVENT_FRAMING_TABLE(SR_X_IF_CHILD_EVENT_FRAMING)
+#undef SR_X_IF_CHILD_EVENT_FRAMING
+    return false;
+}
+
+
 
 // =====================================================================================
 // IdSuffixMode

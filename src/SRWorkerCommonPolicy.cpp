@@ -56,54 +56,13 @@ bool SRWorkerCommonPolicy::Init(
 ) noexcept {
     needsParsingToken_ = false;
     parsingToken_.clear();
-    fileSinkParsingTokenTargets_.clear();
-    parentParsingTokenTargets_.clear();
 
-    try {
-        SR::JobTargetFilter fileSinkParsingTokenFilter;
-        fileSinkParsingTokenFilter.worker =
-            SR::JobTargetWorker::SRFileSinkWorker;
-        fileSinkParsingTokenFilter.headerParsingTokenEnabled = true;
+    stdoutPresentation_ =
+        config.stdoutPresentation;
+    stderrChildPresentation_ =
+        config.stderrChildPresentation;
 
-        fileSinkParsingTokenTargets_ =
-            SR::RetrieveJobTargets(fileSinkParsingTokenFilter);
-
-        SR::JobTargetFilter parentParsingTokenFilter;
-        parentParsingTokenFilter.worker =
-            SR::JobTargetWorker::SRParentEmitWorker;
-        parentParsingTokenFilter.headerParsingTokenEnabled = true;
-
-        parentParsingTokenTargets_ =
-            SR::RetrieveJobTargets(parentParsingTokenFilter);
-    } catch (...) {
-        fileSinkParsingTokenTargets_.clear();
-        parentParsingTokenTargets_.clear();
-        return false;
-    }
-
-
-    const bool fileSinkNeedsParsingToken =
-        !config.stderrDir.empty() ||
-        !config.stderrDirSr.empty() ||
-        !config.stderrDirInclStdout.empty();
-
-
-    const bool parentEmitNeedsParsingToken =
-        config.stderrEmit != SR::EmitMode::Never &&
-        (
-            config.stderrEmitSource ==
-                SR::StderrEmitSource::SrAndChild ||
-            config.stderrEmitSource ==
-                SR::StderrEmitSource::Sr ||
-            config.stderrEmitSource ==
-                SR::StderrEmitSource::SrAndChildInclStdout
-        );
-
-    const bool needsParsingToken =
-        fileSinkNeedsParsingToken ||
-        parentEmitNeedsParsingToken;
-
-    if (!needsParsingToken) {
+    if (!config.needsParsingToken) {
         return true;
     }
 
@@ -123,13 +82,12 @@ const std::string&
 SRWorkerCommonPolicy::ParsingToken() const noexcept {
     return parsingToken_;
 }
-
-const std::vector<SR::JobTarget>&
-SRWorkerCommonPolicy::FileSinkParsingTokenTargets() const noexcept {
-    return fileSinkParsingTokenTargets_;
+SR::ChildOutputPresentation
+SRWorkerCommonPolicy::StdoutPresentation() const noexcept {
+    return stdoutPresentation_;
 }
 
-const std::vector<SR::JobTarget>&
-SRWorkerCommonPolicy::ParentParsingTokenTargets() const noexcept {
-    return parentParsingTokenTargets_;
+SR::ChildOutputPresentation
+SRWorkerCommonPolicy::StderrChildPresentation() const noexcept {
+    return stderrChildPresentation_;
 }

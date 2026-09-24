@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string>
+#include "SRTypes.h"
+
 
 namespace SR {
 
@@ -63,9 +65,20 @@ public:
     );
 
     // Formats one complete JSON object without the terminating LF.
-    static std::string FormatJsonLine(const SrDiagEntry& entry);
-    static std::string FormatJsonLine(const ChildStdoutEntry& entry);
-    static std::string FormatJsonLine(const ChildStderrEntry& entry);
+    static std::string FormatJsonLine(
+        const SrDiagEntry& entry,
+        JsonlPayloadPresentation payloadPresentation
+    );
+    static std::string FormatJsonLine(
+        const ChildStdoutEntry& entry,
+        JsonlPayloadPresentation payloadPresentation
+    );
+    static std::string FormatJsonLine(
+        const ChildStderrEntry& entry,
+        JsonlPayloadPresentation payloadPresentation
+    );
+
+
 };
 
 

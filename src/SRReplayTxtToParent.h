@@ -27,6 +27,8 @@ public:
     bool Init(
         SRLifecycleDiagnostics* diagnostics,
         const std::string& parsingToken,
+        SR::ChildOutputPresentation stdoutPresentation,
+        SR::ChildOutputPresentation stderrChildPresentation,
         std::size_t pendingJobPayloadSize
     ) noexcept;
 
@@ -43,7 +45,10 @@ private:
     };
     enum class ChunkResultState {
         LfFound,
-        BufferExhausted
+        EventBoundaryFound,
+        BufferExhausted,
+        EndOfFile,
+        Invalid
     };
 
     struct ChunkResult {
@@ -135,6 +140,10 @@ private:
     std::string candidateHeader_;
     std::string parsingToken_;
     std::string parsingTokenSuffix_;
+    SR::ChildOutputPresentation stdoutPresentation_ =
+        SR::ChildOutputPresentation::Block;
+    SR::ChildOutputPresentation stderrChildPresentation_ =
+        SR::ChildOutputPresentation::Block;
     std::size_t pendingJobPayloadSize_ = 0;
 
 };

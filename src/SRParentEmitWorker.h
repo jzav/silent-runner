@@ -17,6 +17,7 @@
 #include "SRPendingJobTypes.h"
 
 class SRLifecycleDiagnostics;
+class SRWorkerCommonPolicy;
 namespace SR { class SRWorkerSupervisor; }
 class SRParentEmitWorker {
 public:
@@ -28,10 +29,6 @@ public:
 
     bool Start();
     void SetWorkerSupervisor(SR::SRWorkerSupervisor* supervisor) noexcept;
-    void SetParsingTokenPolicy(
-        const std::string& parsingToken,
-        const std::vector<SR::JobTarget>& enabledTargets
-    );
 
 
     void DrainAndStop();
@@ -39,8 +36,11 @@ public:
 
     bool Init(
         SRLifecycleDiagnostics* diagnostics,
-        SRParentEmitPolicy* parentEmitPolicyOrNull
+        SRParentEmitPolicy* parentEmitPolicyOrNull,
+        const SR::ParentEmitWorkerTargetLayout& targetLayout,
+        const SRWorkerCommonPolicy& workerCommonPolicy
     ) noexcept;
+
 
     bool EnqueuePendingJobs(const SR::PendingJobs& jobs);
     SR::JobResults TakeJobResults();
@@ -56,6 +56,8 @@ private:
 
     struct ParentTargetConfig {
         SR::JobTarget target{};
+        ParentStreamType stream = ParentStreamType::Stdout;
+
         bool enabled = false;
         bool headerParsingTokenEnabled = false;
 
@@ -72,42 +74,31 @@ private:
         ParentEmitFailureLatch workerStdoutFailure;
         ParentEmitFailureLatch workerStderrFailure;
         std::string parsingToken;
+        SR::ChildOutputPresentation stdoutPresentation =
+            SR::ChildOutputPresentation::Block;
+        SR::ChildOutputPresentation stderrChildPresentation =
+            SR::ChildOutputPresentation::Block;
+
     };
 
     struct WriteConfigSnapshot {
         ParentTargetConfig targetConfig;
         std::string parsingToken;
+        SR::ChildOutputPresentation stdoutPresentation =
+            SR::ChildOutputPresentation::Block;
+        SR::ChildOutputPresentation stderrChildPresentation =
+            SR::ChildOutputPresentation::Block;
+
     };
 
 
 
     struct WorkerDomain {
+        SR::ParentEmitWorkerTargetLayout targetLayout;
         std::array<
             ParentTargetConfig,
             SR::kParentTargetConfigCount
-        > targetConfigs{{
-            {
-                SR::JobTarget::StdoutParent,
-                true,
-            },
-            {
-                SR::JobTarget::StderrSrAndChildParent,
-                true,
-            },
-            {
-                SR::JobTarget::StderrChildParent,
-                true,
-            },
-            {
-                SR::JobTarget::StderrSrParent,
-                true,
-            },
-            {
-                SR::JobTarget::StderrSrAndChildInclStdoutParent,
-                true,
-            },
-
-        }};
+        > targetConfigs{};
         WorkerConfig config;
     };
 
@@ -198,8 +189,14 @@ private:
     mutable std::mutex failureLatchMutex_;
     WorkerDomain domain_;
     std::optional<SR::JobPayloadType>
+        stdoutParentLastWrittenPayloadType_;
+    bool stdoutParentAtLineStart_ = true;
+    std::optional<SR::JobPayloadType>
         stderrSrAndChildParentLastWrittenPayloadType_;
     bool stderrSrAndChildParentAtLineStart_ = true;
+    std::optional<SR::JobPayloadType>
+        stderrChildParentLastWrittenPayloadType_;
+    bool stderrChildParentAtLineStart_ = true;
     std::optional<SR::JobPayloadType>
         stderrSrAndChildInclStdoutParentLastWrittenPayloadType_;
     bool stderrSrAndChildInclStdoutParentAtLineStart_ = true;

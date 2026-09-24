@@ -6,38 +6,24 @@
 
 namespace SR {
 
-
-// Parses canonical textual phase-timeline entry representations independently
-// of where the source bytes were read from or how replay jobs are constructed.
+// Parses one complete canonical JSONL phase-timeline record according to
+// SRPhaseTimelineEntrySchema.
 //
 // Responsibilities:
-// - Parse one complete JSONL record into the corresponding schema data.
-// - Parse stderr-sr-and-child TXT segment headers into the corresponding schema data.
-// - Maintain the parser side of the field contract defined by
-//   SRPhaseTimelineEntrySchema.
+// - Determine the schema variant from payloadType.
+// - Parse all JSON-enabled schema fields in canonical schema order.
+// - Require the complete JSON object to match the selected schema.
 //
 // Non-responsibilities:
 // - Read files or streams.
-// - Locate TXT segment boundaries or read TXT payload bytes.
-// - Decode, split, or enqueue replay payload jobs.
-// - Assign synthetic event order numbers for chunked TXT replay.
-//
-// JSONL records contain both metadata and payload representation in one
-// physical line. stderr-sr-and-child TXT output stores metadata in a header line followed by
-// separately framed payload bytes; therefore TXT parsing intentionally stops
-// at the segment header.
-class SRPhaseTimelineEntryParser {
+// - Decode replay payload representations.
+// - Build or enqueue replay jobs.
+class SRPhaseTimelineEntryJsonlParser {
 public:
-
-    // Parses one complete canonical JSONL record and selects the
-    // corresponding schema data type from the record's payloadType.
-    static bool TryParseJsonLine(
+    static bool TryParseLine(
         const std::string& line,
         SRPhaseTimelineEntrySchemaData::SchemaDataVariant& data
     );
-
-    
 };
-
 
 } // namespace SR

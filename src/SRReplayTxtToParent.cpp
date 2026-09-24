@@ -135,6 +135,8 @@ struct SRReplayTxtToParent::ReplayBatchContext {
 bool SRReplayTxtToParent::Init(
     SRLifecycleDiagnostics* diagnostics,
     const std::string& parsingToken,
+    SR::ChildOutputPresentation stdoutPresentation,
+    SR::ChildOutputPresentation stderrChildPresentation,
     std::size_t pendingJobPayloadSize
 ) noexcept {
     jobsExchange_ = nullptr;
@@ -149,6 +151,8 @@ bool SRReplayTxtToParent::Init(
         parsingToken_ +
         "]";
 
+    stdoutPresentation_ = stdoutPresentation;
+    stderrChildPresentation_ = stderrChildPresentation;
     pendingJobPayloadSize_ = pendingJobPayloadSize;
 
     return
@@ -720,6 +724,164 @@ SRReplayTxtToParent::ChunkUntilSeparator_(
     std::size_t payloadPosition =
         nextHeaderResult.position;
 
+    bool eventPresentedChild = false;
+    bool payloadDropped = false;
+    uint64_t payloadByteCount = 0;
+
+    std::visit(
+        [&](const auto& data) {
+            using Data = std::decay_t<decltype(data)>;
+
+            if constexpr (
+                std::is_same_v<
+                    Data,
+                    SR::SRPhaseTimelineEntrySchemaData::ChildStdoutData
+                >
+            ) {
+                eventPresentedChild =
+                    stdoutPresentation_ ==
+                        SR::ChildOutputPresentation::Event;
+                payloadDropped = data.payloadDropped;
+                payloadByteCount = data.payloadByteCount;
+            } else if constexpr (
+                std::is_same_v<
+                    Data,
+                    SR::SRPhaseTimelineEntrySchemaData::ChildStderrData
+                >
+            ) {
+                eventPresentedChild =
+                    stderrChildPresentation_ ==
+                        SR::ChildOutputPresentation::Event;
+                payloadDropped = data.payloadDropped;
+                payloadByteCount = data.payloadByteCount;
+            }
+        },
+        segmentContext.schemaData
+    );
+
+    if (eventPresentedChild) {
+        const uint64_t storedPayloadByteCount =
+            payloadDropped
+                ? 0
+                : payloadByteCount;
+
+        if (storedPayloadByteCount >
+            static_cast<uint64_t>(
+                std::numeric_limits<std::size_t>::max()
+            )) {
+            return {
+                ChunkResultState::Invalid,
+                payloadPosition
+            };
+        }
+
+        const std::size_t expectedPayloadSize =
+            static_cast<std::size_t>(
+                storedPayloadByteCount
+            );
+
+        if (payloadPosition > currentBuffer_.size() ||
+            pendingPayloadBuffer.size() > expectedPayloadSize) {
+            return {
+                ChunkResultState::Invalid,
+                payloadPosition
+            };
+        }
+
+        if (pendingPayloadBuffer.capacity() <
+            expectedPayloadSize) {
+            pendingPayloadBuffer.reserve(
+                expectedPayloadSize
+            );
+        }
+
+        const std::size_t remainingPayloadSize =
+            expectedPayloadSize -
+            pendingPayloadBuffer.size();
+
+        const std::size_t availablePayloadSize =
+            currentBuffer_.size() -
+            payloadPosition;
+
+        const std::size_t copySize =
+            std::min(
+                remainingPayloadSize,
+                availablePayloadSize
+            );
+
+        pendingPayloadBuffer.insert(
+            pendingPayloadBuffer.end(),
+            currentBuffer_.begin() +
+                static_cast<std::ptrdiff_t>(
+                    payloadPosition
+                ),
+            currentBuffer_.begin() +
+                static_cast<std::ptrdiff_t>(
+                    payloadPosition + copySize
+                )
+        );
+
+        payloadPosition += copySize;
+
+        if (pendingPayloadBuffer.size() <
+            expectedPayloadSize) {
+            return {
+                nextBuffer_.empty()
+                    ? ChunkResultState::Invalid
+                    : ChunkResultState::BufferExhausted,
+                payloadPosition
+            };
+        }
+
+        if (payloadPosition == currentBuffer_.size() &&
+            nextBuffer_.empty()) {
+            return {
+                ChunkResultState::EndOfFile,
+                payloadPosition
+            };
+        }
+
+        if (expectedPayloadSize == 0) {
+            if (payloadPosition == 0) {
+                return {
+                    ChunkResultState::Invalid,
+                    payloadPosition
+                };
+            }
+
+            return {
+                ChunkResultState::EventBoundaryFound,
+                payloadPosition - 1
+            };
+        }
+
+        if (pendingPayloadBuffer.back() == kLf) {
+            return {
+                ChunkResultState::EventBoundaryFound,
+                payloadPosition - 1
+            };
+        }
+
+        if (payloadPosition == currentBuffer_.size()) {
+            return {
+                ChunkResultState::BufferExhausted,
+                payloadPosition
+            };
+        }
+
+        if (currentBuffer_[payloadPosition] != kLf) {
+            return {
+                ChunkResultState::Invalid,
+                payloadPosition
+            };
+        }
+
+        return {
+            ChunkResultState::EventBoundaryFound,
+            payloadPosition
+        };
+    }
+
     const bool chunkedSegment =
         std::holds_alternative<
             SR::SRPhaseTimelineEntrySchemaData::ChildStdoutData
@@ -742,16 +904,16 @@ SRReplayTxtToParent::ChunkUntilSeparator_(
             std::holds_alternative<
                 SR::SRPhaseTimelineEntrySchemaData::SrDiagData
             >(segmentContext.schemaData);
-    
+
         const bool terminatingSrDiagLf =
             srDiagSegment &&
             payloadPosition + 1 == currentBuffer_.size() &&
             nextBuffer_.empty();
-    
+
         if (!terminatingSrDiagLf) {
             pendingPayloadBuffer.push_back(kLf);
         }
-    
+
         ++payloadPosition;
 
 
@@ -979,6 +1141,24 @@ bool SRReplayTxtToParent::ReplayHeaderedTxt_(
             nextHeaderResult
         );
 
+        if (chunkResult.state ==
+            ChunkResultState::Invalid) {
+            reader.Close();
+            if (diagnostics_) {
+                diagnostics_->ErrorLine(
+                    L"Failed to parse TXT replay source: " +
+                    parameters.path +
+                    L"; reason=event-payload"
+                );
+            }
+            return false;
+        }
+
+        if (chunkResult.state ==
+            ChunkResultState::EndOfFile) {
+            break;
+        }
+
         if (!batchContext.allPendingJobsEnqueued) {
             reader.Close();
             if (diagnostics_) {
@@ -1042,6 +1222,12 @@ bool SRReplayTxtToParent::ReplayHeaderedTxt_(
 
         if (nextHeaderResult.state ==
             HeaderResultState::NotHeader) {
+            if (chunkResult.state ==
+                ChunkResultState::EventBoundaryFound) {
+                segmentContext.headerParsingSucceeded = false;
+                break;
+            }
+
             nextHeaderResult.position =
                 chunkResult.position;
 

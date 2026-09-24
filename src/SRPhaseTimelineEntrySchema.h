@@ -26,7 +26,11 @@
 //
 //    txtEnabled,
 //    txtFormatter,
-//    txtParser)
+//    txtParser,
+//    txtSpacesAfter)
+//
+// txtSpacesAfter is the exact number of ASCII spaces emitted/consumed
+// after an enabled TXT field. Use 0 for no inter-field spacing.
 
 #define SR_PHASE_TIMELINE_SR_DIAG_SCHEMA_FIELD_TABLE(X) \
     X( \
@@ -39,7 +43,21 @@
         \
         true, \
         TextHelpers::AppendTxtUpperStringField, \
-        TextHelpers::TryParseTxtStringField \
+        TextHelpers::TryParseTxtStringField, \
+        1 \
+    ) \
+    X( \
+        &SRPhaseTimelineEntrySchemaData::SrDiagData::timestampUtc, \
+        "tsUtc", \
+        \
+        true, \
+        TextHelpers::AppendJsonWideStringField, \
+        TextHelpers::TryParseJsonWideStringField, \
+        \
+        true, \
+        TextHelpers::AppendTxtWideStringField, \
+        TextHelpers::TryParseTxtWideStringField, \
+        1 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::SrDiagData::phase, \
@@ -51,7 +69,8 @@
         \
         true, \
         TextHelpers::AppendTxtUpperWideStringField, \
-        TextHelpers::TryParseTxtWideStringField \
+        TextHelpers::TryParseTxtWideStringField, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::SrDiagData::phaseOrderNo, \
@@ -63,7 +82,8 @@
         \
         true, \
         TextHelpers::AppendTxtUInt64Field, \
-        TextHelpers::TryParseTxtUInt64Field \
+        TextHelpers::TryParseTxtUInt64Field, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::SrDiagData::eventOrderNo, \
@@ -75,19 +95,8 @@
         \
         true, \
         TextHelpers::AppendTxtUInt64Field, \
-        TextHelpers::TryParseTxtUInt64Field \
-    ) \
-    X( \
-        &SRPhaseTimelineEntrySchemaData::SrDiagData::timestampUtc, \
-        "timestampUtc", \
-        \
-        true, \
-        TextHelpers::AppendJsonWideStringField, \
-        TextHelpers::TryParseJsonWideStringField, \
-        \
-        true, \
-        TextHelpers::AppendTxtWideStringField, \
-        TextHelpers::TryParseTxtWideStringField \
+        TextHelpers::TryParseTxtUInt64Field, \
+        1 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::SrDiagData::payloadDropped, \
@@ -99,7 +108,8 @@
         \
         true, \
         TextHelpers::AppendTxtUpperBoolField, \
-        TextHelpers::TryParseTxtBoolField \
+        TextHelpers::TryParseTxtBoolField, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::SrDiagData::payloadByteCount, \
@@ -111,7 +121,47 @@
         \
         true, \
         TextHelpers::AppendTxtUInt64Field, \
-        TextHelpers::TryParseTxtUInt64Field \
+        TextHelpers::TryParseTxtUInt64Field, \
+        1 \
+    ) \
+    X( \
+        &SRPhaseTimelineEntrySchemaData::SrDiagData::payloadRepresentation, \
+        "payloadRepresentation", \
+        \
+        true, \
+        TextHelpers::AppendJsonStringField, \
+        TextHelpers::TryParseJsonStringField, \
+        \
+        false, \
+        nullptr, \
+        nullptr, \
+        0 \
+    ) \
+    X( \
+        &SRPhaseTimelineEntrySchemaData::SrDiagData::payloadText, \
+        "payloadText", \
+        \
+        true, \
+        TextHelpers::AppendJsonWideStringField, \
+        TextHelpers::TryParseJsonWideStringField, \
+        \
+        false, \
+        nullptr, \
+        nullptr, \
+        0 \
+    ) \
+    X( \
+        &SRPhaseTimelineEntrySchemaData::SrDiagData::payloadBase64, \
+        "payloadBase64", \
+        \
+        true, \
+        TextHelpers::AppendJsonStringField, \
+        TextHelpers::TryParseJsonStringField, \
+        \
+        false, \
+        nullptr, \
+        nullptr, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::SrDiagData::severity, \
@@ -123,19 +173,8 @@
         \
         true, \
         TextHelpers::AppendTxtUpperWideStringField, \
-        TextHelpers::TryParseTxtWideStringField \
-    ) \
-    X( \
-        &SRPhaseTimelineEntrySchemaData::SrDiagData::message, \
-        "message", \
-        \
-        true, \
-        TextHelpers::AppendJsonWideStringField, \
-        TextHelpers::TryParseJsonWideStringField, \
-        \
-        false, \
-        nullptr, \
-        nullptr \
+        TextHelpers::TryParseTxtWideStringField, \
+        1 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::SrDiagData::parsingToken, \
@@ -147,7 +186,8 @@
         \
         true, \
         TextHelpers::AppendTxtStringField, \
-        TextHelpers::TryParseTxtStringField \
+        TextHelpers::TryParseTxtStringField, \
+        0 \
     )
 
 #define SR_PHASE_TIMELINE_CHILD_STDOUT_SCHEMA_FIELD_TABLE(X) \
@@ -161,7 +201,21 @@
         \
         true, \
         TextHelpers::AppendTxtUpperStringField, \
-        TextHelpers::TryParseTxtStringField \
+        TextHelpers::TryParseTxtStringField, \
+        1 \
+    ) \
+    X( \
+        &SRPhaseTimelineEntrySchemaData::ChildStdoutData::timestampUtc, \
+        "tsUtc", \
+        \
+        true, \
+        TextHelpers::AppendJsonWideStringField, \
+        TextHelpers::TryParseJsonWideStringField, \
+        \
+        true, \
+        TextHelpers::AppendTxtWideStringField, \
+        TextHelpers::TryParseTxtWideStringField, \
+        1 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::phase, \
@@ -173,7 +227,8 @@
         \
         true, \
         TextHelpers::AppendTxtUpperWideStringField, \
-        TextHelpers::TryParseTxtWideStringField \
+        TextHelpers::TryParseTxtWideStringField, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::phaseOrderNo, \
@@ -185,7 +240,8 @@
         \
         true, \
         TextHelpers::AppendTxtUInt64Field, \
-        TextHelpers::TryParseTxtUInt64Field \
+        TextHelpers::TryParseTxtUInt64Field, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::eventOrderNo, \
@@ -197,19 +253,8 @@
         \
         true, \
         TextHelpers::AppendTxtUInt64Field, \
-        TextHelpers::TryParseTxtUInt64Field \
-    ) \
-    X( \
-        &SRPhaseTimelineEntrySchemaData::ChildStdoutData::timestampUtc, \
-        "timestampUtc", \
-        \
-        true, \
-        TextHelpers::AppendJsonWideStringField, \
-        TextHelpers::TryParseJsonWideStringField, \
-        \
-        true, \
-        TextHelpers::AppendTxtWideStringField, \
-        TextHelpers::TryParseTxtWideStringField \
+        TextHelpers::TryParseTxtUInt64Field, \
+        1 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::payloadDropped, \
@@ -221,7 +266,8 @@
         \
         true, \
         TextHelpers::AppendTxtUpperBoolField, \
-        TextHelpers::TryParseTxtBoolField \
+        TextHelpers::TryParseTxtBoolField, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::payloadByteCount, \
@@ -233,7 +279,34 @@
         \
         true, \
         TextHelpers::AppendTxtUInt64Field, \
-        TextHelpers::TryParseTxtUInt64Field \
+        TextHelpers::TryParseTxtUInt64Field, \
+        1 \
+    ) \
+    X( \
+        &SRPhaseTimelineEntrySchemaData::ChildStdoutData::payloadRepresentation, \
+        "payloadRepresentation", \
+        \
+        true, \
+        TextHelpers::AppendJsonStringField, \
+        TextHelpers::TryParseJsonStringField, \
+        \
+        false, \
+        nullptr, \
+        nullptr, \
+        0 \
+    ) \
+    X( \
+        &SRPhaseTimelineEntrySchemaData::ChildStdoutData::payloadText, \
+        "payloadText", \
+        \
+        true, \
+        TextHelpers::AppendJsonStringField, \
+        TextHelpers::TryParseJsonStringField, \
+        \
+        false, \
+        nullptr, \
+        nullptr, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::payloadBase64, \
@@ -245,7 +318,8 @@
         \
         false, \
         nullptr, \
-        nullptr \
+        nullptr, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::parsingToken, \
@@ -257,7 +331,8 @@
         \
         true, \
         TextHelpers::AppendTxtStringField, \
-        TextHelpers::TryParseTxtStringField \
+        TextHelpers::TryParseTxtStringField, \
+        0 \
     )
 
 #define SR_PHASE_TIMELINE_CHILD_STDERR_SCHEMA_FIELD_TABLE(X) \
@@ -271,7 +346,21 @@
         \
         true, \
         TextHelpers::AppendTxtUpperStringField, \
-        TextHelpers::TryParseTxtStringField \
+        TextHelpers::TryParseTxtStringField, \
+        1 \
+    ) \
+    X( \
+        &SRPhaseTimelineEntrySchemaData::ChildStderrData::timestampUtc, \
+        "tsUtc", \
+        \
+        true, \
+        TextHelpers::AppendJsonWideStringField, \
+        TextHelpers::TryParseJsonWideStringField, \
+        \
+        true, \
+        TextHelpers::AppendTxtWideStringField, \
+        TextHelpers::TryParseTxtWideStringField, \
+        1 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStderrData::phase, \
@@ -283,7 +372,8 @@
         \
         true, \
         TextHelpers::AppendTxtUpperWideStringField, \
-        TextHelpers::TryParseTxtWideStringField \
+        TextHelpers::TryParseTxtWideStringField, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStderrData::phaseOrderNo, \
@@ -295,7 +385,8 @@
         \
         true, \
         TextHelpers::AppendTxtUInt64Field, \
-        TextHelpers::TryParseTxtUInt64Field \
+        TextHelpers::TryParseTxtUInt64Field, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStderrData::eventOrderNo, \
@@ -307,19 +398,8 @@
         \
         true, \
         TextHelpers::AppendTxtUInt64Field, \
-        TextHelpers::TryParseTxtUInt64Field \
-    ) \
-    X( \
-        &SRPhaseTimelineEntrySchemaData::ChildStderrData::timestampUtc, \
-        "timestampUtc", \
-        \
-        true, \
-        TextHelpers::AppendJsonWideStringField, \
-        TextHelpers::TryParseJsonWideStringField, \
-        \
-        true, \
-        TextHelpers::AppendTxtWideStringField, \
-        TextHelpers::TryParseTxtWideStringField \
+        TextHelpers::TryParseTxtUInt64Field, \
+        1 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStderrData::payloadDropped, \
@@ -331,7 +411,8 @@
         \
         true, \
         TextHelpers::AppendTxtUpperBoolField, \
-        TextHelpers::TryParseTxtBoolField \
+        TextHelpers::TryParseTxtBoolField, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStderrData::payloadByteCount, \
@@ -343,7 +424,34 @@
         \
         true, \
         TextHelpers::AppendTxtUInt64Field, \
-        TextHelpers::TryParseTxtUInt64Field \
+        TextHelpers::TryParseTxtUInt64Field, \
+        1 \
+    ) \
+    X( \
+        &SRPhaseTimelineEntrySchemaData::ChildStderrData::payloadRepresentation, \
+        "payloadRepresentation", \
+        \
+        true, \
+        TextHelpers::AppendJsonStringField, \
+        TextHelpers::TryParseJsonStringField, \
+        \
+        false, \
+        nullptr, \
+        nullptr, \
+        0 \
+    ) \
+    X( \
+        &SRPhaseTimelineEntrySchemaData::ChildStderrData::payloadText, \
+        "payloadText", \
+        \
+        true, \
+        TextHelpers::AppendJsonStringField, \
+        TextHelpers::TryParseJsonStringField, \
+        \
+        false, \
+        nullptr, \
+        nullptr, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStderrData::payloadBase64, \
@@ -355,7 +463,8 @@
         \
         false, \
         nullptr, \
-        nullptr \
+        nullptr, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStderrData::parsingToken, \
@@ -367,5 +476,6 @@
         \
         true, \
         TextHelpers::AppendTxtStringField, \
-        TextHelpers::TryParseTxtStringField \
+        TextHelpers::TryParseTxtStringField, \
+        0 \
     )

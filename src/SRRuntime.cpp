@@ -228,6 +228,18 @@ SRRuntimeResult RunHiddenWithRouting(
 
     diag.InfoLine(L"STDERR_EMIT=" + std::wstring(SR::EmitModeToString(parentEmitPolicy.StderrEmitMode())));
     diag.InfoLine(L"STDERR_EMIT_SOURCE=" + std::wstring(SR::StderrEmitSourceToString(parentEmitPolicy.StderrEmitSource())));
+    diag.DebugLine(
+        L"STDOUT_EVENT_FRAMING=" +
+        std::wstring(SR::ChildEventFramingToString(config.stdoutEventFraming)) +
+        L" STDOUT_EVENT_NEWLINE_MAX_BYTES=" +
+        std::to_wstring(config.stdoutEventNewlineMaxBytes)
+    );
+    diag.DebugLine(
+        L"STDERR_CHILD_EVENT_FRAMING=" +
+        std::wstring(SR::ChildEventFramingToString(config.stderrChildEventFraming)) +
+        L" STDERR_CHILD_EVENT_NEWLINE_MAX_BYTES=" +
+        std::to_wstring(config.stderrChildEventNewlineMaxBytes)
+    );
 
     if (!logPaths.running.stdoutTxt.empty()) {
         diag.InfoLine(L"STDOUT_LOG_FILE=" + logPaths.running.stdoutTxt);
@@ -560,7 +572,9 @@ SRRuntimeResult RunHiddenWithRouting(
                     if (stdoutReadPipe.valid()) {
                         stdoutReadGle = ChildStdReader::ReadAndRouteStdoutPipe(
                             stdoutReadPipe.get(),
-                            stdoutRouter
+                            stdoutRouter,
+                            config.stdoutEventFraming,
+                            config.stdoutEventNewlineMaxBytes
                         );
                     }
                 },
@@ -577,7 +591,9 @@ SRRuntimeResult RunHiddenWithRouting(
                     if (stderrReadPipe.valid()) {
                         stderrReadGle = ChildStdReader::ReadAndRouteStderrPipe(
                             stderrReadPipe.get(),
-                            stderrRouter
+                            stderrRouter,
+                            config.stderrChildEventFraming,
+                            config.stderrChildEventNewlineMaxBytes
                         );
                     }
                 },
@@ -598,15 +614,9 @@ SRRuntimeResult RunHiddenWithRouting(
                 return BuildRuntimeResult(255);
             }
             diag.DebugLine(
-                L"[TIMELINE] Timeline entries are shared by SR diagnostics, child stdout and child stderr. "
-                L"Individual outputs may contain only a subset of timeline entries due to stream filtering "
-                L"(stderr-sr-and-child/stderr-sr/stderr-child/stderr-sr-and-child-incl-stdout) or diagnostic-level "
-                L"filtering (debug/verbose). TXT output groups consecutive child stdout or child stderr events into "
-                L"a single segment because child stream events are not line-aware and per-event headers could split "
-                L"raw output within a line. The segment header identifies the first event in that segment; therefore, "
-                L"gaps in eventOrderNo values visible in TXT headers do not necessarily indicate missing timeline events. "
-                L"JSONL output preserves each timeline event as a separate record and provides the complete "
-                L"event-level representation."
+                L"[TIMELINE] Event numbers shown in an output may not form a continuous sequence; "
+                L"this does not necessarily indicate lost events. "
+                L"See https://github.com/jzav/silent-runner#timeline-and-views"
             );
             diag.DebugLine(L"[JOB] ResumeThread OK; Child process started.");
             result.childStarted = true;

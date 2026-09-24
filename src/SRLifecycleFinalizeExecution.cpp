@@ -10,6 +10,8 @@
 #include "ErrorHelpers.h"
 #include "LogWriter.h"
 #include "FileHelpers.h"
+#include "TextHelpers.h"
+
 #include "SRConfigsBuilderTypes.h"
 #include "SRExecutionTimeline.h"
 #include "SRExecutionTimelineDiagnostics.h"
@@ -348,6 +350,8 @@ int FinalizeExecution(
             replayTxtToParent.Init(
                 &lifecycleDiag,
                 parsingToken,
+                config.stdoutPresentation,
+                config.stderrChildPresentation,
                 1u << 15
             ) &&
 
@@ -1199,6 +1203,12 @@ int FinalizeExecution(
                 SR::DiagnosticSeverity::Verbose;
             finalHarvestJob.srDiag.message =
                 SR::FormatFinalEventSummary(finalHarvestEventSummary);
+            finalHarvestJob.srDiag.payloadByteCount =
+                static_cast<uint64_t>(
+                    TextHelpers::Utf16ToUtf8ByteCount(
+                        finalHarvestJob.srDiag.message
+                    )
+                );
 
             SR::PendingJobs finalHarvestJobs;
             finalHarvestJobs.push_back(std::move(finalHarvestJob));

@@ -18,7 +18,9 @@
 
 class ExecutionTimeline;
 class SRLifecycleDiagnostics;
-namespace SR { class SRWorkerSupervisor; }
+class SRWorkerCommonPolicy;
+namespace SR { class SRWorkerSupervisor; struct SRFileSinkWorkerConfig; }
+
 
 class SRFileSinkWorker {
 public:
@@ -35,15 +37,18 @@ public:
     bool PauseAfterCurrentJob();
     void DrainAndStop();
     void SetWorkerSupervisor(SR::SRWorkerSupervisor* supervisor) noexcept;
-    void SetParsingTokenPolicy(
-        const std::string& parsingToken,
-        const std::vector<SR::JobTarget>& enabledTargets
-    );
 
 
     SR::WorkerSummaries TakeWorkerSummaries();
 
-    bool Init(SRLifecycleDiagnostics* diagnostics);
+    bool Init(
+        SRLifecycleDiagnostics* diagnostics,
+        const SR::FileSinkWorkerTargetLayout& targetLayout,
+        const SR::SRFileSinkWorkerConfig& config,
+        const SRWorkerCommonPolicy& workerCommonPolicy
+    );
+
+
     void AttachLogWriters(
         bool stdoutTxtEnabled,
         LogWriter::FileWriter* stdoutTxtWriter,
@@ -90,6 +95,8 @@ private:
 
     struct FileTargetConfig {
         SR::JobTarget target = SR::JobTarget::StdoutTxt;
+        SR::JobTargetFormat format = SR::JobTargetFormat::Txt;
+
         bool enabled = false;
         bool headerParsingTokenEnabled = false;
 
@@ -107,32 +114,37 @@ private:
     struct WorkerConfig {
         WorkerFailureState failure;
         std::string parsingToken;
+        SR::ChildOutputPresentation stdoutPresentation =
+            SR::ChildOutputPresentation::Block;
+        SR::ChildOutputPresentation stderrChildPresentation =
+            SR::ChildOutputPresentation::Block;
+        SR::JsonlPayloadPresentation jsonlPayloadPresentation =
+            SR::JsonlPayloadPresentation::Text;
+
+
     };
 
     struct WriteConfigSnapshot {
         FileTargetConfig targetConfig;
         std::string parsingToken;
+        SR::ChildOutputPresentation stdoutPresentation =
+            SR::ChildOutputPresentation::Block;
+        SR::ChildOutputPresentation stderrChildPresentation =
+            SR::ChildOutputPresentation::Block;
+        SR::JsonlPayloadPresentation jsonlPayloadPresentation =
+            SR::JsonlPayloadPresentation::Text;
+
+
     };
 
 
 
     struct WorkerDomain {
+        SR::FileSinkWorkerTargetLayout targetLayout;
         std::array<
             FileTargetConfig,
             SR::kFileSinkTargetConfigCount
-        > targetConfigs{{
-            FileTargetConfig{SR::JobTarget::StdoutTxt},
-            FileTargetConfig{SR::JobTarget::StderrSrAndChildTxt},
-            FileTargetConfig{SR::JobTarget::StderrChildTxt},
-            FileTargetConfig{SR::JobTarget::StderrSrTxt},
-            FileTargetConfig{SR::JobTarget::StdoutJsonl},
-            FileTargetConfig{SR::JobTarget::StderrSrAndChildJsonl},
-            FileTargetConfig{SR::JobTarget::StderrChildJsonl},
-            FileTargetConfig{SR::JobTarget::StderrSrJsonl},
-            FileTargetConfig{SR::JobTarget::StderrSrAndChildInclStdoutJsonl},
-            FileTargetConfig{SR::JobTarget::StderrSrAndChildInclStdoutTxt}
-        }};
-
+        > targetConfigs{};
         WorkerConfig config;
     };
 
@@ -185,7 +197,9 @@ private:
     bool IsValidJsonlTarget_(const FileTargetConfig& targetConfig, SR::JobResult& result) const;
 
     bool TryWriteTxtTarget_(const SR::PendingJob& job, const WriteConfigSnapshot& writeConfig, DWORD* outGle);
-    bool TryWriteJsonlTarget_(const SR::PendingJob& job, const FileTargetConfig& targetConfig, DWORD* outGle);
+    bool TryWriteJsonlTarget_(const SR::PendingJob& job, const WriteConfigSnapshot& writeConfig, DWORD* outGle);
+
+
     void SuppressFileTargetAfterWriteFailure_(SR::JobTarget target, DWORD gle, const std::wstring& reason);
 
     
@@ -206,8 +220,14 @@ private:
     WorkerDomain domain_;
 
     std::optional<SR::JobPayloadType>
+        stdoutTxtLastWrittenPayloadType_;
+    bool stdoutTxtAtLineStart_ = true;
+    std::optional<SR::JobPayloadType>
         stderrSrAndChildTxtLastWrittenPayloadType_;
     bool stderrSrAndChildTxtAtLineStart_ = true;
+    std::optional<SR::JobPayloadType>
+        stderrChildTxtLastWrittenPayloadType_;
+    bool stderrChildTxtAtLineStart_ = true;
     std::optional<SR::JobPayloadType>
         stderrSrAndChildInclStdoutTxtLastWrittenPayloadType_;
     bool stderrSrAndChildInclStdoutTxtAtLineStart_ = true;
