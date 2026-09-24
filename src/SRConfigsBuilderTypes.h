@@ -23,6 +23,7 @@ enum class ConfigArgumentTopic {
     ProcessEnvironment,
     ExecutionId,
     ParentEmission,
+    ChildEventSeparation,
     PersistentLogging,
     LogRetention,
     Buffering,
@@ -47,14 +48,17 @@ enum class ConfigArgumentParsingMode {
 // Columns: value type ID, C++ type, value type text, value resolver.
 
 #define SR_CONFIG_VALUE_TYPE_TABLE(X) \
-    X(Bool,          bool,              L"bool",              ResolveBool) \
-    X(WString,       std::wstring,      L"std::wstring",      ResolveWString) \
-    X(UInt32,        uint32_t,          L"uint32_t",          ResolveUInt32) \
-    X(UInt64,        uint64_t,          L"uint64_t",          ResolveUInt64) \
-    X(IdSuffixMode,  SR::IdSuffixMode,  L"SR::IdSuffixMode",  ResolveIdSuffixMode) \
-    X(EmitMode,      SR::EmitMode,      L"SR::EmitMode",      ResolveEmitMode) \
-    X(KeepLogMode,   SR::KeepLogMode,   L"SR::KeepLogMode",   ResolveKeepLogMode) \
-    X(ExecutionMode, SR::ExecutionMode, L"SR::ExecutionMode", ResolveExecutionMode)
+    X(Bool,                     bool,                         L"bool",                         ResolveBool) \
+    X(WString,                  std::wstring,                 L"std::wstring",                 ResolveWString) \
+    X(UInt32,                   uint32_t,                     L"uint32_t",                     ResolveUInt32) \
+    X(UInt64,                   uint64_t,                     L"uint64_t",                     ResolveUInt64) \
+    X(ChildEventFraming,        SR::ChildEventFraming,        L"SR::ChildEventFraming",        ResolveChildEventFraming) \
+    X(JsonlPayloadPresentation, SR::JsonlPayloadPresentation, L"SR::JsonlPayloadPresentation", ResolveJsonlPayloadPresentation) \
+    X(IdSuffixMode,             SR::IdSuffixMode,             L"SR::IdSuffixMode",             ResolveIdSuffixMode) \
+    X(EmitMode,                 SR::EmitMode,                 L"SR::EmitMode",                 ResolveEmitMode) \
+    X(KeepLogMode,              SR::KeepLogMode,              L"SR::KeepLogMode",              ResolveKeepLogMode) \
+    X(ExecutionMode,            SR::ExecutionMode,            L"SR::ExecutionMode",            ResolveExecutionMode)
+
 
 
 namespace SR {
@@ -100,6 +104,10 @@ namespace Resolution {
     X(IdPrefix,                         L"IdPrefix",                         L"--id-prefix",                        nullptr,  ExecutionId,         Value,        WString) \
     X(IdBase,                           L"IdBase",                           L"--id-base",                          nullptr,  ExecutionId,         Value,        WString) \
     X(IdSuffix,                         L"IdSuffix",                         L"--id-suffix",                        nullptr,  ExecutionId,         Value,        IdSuffixMode) \
+    X(StdoutEventFraming,                L"StdoutEventFraming",                L"--stdout-event-framing",                nullptr,  ChildEventSeparation, Value, ChildEventFraming) \
+    X(StdoutEventNewlineMaxBytes,        L"StdoutEventNewlineMaxBytes",        L"--stdout-event-newline-max-bytes",      nullptr,  ChildEventSeparation, Value, UInt64) \
+    X(StderrChildEventFraming,           L"StderrChildEventFraming",           L"--stderr-child-event-framing",          nullptr,  ChildEventSeparation, Value, ChildEventFraming) \
+    X(StderrChildEventNewlineMaxBytes,   L"StderrChildEventNewlineMaxBytes",   L"--stderr-child-event-newline-max-bytes", nullptr, ChildEventSeparation, Value, UInt64) \
     X(StdoutEmit,                       L"StdoutEmit",                       L"--stdout-emit",                       nullptr,  ParentEmission,      Value,        EmitMode) \
     X(StderrEmit,                       L"StderrEmit",                       L"--stderr-emit",                       nullptr,  ParentEmission,      Value,        EmitMode) \
     X(StderrEmitChild,                   L"StderrEmitChild",                   L"--stderr-emit-child",                 nullptr,  ParentEmission,      Value,        EmitMode) \
@@ -115,6 +123,7 @@ namespace Resolution {
     X(StderrDirSrJsonl,                   L"StderrDirSrJsonl",                   L"--stderr-dir-sr-jsonl",               nullptr,  PersistentLogging,   Value,        WString) \
     X(StderrDirInclStdout,                L"StderrDirInclStdout",                L"--stderr-dir-incl-stdout",             nullptr,  PersistentLogging,   Value,        WString) \
     X(StderrDirInclStdoutJsonl,            L"StderrDirInclStdoutJsonl",            L"--stderr-dir-incl-stdout-jsonl",       nullptr,  PersistentLogging,   Value,        WString) \
+    X(JsonlPayloadPresentation,           L"JsonlPayloadPresentation",           L"--jsonl-payload-presentation",        nullptr,  PersistentLogging,   Value,        JsonlPayloadPresentation) \
     X(StdoutDirKeepLog,                   L"StdoutDirKeepLog",                   L"--stdout-dir-keep-log",               nullptr,  LogRetention,        Value,        KeepLogMode) \
     X(StderrDirKeepLog,                   L"StderrDirKeepLog",                   L"--stderr-dir-keep-log",               nullptr,  LogRetention,        Value,        KeepLogMode) \
     X(StderrDirChildKeepLog,               L"StderrDirChildKeepLog",               L"--stderr-dir-child-keep-log",         nullptr,  LogRetention,        Value,        KeepLogMode) \
@@ -151,13 +160,15 @@ static constexpr std::size_t kConfigArgumentCount =
 
 #define SR_CONFIG_OWNER_TABLE(X) \
     X(SRWorkerCommonPolicy,   workerCommonPolicy,   Class) \
+    X(SRFileSinkWorker,       fileSinkWorker,       Class) \
     X(SRLifecycleDiagnostics, lifecycleDiagnostics, Class) \
     X(SRParentEmitPolicy,     parentEmitPolicy,     Class) \
     X(SRBufferLimiter,        bufferLimiter,        Class) \
-    X(ExecutionTimeline,      executionTimeline,      Class) \
+    X(ExecutionTimeline,      executionTimeline,    Class) \
     X(PrepareRuntime,         prepareRuntime,       Function) \
     X(RunHiddenWithRouting,   runHiddenWithRouting, Function) \
     X(FinalizeExecution,      finalizeExecution,    Function)
+
 namespace SR {
 
 enum class ConfigOwnerType {
@@ -199,6 +210,10 @@ enum class ConfigOwner {
     X(IdBase,                        PrepareRuntime,        idBase) \
     X(IdBase,                        RunHiddenWithRouting,   idBase) \
     X(IdSuffix,                      PrepareRuntime,        idSuffix) \
+    X(StdoutEventFraming,               RunHiddenWithRouting,   stdoutEventFraming) \
+    X(StdoutEventNewlineMaxBytes,       RunHiddenWithRouting,   stdoutEventNewlineMaxBytes) \
+    X(StderrChildEventFraming,          RunHiddenWithRouting,   stderrChildEventFraming) \
+    X(StderrChildEventNewlineMaxBytes,  RunHiddenWithRouting,   stderrChildEventNewlineMaxBytes) \
     X(StdoutEmit,                    SRParentEmitPolicy,     stdoutEmit) \
     X(StdoutDir,                     PrepareRuntime,        stdoutDir) \
     X(StdoutDir,                     SRParentEmitPolicy,     stdoutDir) \
@@ -220,6 +235,7 @@ enum class ConfigOwner {
     X(StderrDirInclStdout,             SRParentEmitPolicy,     stderrDirInclStdout) \
     X(StderrDirInclStdoutJsonl,         PrepareRuntime,        stderrDirInclStdoutJsonl) \
     X(StderrDirInclStdoutJsonl,         SRParentEmitPolicy,     stderrDirInclStdoutJsonl) \
+    X(JsonlPayloadPresentation,        SRFileSinkWorker,         jsonlPayloadPresentation) \
     X(StdoutDirKeepLog,                FinalizeExecution,      stdoutDirKeepLog) \
     X(StderrDirKeepLog,                FinalizeExecution,      stderrDirKeepLog) \
     X(StderrDirChildKeepLog,            FinalizeExecution,      stderrDirChildKeepLog) \
@@ -236,10 +252,7 @@ enum class ConfigOwner {
     X(RunOnSuccess,                    FinalizeExecution,      runOnSuccessPath) \
     X(RunOnFailure,                    FinalizeExecution,      runOnFailurePath) \
     X(RawCommand,                      PrepareRuntime,        executionMode) \
-    X(RawCommand,                    RunHiddenWithRouting,   executionMode) \
-    X(StderrDir,                       SRWorkerCommonPolicy,   stderrDir) \
-    X(StderrDirSr,                      SRWorkerCommonPolicy,   stderrDirSr) \
-    X(StderrDirInclStdout,               SRWorkerCommonPolicy,   stderrDirInclStdout)
+    X(RawCommand,                    RunHiddenWithRouting,   executionMode)
 
 // =============================================================================
 // Derived config values
@@ -255,15 +268,16 @@ enum class ConfigOwner {
     X(GeneratedSuffix,       std::wstring,              generatedSuffix) \
     X(EffectiveIdSuffixMode, SR::IdSuffixMode,          effectiveIdSuffixMode) \
     X(UseDefaultSuffixMode,  bool,                      useDefaultSuffixMode) \
-    X(ExecutionId,           std::wstring,              executionId)
+    X(ExecutionId,           std::wstring,              executionId) \
+    X(NeedsParsingToken,     bool,                      needsParsingToken) \
+    X(StdoutPresentation,    SR::ChildOutputPresentation, stdoutPresentation) \
+    X(StderrChildPresentation, SR::ChildOutputPresentation, stderrChildPresentation)
 
 
 // Columns: derived value ID, owner ID.
 #define SR_CONFIG_DERIVED_VALUE_OWNER_TABLE(X) \
     X(StderrEmit,            SRParentEmitPolicy) \
-    X(StderrEmit,            SRWorkerCommonPolicy) \
     X(StderrEmitSource,      SRParentEmitPolicy) \
-    X(StderrEmitSource,      SRWorkerCommonPolicy) \
     X(ArgVector,             PrepareRuntime) \
     X(ChildArgsStartIndex,   PrepareRuntime) \
     X(GeneratedSuffix,       PrepareRuntime) \
@@ -274,7 +288,12 @@ enum class ConfigOwner {
     X(UseDefaultSuffixMode,  RunHiddenWithRouting) \
     X(ExecutionId,           PrepareRuntime) \
     X(ExecutionId,           RunHiddenWithRouting) \
-    X(ExecutionId,           FinalizeExecution)
+    X(ExecutionId,           FinalizeExecution) \
+    X(NeedsParsingToken,       SRWorkerCommonPolicy) \
+    X(StdoutPresentation,      SRWorkerCommonPolicy) \
+    X(StdoutPresentation,      FinalizeExecution) \
+    X(StderrChildPresentation, SRWorkerCommonPolicy) \
+    X(StderrChildPresentation, FinalizeExecution)
 
 
 

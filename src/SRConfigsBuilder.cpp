@@ -142,6 +142,65 @@ bool ResolveIdSuffixMode(
     return true;
 }
 
+bool ResolveChildEventFraming(
+    const ConfigArgumentData& configArgument,
+    SR::ChildEventFraming& value,
+    std::wstring& err
+) {
+    if (!configArgument.optionValueSpecified) {
+        value = SR::ChildEventFraming::Chunk;
+        return true;
+    }
+
+    if (!SR::TryParseChildEventFramingIgnoreCase(
+            configArgument.optionValue,
+            value
+        )) {
+        err =
+            std::wstring(L"Invalid value for ") +
+            configArgument.spelling +
+            L". Allowed values:\n"
+            L"  chunk\n"
+            L"  lf\n"
+            L"  newline\n"
+            L"  crlf";
+        return false;
+    }
+
+    return true;
+}
+
+bool ResolveJsonlPayloadPresentation(
+    const ConfigArgumentData& configArgument,
+    SR::JsonlPayloadPresentation& value,
+    std::wstring& err
+) {
+    if (!configArgument.optionValueSpecified) {
+        value = SR::JsonlPayloadPresentation::Text;
+        return true;
+    }
+
+    if (!SR::TryParseJsonlPayloadPresentationIgnoreCase(
+            configArgument.optionValue,
+            value
+        )) {
+        err =
+            std::wstring(L"Invalid value for ") +
+            configArgument.spelling +
+            L". Allowed values:\n"
+            L"  text\n"
+            L"  base64\n"
+            L"  text+base64\n"
+            L"  base64+text";
+        return false;
+    }
+
+    return true;
+}
+
+
+
+
 
 bool ResolveEmitMode(
     const ConfigArgumentData& configArgument,
@@ -334,6 +393,47 @@ bool ValidateStderrEmitArgument(
     return true;
 }
 
+bool ValidateChildEventNewlineMaxBytes(
+    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    ConfigArgument framingArgumentId,
+    ConfigArgument newlineMaxBytesArgumentId,
+    std::wstring& err
+) {
+    const ConfigArgumentData& framingArgument =
+        configArguments[
+            static_cast<std::size_t>(framingArgumentId)
+        ];
+
+    const ConfigArgumentData& newlineMaxBytesArgument =
+        configArguments[
+            static_cast<std::size_t>(newlineMaxBytesArgumentId)
+        ];
+
+    if (newlineMaxBytesArgument.optionValueSpecified &&
+        std::get<SR::ChildEventFraming>(
+            framingArgument.typedValue
+        ) == SR::ChildEventFraming::Chunk) {
+        err =
+            std::wstring(newlineMaxBytesArgument.spelling) +
+            L" requires " +
+            framingArgument.spelling +
+            L" to be lf, newline, or crlf";
+        return false;
+    }
+
+    if (newlineMaxBytesArgument.optionValueSpecified &&
+        std::get<uint64_t>(newlineMaxBytesArgument.typedValue) == 0) {
+        err =
+            std::wstring(L"Invalid value for ") +
+            newlineMaxBytesArgument.spelling +
+            L": must be greater than 0";
+        return false;
+    }
+
+    return true;
+}
+
+
 } // namespace ValidationHelpers
 
 
@@ -503,6 +603,31 @@ bool StderrEmitInclStdout(
         err
     );
 }
+
+bool StdoutEventNewlineMaxBytes(
+    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    std::wstring& err
+) {
+    return ValidationHelpers::ValidateChildEventNewlineMaxBytes(
+        configArguments,
+        ConfigArgument::StdoutEventFraming,
+        ConfigArgument::StdoutEventNewlineMaxBytes,
+        err
+    );
+}
+
+bool StderrChildEventNewlineMaxBytes(
+    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    std::wstring& err
+) {
+    return ValidationHelpers::ValidateChildEventNewlineMaxBytes(
+        configArguments,
+        ConfigArgument::StderrChildEventFraming,
+        ConfigArgument::StderrChildEventNewlineMaxBytes,
+        err
+    );
+}
+
 
 
 } // namespace Validation
@@ -792,6 +917,65 @@ bool SRConfigsBuilder::ResolveArguments() {
         stdoutEmitArgument.typedValue = SR::EmitMode::Stream;
     }
 
+    const auto& stdoutEventFramingArgument =
+        configArguments_[
+            static_cast<std::size_t>(
+                ConfigArgument::StdoutEventFraming
+            )
+        ];
+
+    auto& stdoutEventNewlineMaxBytesArgument =
+        configArguments_[
+            static_cast<std::size_t>(
+                ConfigArgument::StdoutEventNewlineMaxBytes
+            )
+        ];
+
+    if (std::get<SR::ChildEventFraming>(
+            stdoutEventFramingArgument.typedValue
+        ) != SR::ChildEventFraming::Chunk &&
+        !stdoutEventNewlineMaxBytesArgument.optionValueSpecified) {
+        stdoutEventNewlineMaxBytesArgument.typedValue =
+            SR::kDefaultChildEventNewlineMaxBytes;
+    }
+
+    derivedValues_.stdoutPresentation =
+        SR::ChildEventFramingPresentationOf(
+            std::get<SR::ChildEventFraming>(
+                stdoutEventFramingArgument.typedValue
+            )
+        );
+
+    const auto& stderrChildEventFramingArgument =
+        configArguments_[
+            static_cast<std::size_t>(
+                ConfigArgument::StderrChildEventFraming
+            )
+        ];
+
+    auto& stderrChildEventNewlineMaxBytesArgument =
+        configArguments_[
+            static_cast<std::size_t>(
+                ConfigArgument::StderrChildEventNewlineMaxBytes
+            )
+        ];
+
+    if (std::get<SR::ChildEventFraming>(
+            stderrChildEventFramingArgument.typedValue
+        ) != SR::ChildEventFraming::Chunk &&
+        !stderrChildEventNewlineMaxBytesArgument.optionValueSpecified) {
+        stderrChildEventNewlineMaxBytesArgument.typedValue =
+            SR::kDefaultChildEventNewlineMaxBytes;
+    }
+
+    derivedValues_.stderrChildPresentation =
+        SR::ChildEventFramingPresentationOf(
+            std::get<SR::ChildEventFraming>(
+                stderrChildEventFramingArgument.typedValue
+            )
+        );
+
+
     auto& stderrEmitArgument =
         configArguments_[
             static_cast<std::size_t>(ConfigArgument::StderrEmit)
@@ -843,6 +1027,32 @@ bool SRConfigsBuilder::ResolveArguments() {
             SR::StderrEmitSource::SrAndChildInclStdout;
     }
 
+    const auto hasNonEmptyResolvedWString =
+        [this](ConfigArgument argument) {
+            return !std::get<std::wstring>(
+                configArguments_[
+                    static_cast<std::size_t>(argument)
+                ].typedValue
+            ).empty();
+        };
+
+    const bool fileSinkNeedsParsingToken =
+        hasNonEmptyResolvedWString(ConfigArgument::StdoutDir) ||
+        hasNonEmptyResolvedWString(ConfigArgument::StderrDir) ||
+        hasNonEmptyResolvedWString(ConfigArgument::StderrDirChild) ||
+        hasNonEmptyResolvedWString(ConfigArgument::StderrDirSr) ||
+        hasNonEmptyResolvedWString(ConfigArgument::StderrDirInclStdout);
+
+    const bool parentEmitNeedsParsingToken =
+        std::get<SR::EmitMode>(
+            stdoutEmitArgument.typedValue
+        ) != SR::EmitMode::Never ||
+        *derivedValues_.stderrEmit != SR::EmitMode::Never;
+
+    derivedValues_.needsParsingToken =
+        fileSinkNeedsParsingToken ||
+        parentEmitNeedsParsingToken;
+
     auto& debugArgument =
         configArguments_[
             static_cast<std::size_t>(ConfigArgument::Debug)
@@ -880,6 +1090,21 @@ bool SRConfigsBuilder::ValidateResolvedArguments() {
     if (!Validation::StderrEmitInclStdout(configArguments_, this->err)) {
         return false;
     }
+
+    if (!Validation::StdoutEventNewlineMaxBytes(
+            configArguments_,
+            this->err
+        )) {
+        return false;
+    }
+
+    if (!Validation::StderrChildEventNewlineMaxBytes(
+            configArguments_,
+            this->err
+        )) {
+        return false;
+    }
+
 
     return true;
 }

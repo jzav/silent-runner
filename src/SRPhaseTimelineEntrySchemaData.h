@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string>
 #include <variant>
+#include "SRTypes.h"
+
 
 namespace SR {
 
@@ -24,13 +26,20 @@ public:
         std::wstring timestampUtc;
         bool payloadDropped = false;
         uint64_t payloadByteCount = 0;
+        std::string payloadRepresentation;
+        std::wstring payloadText;
+        std::string payloadBase64;
         std::wstring severity;
-        std::wstring message;
         std::string parsingToken;
 
         SrDiagData() = default;
 
-        explicit SrDiagData(const SrDiagEntry& entry);
+        explicit SrDiagData(
+            const SrDiagEntry& entry,
+            JsonlPayloadPresentation payloadPresentation =
+                JsonlPayloadPresentation::Text
+        );
+
     };
 
     struct ChildStdoutData {
@@ -42,13 +51,20 @@ public:
         std::wstring timestampUtc;
         bool payloadDropped = false;
         uint64_t payloadByteCount = 0;
+        std::string payloadRepresentation;
+        std::string payloadText;
         std::string payloadBase64;
         std::string parsingToken;
 
 
         ChildStdoutData() = default;
 
-        explicit ChildStdoutData(const ChildStdoutEntry& entry);
+        explicit ChildStdoutData(
+            const ChildStdoutEntry& entry,
+            JsonlPayloadPresentation payloadPresentation =
+                JsonlPayloadPresentation::Text
+        );
+
     };
 
     struct ChildStderrData {
@@ -60,11 +76,19 @@ public:
         std::wstring timestampUtc;
         bool payloadDropped = false;
         uint64_t payloadByteCount = 0;
+        std::string payloadRepresentation;
+        std::string payloadText;
         std::string payloadBase64;
         std::string parsingToken;
 
         ChildStderrData() = default;
-        explicit ChildStderrData(const ChildStderrEntry& entry);
+        explicit ChildStderrData(
+            const ChildStderrEntry& entry,
+            JsonlPayloadPresentation payloadPresentation =
+                JsonlPayloadPresentation::Text
+        );
+
+
     };
     using SchemaDataVariant = std::variant<
         SrDiagData,

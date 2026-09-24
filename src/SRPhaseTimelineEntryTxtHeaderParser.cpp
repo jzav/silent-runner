@@ -35,16 +35,59 @@ bool TryRetrieveTxtJobPayloadTypeByName_(
 }
 
 
-bool TryRetrieveTxtPayloadType_(
-    const std::string& tokenizedHeader,
+bool TryReadTxtField_(
+    std::string_view header,
     std::size_t& position,
+    std::string_view& field
+) noexcept {
+    if (position >= header.size() ||
+        header[position] != '[') {
+        return false;
+    }
+
+    const std::size_t fieldEnd = header.find(']', position + 1);
+    if (fieldEnd == std::string_view::npos) {
+        return false;
+    }
+
+    field = header.substr(
+        position,
+        fieldEnd - position + 1
+    );
+    position = fieldEnd + 1;
+    return true;
+}
+
+bool TryConsumeTxtSpaces_(
+    std::string_view header,
+    std::size_t& position,
+    std::size_t spaceCount
+) noexcept {
+    if (position > header.size() ||
+        header.size() - position < spaceCount) {
+        return false;
+    }
+
+    for (std::size_t i = 0; i < spaceCount; ++i) {
+        if (header[position + i] != ' ') {
+            return false;
+        }
+    }
+
+    position += spaceCount;
+    return true;
+}
+
+bool TryRetrieveTxtPayloadType_(
+    const std::string& header,
     JobPayloadType& payloadType
 ) {
+    std::size_t position = 0;
     std::string_view payloadTypeField;
     std::string payloadTypeName;
 
-    if (!TextHelpers::TryReadLine(
-            tokenizedHeader,
+    if (!TryReadTxtField_(
+            header,
             position,
             payloadTypeField
         ) ||
@@ -73,18 +116,19 @@ template <
     typename Member
 >
 bool TryParseTxtField_(
-    const std::string& tokenizedHeader,
+    const std::string& header,
     std::size_t& position,
     const char* fieldName,
     Parser parser,
     Data& data,
-    Member member
+    Member member,
+    std::size_t txtSpacesAfter
 ) {
     if constexpr (enabled) {
         std::string_view field;
 
-        if (!TextHelpers::TryReadLine(
-                tokenizedHeader,
+        if (!TryReadTxtField_(
+                header,
                 position,
                 field
             ) ||
@@ -92,18 +136,22 @@ bool TryParseTxtField_(
                 field,
                 fieldName,
                 data.*member
+            ) ||
+            !TryConsumeTxtSpaces_(
+                header,
+                position,
+                txtSpacesAfter
             )) {
             return false;
         }
     }
-
 
     return true;
 }
 
 
 bool TryParseSrDiagTxtSchema_(
-    const std::string& tokenizedHeader,
+    const std::string& header,
     std::size_t position,
     SRPhaseTimelineEntrySchemaData::SrDiagData& data
 ) {
@@ -115,15 +163,17 @@ bool TryParseSrDiagTxtSchema_(
     jsonParser, \
     txtEnabled, \
     txtFormatter, \
-    txtParser \
+    txtParser, \
+    txtSpacesAfter \
 ) \
     if (!TryParseTxtField_<txtEnabled>( \
-            tokenizedHeader, \
+            header, \
             position, \
             fieldName, \
             txtParser, \
             data, \
-            member \
+            member, \
+            txtSpacesAfter \
         )) { \
         return false; \
     }
@@ -134,12 +184,12 @@ bool TryParseSrDiagTxtSchema_(
 
 #undef SR_PARSE_TXT_FIELD_
 
-    return position == tokenizedHeader.size();
+    return position == header.size();
 }
 
 
 bool TryParseChildStdoutTxtSchema_(
-    const std::string& tokenizedHeader,
+    const std::string& header,
     std::size_t position,
     SRPhaseTimelineEntrySchemaData::ChildStdoutData& data
 ) {
@@ -151,15 +201,17 @@ bool TryParseChildStdoutTxtSchema_(
     jsonParser, \
     txtEnabled, \
     txtFormatter, \
-    txtParser \
+    txtParser, \
+    txtSpacesAfter \
 ) \
     if (!TryParseTxtField_<txtEnabled>( \
-            tokenizedHeader, \
+            header, \
             position, \
             fieldName, \
             txtParser, \
             data, \
-            member \
+            member, \
+            txtSpacesAfter \
         )) { \
         return false; \
     }
@@ -170,11 +222,11 @@ bool TryParseChildStdoutTxtSchema_(
 
 #undef SR_PARSE_TXT_FIELD_
 
-    return position == tokenizedHeader.size();
+    return position == header.size();
 }
 
 bool TryParseChildStderrTxtSchema_(
-    const std::string& tokenizedHeader,
+    const std::string& header,
     std::size_t position,
     SRPhaseTimelineEntrySchemaData::ChildStderrData& data
 ) {
@@ -186,15 +238,17 @@ bool TryParseChildStderrTxtSchema_(
     jsonParser, \
     txtEnabled, \
     txtFormatter, \
-    txtParser \
+    txtParser, \
+    txtSpacesAfter \
 ) \
     if (!TryParseTxtField_<txtEnabled>( \
-            tokenizedHeader, \
+            header, \
             position, \
             fieldName, \
             txtParser, \
             data, \
-            member \
+            member, \
+            txtSpacesAfter \
         )) { \
         return false; \
     }
@@ -205,12 +259,13 @@ bool TryParseChildStderrTxtSchema_(
 
 #undef SR_PARSE_TXT_FIELD_
 
-    return position == tokenizedHeader.size();
+    return position == header.size();
 }
 
 
+
 bool TryParseTxtSchemaByPayloadType_(
-    const std::string& tokenizedHeader,
+    const std::string& header,
     JobPayloadType payloadType,
     SRPhaseTimelineEntrySchemaData::SchemaDataVariant& data
 ) {
@@ -219,7 +274,7 @@ bool TryParseTxtSchemaByPayloadType_(
             SRPhaseTimelineEntrySchemaData::SrDiagData parsedData;
 
             if (!TryParseSrDiagTxtSchema_(
-                    tokenizedHeader,
+                    header,
                     0,
                     parsedData
                 )) {
@@ -234,7 +289,7 @@ bool TryParseTxtSchemaByPayloadType_(
             SRPhaseTimelineEntrySchemaData::ChildStderrData parsedData;
 
             if (!TryParseChildStderrTxtSchema_(
-                    tokenizedHeader,
+                    header,
                     0,
                     parsedData
                 )) {
@@ -248,7 +303,7 @@ bool TryParseTxtSchemaByPayloadType_(
         case JobPayloadType::ChildStdout: {
             SRPhaseTimelineEntrySchemaData::ChildStdoutData parsedData;
             if (!TryParseChildStdoutTxtSchema_(
-                    tokenizedHeader,
+                    header,
                     0,
                     parsedData
                 )) {
@@ -269,37 +324,28 @@ bool SRPhaseTimelineEntryTxtHeaderParser::TryParseHeader(
     const std::string& header,
     SRPhaseTimelineEntrySchemaData::SchemaDataVariant& data
 ) {
-    std::string tokenizedHeader = header;
-
-    if (tokenizedHeader.size() < 2 ||
-        tokenizedHeader.front() != '[' ||
-        tokenizedHeader.back() != ']') {
+    if (header.size() < 2 ||
+        header.front() != '[' ||
+        header.back() != ']') {
         return false;
     }
 
-    TextHelpers::ReplaceAll(
-        tokenizedHeader,
-        "][",
-        "]\n["
-    );
-
-    std::size_t position = 0;
     JobPayloadType payloadType;
 
     if (!TryRetrieveTxtPayloadType_(
-            tokenizedHeader,
-            position,
+            header,
             payloadType
         )) {
         return false;
     }
 
     return TryParseTxtSchemaByPayloadType_(
-        tokenizedHeader,
+        header,
         payloadType,
         data
     );
 }
+
 
 
 } // namespace SR

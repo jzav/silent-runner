@@ -23,28 +23,28 @@ namespace SR {
 
 
 #define SR_JOB_TARGET_TABLE(X) \
-    /* Columns: name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled */ \
-    X(StdoutParent, "StdoutParent", Stdout, None, Parent, SRParentEmitWorker, 0, false) \
-    X(StderrSrAndChildParent, "StderrSrAndChildParent", Stderr, SrAndChild, Parent, SRParentEmitWorker, 1, true) \
-    X(StderrChildParent, "StderrChildParent", Stderr, Child, Parent, SRParentEmitWorker, 2, false) \
-    X(StderrSrParent, "StderrSrParent", Stderr, Sr, Parent, SRParentEmitWorker, 3, true) \
-    X(StderrSrAndChildInclStdoutParent, "StderrSrAndChildInclStdoutParent", Stderr, SrAndChildInclStdout, Parent, SRParentEmitWorker, 4, true) \
-    X(StdoutTxt, "StdoutTxt", Stdout, None, Txt, SRFileSinkWorker, 0, false) \
-    X(StderrSrAndChildTxt, "StderrSrAndChildTxt", Stderr, SrAndChild, Txt, SRFileSinkWorker, 1, true) \
-    X(StderrChildTxt, "StderrChildTxt", Stderr, Child, Txt, SRFileSinkWorker, 2, false) \
-    X(StderrSrTxt, "StderrSrTxt", Stderr, Sr, Txt, SRFileSinkWorker, 3, true) \
-    X(StderrSrAndChildInclStdoutTxt, "StderrSrAndChildInclStdoutTxt", Stderr, SrAndChildInclStdout, Txt, SRFileSinkWorker, 9, true) \
-    X(StdoutJsonl, "StdoutJsonl", Stdout, None, Jsonl, SRFileSinkWorker, 4, false) \
-    X(StderrSrAndChildJsonl, "StderrSrAndChildJsonl", Stderr, SrAndChild, Jsonl, SRFileSinkWorker, 5, false) \
-    X(StderrChildJsonl, "StderrChildJsonl", Stderr, Child, Jsonl, SRFileSinkWorker, 6, false) \
-    X(StderrSrJsonl, "StderrSrJsonl", Stderr, Sr, Jsonl, SRFileSinkWorker, 7, false) \
-    X(StderrSrAndChildInclStdoutJsonl, "StderrSrAndChildInclStdoutJsonl", Stderr, SrAndChildInclStdout, Jsonl, SRFileSinkWorker, 8, false)
+    /* Columns: name, text, stream, channel, format, worker, headerParsingTokenEnabled */ \
+    X(StdoutParent, "StdoutParent", Stdout, None, Parent, SRParentEmitWorker, true) \
+    X(StderrSrAndChildParent, "StderrSrAndChildParent", Stderr, SrAndChild, Parent, SRParentEmitWorker, true) \
+    X(StderrChildParent, "StderrChildParent", Stderr, Child, Parent, SRParentEmitWorker, true) \
+    X(StderrSrParent, "StderrSrParent", Stderr, Sr, Parent, SRParentEmitWorker, true) \
+    X(StderrSrAndChildInclStdoutParent, "StderrSrAndChildInclStdoutParent", Stderr, SrAndChildInclStdout, Parent, SRParentEmitWorker, true) \
+    X(StdoutTxt, "StdoutTxt", Stdout, None, Txt, SRFileSinkWorker, true) \
+    X(StderrSrAndChildTxt, "StderrSrAndChildTxt", Stderr, SrAndChild, Txt, SRFileSinkWorker, true) \
+    X(StderrChildTxt, "StderrChildTxt", Stderr, Child, Txt, SRFileSinkWorker, true) \
+    X(StderrSrTxt, "StderrSrTxt", Stderr, Sr, Txt, SRFileSinkWorker, true) \
+    X(StderrSrAndChildInclStdoutTxt, "StderrSrAndChildInclStdoutTxt", Stderr, SrAndChildInclStdout, Txt, SRFileSinkWorker, true) \
+    X(StdoutJsonl, "StdoutJsonl", Stdout, None, Jsonl, SRFileSinkWorker, false) \
+    X(StderrSrAndChildJsonl, "StderrSrAndChildJsonl", Stderr, SrAndChild, Jsonl, SRFileSinkWorker, false) \
+    X(StderrChildJsonl, "StderrChildJsonl", Stderr, Child, Jsonl, SRFileSinkWorker, false) \
+    X(StderrSrJsonl, "StderrSrJsonl", Stderr, Sr, Jsonl, SRFileSinkWorker, false) \
+    X(StderrSrAndChildInclStdoutJsonl, "StderrSrAndChildInclStdoutJsonl", Stderr, SrAndChildInclStdout, Jsonl, SRFileSinkWorker, false)
 
 
 
 
 enum class JobTarget {
-#define SR_X_ENUM_JOB_TARGET(name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled) name,
+#define SR_X_ENUM_JOB_TARGET(name, text, stream, channel, format, worker, headerParsingTokenEnabled) name,
 
 
     SR_JOB_TARGET_TABLE(SR_X_ENUM_JOB_TARGET)
@@ -94,7 +94,7 @@ static inline constexpr bool TryRetrieveStderrEmitSource(
 
 static constexpr std::size_t kJobTargetCount =
     0
-#define SR_X_COUNT_JOB_TARGET(name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled) + 1
+#define SR_X_COUNT_JOB_TARGET(name, text, stream, channel, format, worker, headerParsingTokenEnabled) + 1
 
 
     SR_JOB_TARGET_TABLE(SR_X_COUNT_JOB_TARGET)
@@ -103,7 +103,7 @@ static constexpr std::size_t kJobTargetCount =
 
 static inline const char* JobTargetName(JobTarget target) noexcept {
     switch (target) {
-#define SR_X_JOB_TARGET_NAME(name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled) case JobTarget::name: return text;
+#define SR_X_JOB_TARGET_NAME(name, text, stream, channel, format, worker, headerParsingTokenEnabled) case JobTarget::name: return text;
 
 
         SR_JOB_TARGET_TABLE(SR_X_JOB_TARGET_NAME)
@@ -114,7 +114,7 @@ static inline const char* JobTargetName(JobTarget target) noexcept {
 }
 static inline const wchar_t* JobTargetNameToString(JobTarget target) noexcept {
     switch (target) {
-#define SR_X_JOB_TARGET_NAME_TO_STRING(name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled) case JobTarget::name: return L##text;
+#define SR_X_JOB_TARGET_NAME_TO_STRING(name, text, stream, channel, format, worker, headerParsingTokenEnabled) case JobTarget::name: return L##text;
 
 
         SR_JOB_TARGET_TABLE(SR_X_JOB_TARGET_NAME_TO_STRING)
@@ -183,7 +183,7 @@ static inline JobTargetChannel JobTargetChannelOf(
     JobTarget target
 ) noexcept {
     switch (target) {
-#define SR_X_JOB_TARGET_CHANNEL(name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled) \
+#define SR_X_JOB_TARGET_CHANNEL(name, text, stream, channel, format, worker, headerParsingTokenEnabled) \
         case JobTarget::name: \
             return JobTargetChannel::channel;
 
@@ -195,32 +195,6 @@ static inline JobTargetChannel JobTargetChannelOf(
     return JobTargetChannel::None;
 }
 
-static inline JobTargetStream JobTargetStreamOf(
-    JobTarget target
-) noexcept {
-    switch (target) {
-#define SR_X_JOB_TARGET_STREAM(name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled) \
-        case JobTarget::name: \
-            return JobTargetStream::stream;
-
-
-        SR_JOB_TARGET_TABLE(SR_X_JOB_TARGET_STREAM)
-#undef SR_X_JOB_TARGET_STREAM
-    }
-
-    return JobTargetStream::Stdout;
-}
-static inline JobTargetFormat JobTargetFormatOf(JobTarget target) noexcept {
-    switch (target) {
-#define SR_X_JOB_TARGET_FORMAT(name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled) case JobTarget::name: return JobTargetFormat::format;
-
-
-        SR_JOB_TARGET_TABLE(SR_X_JOB_TARGET_FORMAT)
-#undef SR_X_JOB_TARGET_FORMAT
-    }
-
-    return JobTargetFormat::Parent;
-}
 static inline ReplayPreference JobTargetFormatReplayPreferenceOf(
     JobTargetFormat format
 ) noexcept {
@@ -241,7 +215,7 @@ static inline ReplayPreference JobTargetFormatReplayPreferenceOf(
 
 static inline JobTargetWorker JobTargetWorkerOf(JobTarget target) noexcept {
     switch (target) {
-#define SR_X_JOB_TARGET_WORKER(name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled) case JobTarget::name: return JobTargetWorker::worker;
+#define SR_X_JOB_TARGET_WORKER(name, text, stream, channel, format, worker, headerParsingTokenEnabled) case JobTarget::name: return JobTargetWorker::worker;
 
 
         SR_JOB_TARGET_TABLE(SR_X_JOB_TARGET_WORKER)
@@ -250,35 +224,103 @@ static inline JobTargetWorker JobTargetWorkerOf(JobTarget target) noexcept {
 
     return JobTargetWorker::SRParentEmitWorker;
 }
-static inline std::size_t JobTargetWorkerConfigIndexOf(
-    JobTarget target
-) noexcept {
-    switch (target) {
-#define SR_X_JOB_TARGET_WORKER_CONFIG_INDEX(name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled) case JobTarget::name: return workerConfigIndex;
+static constexpr std::size_t kInvalidJobTargetWorkerConfigIndex =
+    static_cast<std::size_t>(-1);
 
-        SR_JOB_TARGET_TABLE(SR_X_JOB_TARGET_WORKER_CONFIG_INDEX)
-#undef SR_X_JOB_TARGET_WORKER_CONFIG_INDEX
-    }
-
-    return 0;
+template <JobTargetWorker Worker>
+static constexpr std::size_t JobTargetCountForWorker() noexcept {
+    return
+        0
+#define SR_X_COUNT_JOB_TARGET_FOR_WORKER(name, text, stream, channel, format, worker, headerParsingTokenEnabled) \
+        + (JobTargetWorker::worker == Worker ? 1u : 0u)
+        SR_JOB_TARGET_TABLE(SR_X_COUNT_JOB_TARGET_FOR_WORKER)
+#undef SR_X_COUNT_JOB_TARGET_FOR_WORKER
+    ;
 }
 
-    static constexpr std::size_t kParentTargetConfigCount =
-        0
-#define SR_X_COUNT_PARENT_TARGET_CONFIG(name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled) \
-        + (SR::JobTargetWorker::worker == \
-           SR::JobTargetWorker::SRParentEmitWorker ? 1u : 0u)
-        SR_JOB_TARGET_TABLE(SR_X_COUNT_PARENT_TARGET_CONFIG)
-#undef SR_X_COUNT_PARENT_TARGET_CONFIG
-    ;
-    static constexpr std::size_t kFileSinkTargetConfigCount =
-        0
-#define SR_X_COUNT_FILE_SINK_TARGET_CONFIG(name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled) \
-        + (SR::JobTargetWorker::worker == \
-           SR::JobTargetWorker::SRFileSinkWorker ? 1u : 0u)
-        SR_JOB_TARGET_TABLE(SR_X_COUNT_FILE_SINK_TARGET_CONFIG)
-#undef SR_X_COUNT_FILE_SINK_TARGET_CONFIG
-    ;
+struct JobTargetWorkerLayoutEntry {
+    JobTarget target{};
+    JobTargetStream stream = JobTargetStream::Stdout;
+    JobTargetFormat format = JobTargetFormat::Parent;
+    bool headerParsingTokenEnabled = false;
+};
+
+template <JobTargetWorker Worker>
+struct JobTargetWorkerLayout {
+    static constexpr std::size_t kTargetCount =
+        JobTargetCountForWorker<Worker>();
+
+    std::array<
+        JobTargetWorkerLayoutEntry,
+        kTargetCount
+    > targets{};
+    std::array<std::size_t, kJobTargetCount> configIndexByTarget{};
+
+    constexpr std::size_t ConfigIndexOf(
+        JobTarget target
+    ) const noexcept {
+        return configIndexByTarget[
+            static_cast<std::size_t>(target)
+        ];
+    }
+};
+
+template <JobTargetWorker Worker>
+static constexpr JobTargetWorkerLayout<Worker>
+BuildJobTargetWorkerLayout() noexcept {
+    JobTargetWorkerLayout<Worker> layout{};
+
+    for (std::size_t i = 0; i < kJobTargetCount; ++i) {
+        layout.configIndexByTarget[i] =
+            kInvalidJobTargetWorkerConfigIndex;
+    }
+
+    std::size_t workerConfigIndex = 0;
+
+#define SR_X_BUILD_JOB_TARGET_WORKER_LAYOUT(name, text, stream, channel, format, worker, headerParsingTokenEnabled) \
+    if (JobTargetWorker::worker == Worker) { \
+        layout.targets[workerConfigIndex] = JobTargetWorkerLayoutEntry{ \
+            JobTarget::name, \
+            JobTargetStream::stream, \
+            JobTargetFormat::format, \
+            headerParsingTokenEnabled \
+        }; \
+        layout.configIndexByTarget[static_cast<std::size_t>(JobTarget::name)] = workerConfigIndex; \
+        ++workerConfigIndex; \
+    }
+
+
+
+    SR_JOB_TARGET_TABLE(SR_X_BUILD_JOB_TARGET_WORKER_LAYOUT)
+
+#undef SR_X_BUILD_JOB_TARGET_WORKER_LAYOUT
+
+    return layout;
+}
+
+using ParentEmitWorkerTargetLayout =
+    JobTargetWorkerLayout<JobTargetWorker::SRParentEmitWorker>;
+
+using FileSinkWorkerTargetLayout =
+    JobTargetWorkerLayout<JobTargetWorker::SRFileSinkWorker>;
+
+static constexpr std::size_t kParentTargetConfigCount =
+    ParentEmitWorkerTargetLayout::kTargetCount;
+
+static constexpr std::size_t kFileSinkTargetConfigCount =
+    FileSinkWorkerTargetLayout::kTargetCount;
+
+static constexpr ParentEmitWorkerTargetLayout
+    kParentEmitWorkerTargetLayout =
+        BuildJobTargetWorkerLayout<
+            JobTargetWorker::SRParentEmitWorker
+        >();
+
+static constexpr FileSinkWorkerTargetLayout
+    kFileSinkWorkerTargetLayout =
+        BuildJobTargetWorkerLayout<
+            JobTargetWorker::SRFileSinkWorker
+        >();
 
 
 struct JobTargetFilter {
@@ -288,7 +330,6 @@ struct JobTargetFilter {
     std::optional<JobTargetChannel> channel;
     std::optional<JobTargetFormat> format;
     std::optional<JobTargetWorker> worker;
-    std::optional<std::size_t> workerConfigIndex;
 
     std::optional<bool> headerParsingTokenEnabled;
 };
@@ -305,7 +346,6 @@ static inline std::vector<JobTarget> RetrieveJobTargets(
     tableChannel, \
     tableFormat, \
     tableWorker, \
-    tableWorkerConfigIndex, \
     tableHeaderParsingTokenEnabled \
 ) \
     if ((!filter.target || *filter.target == JobTarget::tableName) && \
@@ -314,8 +354,6 @@ static inline std::vector<JobTarget> RetrieveJobTargets(
         (!filter.channel || *filter.channel == JobTargetChannel::tableChannel) && \
         (!filter.format || *filter.format == JobTargetFormat::tableFormat) && \
         (!filter.worker || *filter.worker == JobTargetWorker::tableWorker) && \
-        (!filter.workerConfigIndex || \
-         *filter.workerConfigIndex == tableWorkerConfigIndex) && \
         (!filter.headerParsingTokenEnabled || \
          *filter.headerParsingTokenEnabled == tableHeaderParsingTokenEnabled)) { \
         targets.push_back(JobTarget::tableName); \
@@ -331,7 +369,7 @@ static inline std::vector<JobTarget> RetrieveJobTargets(
 
 
 #define SR_JOB_PAYLOAD_TYPE_TABLE(X) \
-    X(SrDiag, "SrDiag") \
+    X(SrDiag, "SrDiagEvent") \
     X(ChildStdout, "ChildStdout") \
     X(ChildStderr, "ChildStderr")
     
@@ -621,7 +659,7 @@ struct EventJobResult {
 
 struct EventJobResults {
     std::array<EventJobResult, kJobTargetCount> items{{
-#define SR_X_EVENT_JOB_RESULT(name, text, stream, channel, format, worker, workerConfigIndex, headerParsingTokenEnabled) EventJobResult{ JobTarget::name },
+#define SR_X_EVENT_JOB_RESULT(name, text, stream, channel, format, worker, headerParsingTokenEnabled) EventJobResult{ JobTarget::name },
         SR_JOB_TARGET_TABLE(SR_X_EVENT_JOB_RESULT)
 #undef SR_X_EVENT_JOB_RESULT
     }};

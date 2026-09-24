@@ -31,18 +31,18 @@ public:
     bool NeedsParsingToken() const noexcept;
 
     const std::string& ParsingToken() const noexcept;
+    SR::ChildOutputPresentation StdoutPresentation() const noexcept;
+    SR::ChildOutputPresentation StderrChildPresentation() const noexcept;
 
-    const std::vector<SR::JobTarget>&
-    FileSinkParsingTokenTargets() const noexcept;
-
-    const std::vector<SR::JobTarget>&
-    ParentParsingTokenTargets() const noexcept;
 
 
 private:
     bool needsParsingToken_ = false;
     std::string parsingToken_;
-    std::vector<SR::JobTarget> fileSinkParsingTokenTargets_;
-    std::vector<SR::JobTarget> parentParsingTokenTargets_;
+    SR::ChildOutputPresentation stdoutPresentation_ =
+        SR::ChildOutputPresentation::Block;
+    SR::ChildOutputPresentation stderrChildPresentation_ =
+        SR::ChildOutputPresentation::Block;
+
 
 };

@@ -2,9 +2,7 @@
 
 #include <cstddef>
 #include <string>
-#include <string_view>
 #include <utility>
-
 
 #include "SRJobTypes.h"
 #include "SRPhaseTimelineEntrySchema.h"
@@ -15,30 +13,24 @@ namespace SR {
 namespace {
 
 bool TryRetrieveJsonPayloadType_(
-    const std::string& tokenizedLine,
-    std::size_t& position,
+    const std::string& line,
     JobPayloadType& payloadType
 ) {
-    std::string_view payloadTypeLine;
-
-    if (!TextHelpers::TryReadLine(
-            tokenizedLine,
-            position,
-            payloadTypeLine
-        )) {
+    if (line.size() < 2 ||
+        line.front() != '{' ||
+        line.back() != '}') {
         return false;
     }
 
-    std::size_t fieldPosition = 0;
+    std::size_t position = 1;
     std::string payloadTypeName;
 
     if (!TextHelpers::TryParseJsonStringField(
-            payloadTypeLine,
-            fieldPosition,
+            line,
+            position,
             "payloadType",
             payloadTypeName
-        ) ||
-        fieldPosition != payloadTypeLine.size()) {
+        )) {
         return false;
     }
 
@@ -57,45 +49,56 @@ template <
     typename Member
 >
 bool TryParseJsonField_(
-    const std::string& tokenizedLine,
+    const std::string& line,
     std::size_t& position,
+    bool& hasPreviousField,
     const char* fieldName,
     Parser parser,
     Data& data,
     Member member
 ) {
     if constexpr (enabled) {
-        std::string_view fieldLine;
+        if (hasPreviousField) {
+            if (position >= line.size() ||
+                line[position] != ',') {
+                return false;
+            }
 
-        if (!TextHelpers::TryReadLine(
-                tokenizedLine,
+            ++position;
+        }
+
+        if (!parser(
+                line,
                 position,
-                fieldLine
+                fieldName,
+                data.*member
             )) {
             return false;
         }
 
-        std::size_t fieldPosition = 0;
-
-        if (!parser(
-                fieldLine,
-                fieldPosition,
-                fieldName,
-                data.*member
-            ) ||
-            fieldPosition != fieldLine.size()) {
-            return false;
-        }
+        hasPreviousField = true;
     }
 
     return true;
 }
 
+bool IsCompleteJsonObject_(
+    const std::string& line,
+    std::size_t position
+) noexcept {
+    return
+        position < line.size() &&
+        line[position] == '}' &&
+        position + 1 == line.size();
+}
+
 bool TryParseSrDiagJsonSchema_(
-    const std::string& tokenizedLine,
+    const std::string& line,
     std::size_t position,
     SRPhaseTimelineEntrySchemaData::SrDiagData& data
 ) {
+    bool hasPreviousField = false;
+
 #define SR_PARSE_JSON_FIELD_( \
     member, \
     fieldName, \
@@ -104,11 +107,13 @@ bool TryParseSrDiagJsonSchema_(
     jsonParser, \
     txtEnabled, \
     txtFormatter, \
-    txtParser \
+    txtParser, \
+    txtSpacesAfter \
 ) \
     if (!TryParseJsonField_<jsonEnabled>( \
-            tokenizedLine, \
+            line, \
             position, \
+            hasPreviousField, \
             fieldName, \
             jsonParser, \
             data, \
@@ -123,14 +128,16 @@ bool TryParseSrDiagJsonSchema_(
 
 #undef SR_PARSE_JSON_FIELD_
 
-    return position == tokenizedLine.size();
+    return IsCompleteJsonObject_(line, position);
 }
 
 bool TryParseChildStdoutJsonSchema_(
-    const std::string& tokenizedLine,
+    const std::string& line,
     std::size_t position,
     SRPhaseTimelineEntrySchemaData::ChildStdoutData& data
 ) {
+    bool hasPreviousField = false;
+
 #define SR_PARSE_JSON_FIELD_( \
     member, \
     fieldName, \
@@ -139,11 +146,13 @@ bool TryParseChildStdoutJsonSchema_(
     jsonParser, \
     txtEnabled, \
     txtFormatter, \
-    txtParser \
+    txtParser, \
+    txtSpacesAfter \
 ) \
     if (!TryParseJsonField_<jsonEnabled>( \
-            tokenizedLine, \
+            line, \
             position, \
+            hasPreviousField, \
             fieldName, \
             jsonParser, \
             data, \
@@ -158,14 +167,16 @@ bool TryParseChildStdoutJsonSchema_(
 
 #undef SR_PARSE_JSON_FIELD_
 
-    return position == tokenizedLine.size();
+    return IsCompleteJsonObject_(line, position);
 }
 
 bool TryParseChildStderrJsonSchema_(
-    const std::string& tokenizedLine,
+    const std::string& line,
     std::size_t position,
     SRPhaseTimelineEntrySchemaData::ChildStderrData& data
 ) {
+    bool hasPreviousField = false;
+
 #define SR_PARSE_JSON_FIELD_( \
     member, \
     fieldName, \
@@ -174,11 +185,13 @@ bool TryParseChildStderrJsonSchema_(
     jsonParser, \
     txtEnabled, \
     txtFormatter, \
-    txtParser \
+    txtParser, \
+    txtSpacesAfter \
 ) \
     if (!TryParseJsonField_<jsonEnabled>( \
-            tokenizedLine, \
+            line, \
             position, \
+            hasPreviousField, \
             fieldName, \
             jsonParser, \
             data, \
@@ -193,13 +206,11 @@ bool TryParseChildStderrJsonSchema_(
 
 #undef SR_PARSE_JSON_FIELD_
 
-    return position == tokenizedLine.size();
+    return IsCompleteJsonObject_(line, position);
 }
 
-
 bool TryParseJsonSchemaByPayloadType_(
-    const std::string& tokenizedLine,
-    std::size_t position,
+    const std::string& line,
     JobPayloadType payloadType,
     SRPhaseTimelineEntrySchemaData::SchemaDataVariant& data
 ) {
@@ -208,8 +219,8 @@ bool TryParseJsonSchemaByPayloadType_(
             SRPhaseTimelineEntrySchemaData::SrDiagData parsedData;
 
             if (!TryParseSrDiagJsonSchema_(
-                    tokenizedLine,
-                    position,
+                    line,
+                    1,
                     parsedData
                 )) {
                 return false;
@@ -223,8 +234,8 @@ bool TryParseJsonSchemaByPayloadType_(
             SRPhaseTimelineEntrySchemaData::ChildStdoutData parsedData;
 
             if (!TryParseChildStdoutJsonSchema_(
-                    tokenizedLine,
-                    position,
+                    line,
+                    1,
                     parsedData
                 )) {
                 return false;
@@ -238,8 +249,8 @@ bool TryParseJsonSchemaByPayloadType_(
             SRPhaseTimelineEntrySchemaData::ChildStderrData parsedData;
 
             if (!TryParseChildStderrJsonSchema_(
-                    tokenizedLine,
-                    position,
+                    line,
+                    1,
                     parsedData
                 )) {
                 return false;
@@ -255,37 +266,30 @@ bool TryParseJsonSchemaByPayloadType_(
 
 } // namespace
 
-
-bool SRPhaseTimelineEntryParser::TryParseJsonLine(
+bool SRPhaseTimelineEntryJsonlParser::TryParseLine(
     const std::string& line,
     SRPhaseTimelineEntrySchemaData::SchemaDataVariant& data
 ) {
-    std::string tokenizedLine = line;
-
-    if (!TextHelpers::TryTokenizeCanonicalJsonObject(
-            tokenizedLine
-        )) {
+    if (line.size() < 2 ||
+        line.front() != '{' ||
+        line.back() != '}') {
         return false;
     }
 
-    std::size_t position = 0;
     JobPayloadType payloadType;
 
     if (!TryRetrieveJsonPayloadType_(
-            tokenizedLine,
-            position,
+            line,
             payloadType
         )) {
         return false;
     }
 
     return TryParseJsonSchemaByPayloadType_(
-        tokenizedLine,
-        0,
+        line,
         payloadType,
         data
     );
 }
-
 
 } // namespace SR

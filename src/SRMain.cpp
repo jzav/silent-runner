@@ -146,6 +146,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 255;
     }
     executionTimeline->SetLifecycleDiagnostics(lifecycleDiag);
+    SRWorkerCommonPolicy workerCommonPolicy;
+    if (!workerCommonPolicy.Init(configsBuilder.configs.workerCommonPolicy)) {
+        SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
+            FileHelpers::MakeRunUtcTimestamp(),
+            SR::DiagnosticSeverity::Fatal,
+            SR::LifecyclePhase::Prepare,
+            L"Failed to initialize worker common policy"
+        );
+
+        return 255;
+    }
+
 
     SRPrepareResult prepareResult;
     SRWorkers workers;
@@ -162,7 +174,14 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         workers.supervisor.get()
     );
 
-    if (!workers.fileSink->Init(&lifecycleDiag)) {
+    if (!workers.fileSink->Init(
+            &lifecycleDiag,
+            SR::kFileSinkWorkerTargetLayout,
+            configsBuilder.configs.fileSinkWorker,
+            workerCommonPolicy
+        )) {
+
+
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
             FileHelpers::MakeRunUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
@@ -172,7 +191,12 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 255;
     }
 
-    if (!workers.parentEmit->Init(&lifecycleDiag, &parentEmitPolicy)) {
+    if (!workers.parentEmit->Init(
+            &lifecycleDiag,
+            &parentEmitPolicy,
+            SR::kParentEmitWorkerTargetLayout,
+            workerCommonPolicy
+        )) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
             FileHelpers::MakeRunUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
@@ -220,29 +244,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
 
 
-    
-    SRWorkerCommonPolicy workerCommonPolicy;
-    if (!workerCommonPolicy.Init(configsBuilder.configs.workerCommonPolicy)) {
-        SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
-            SR::DiagnosticSeverity::Fatal,
-            SR::LifecyclePhase::Prepare,
-            L"Failed to initialize worker common policy"
-        );
-
-        return 255;
-    }
-
-
-    workers.fileSink->SetParsingTokenPolicy(
-        workerCommonPolicy.ParsingToken(),
-        workerCommonPolicy.FileSinkParsingTokenTargets()
-    );
-    workers.parentEmit->SetParsingTokenPolicy(
-        workerCommonPolicy.ParsingToken(),
-        workerCommonPolicy.ParentParsingTokenTargets()
-    );
-  
     
     const bool needStdoutReplayBuffer =
         parentEmitPolicy.NeedsStdoutReplayBuffer();

@@ -6,6 +6,8 @@
 #include <utility>
 
 #include "FileHelpers.h"
+#include "SRConfigsBuilderTypes.h"
+
 #include "SRPhaseTimelineEntry.h"
 #include "SRPhaseTimelineEntryFormatter.h"
 
@@ -15,6 +17,7 @@
 #include "SRPendingJobDiagnostics.h"
 #include "SRThreading.h"
 #include "SRWorkerSupervisor.h"
+#include "SRWorkerCommonPolicy.h"
 
 namespace {
 
@@ -44,68 +47,64 @@ void SRFileSinkWorker::SetWorkerSupervisor(
 ) noexcept {
     workerSupervisor_ = supervisor;
 }
-void SRFileSinkWorker::SetParsingTokenPolicy(
-    const std::string& parsingToken,
-    const std::vector<SR::JobTarget>& enabledTargets
+
+
+
+
+bool SRFileSinkWorker::Init(
+    SRLifecycleDiagnostics* diagnostics,
+    const SR::FileSinkWorkerTargetLayout& targetLayout,
+    const SR::SRFileSinkWorkerConfig& config,
+    const SRWorkerCommonPolicy& workerCommonPolicy
 ) {
-    std::lock_guard<std::mutex> lock(domainMutex_);
 
-    domain_.config.parsingToken = parsingToken;
-
-    for (auto& targetConfig : domain_.targetConfigs) {
-        targetConfig.headerParsingTokenEnabled = false;
-    }
-
-    for (const SR::JobTarget target : enabledTargets) {
-        if (SR::JobTargetWorkerOf(target) !=
-            SR::JobTargetWorker::SRFileSinkWorker) {
-            continue;
-        }
-
-        const std::size_t workerConfigIndex =
-            SR::JobTargetWorkerConfigIndexOf(target);
-
-        if (workerConfigIndex >= domain_.targetConfigs.size()) {
-            continue;
-        }
-
-        domain_.targetConfigs[
-            workerConfigIndex
-        ].headerParsingTokenEnabled = true;
-    }
-
-}
-
-
-
-
-bool SRFileSinkWorker::Init(SRLifecycleDiagnostics* diagnostics) {
     diagnostics_ = diagnostics;
     ProbeLine_(L"SRFileSinkWorker::Init");
 
     {
         std::scoped_lock lock(domainMutex_, failureMutex_);
         domain_ = WorkerDomain{};
+        domain_.targetLayout = targetLayout;
+        domain_.config.parsingToken =
+            workerCommonPolicy.ParsingToken();
+        domain_.config.stdoutPresentation =
+            workerCommonPolicy.StdoutPresentation();
+        domain_.config.stderrChildPresentation =
+            workerCommonPolicy.StderrChildPresentation();
+        domain_.config.jsonlPayloadPresentation =
+            config.jsonlPayloadPresentation;
+
+
+
         for (std::size_t workerConfigIndex = 0;
              workerConfigIndex < domain_.targetConfigs.size();
              ++workerConfigIndex) {
-            const SR::JobTarget target =
-                domain_.targetConfigs[workerConfigIndex].target;
+            const SR::JobTargetWorkerLayoutEntry& targetLayoutEntry =
+                domain_.targetLayout.targets[
+                    workerConfigIndex
+                ];
 
-            if (SR::JobTargetWorkerOf(target) !=
-                    SR::JobTargetWorker::SRFileSinkWorker ||
-                SR::JobTargetWorkerConfigIndexOf(target) !=
-                    workerConfigIndex) {
-                ProbeLine_(
-                    L"SRFileSinkWorker::Init target config index invariant failed"
-                );
-                return false;
-            }
+            FileTargetConfig& targetConfig =
+                domain_.targetConfigs[
+                    workerConfigIndex
+                ];
+
+            targetConfig.target =
+                targetLayoutEntry.target;
+            targetConfig.format =
+                targetLayoutEntry.format;
+            targetConfig.headerParsingTokenEnabled =
+                targetLayoutEntry.headerParsingTokenEnabled;
         }
     }
+
     
+    stdoutTxtLastWrittenPayloadType_.reset();
+    stdoutTxtAtLineStart_ = true;
     stderrSrAndChildTxtLastWrittenPayloadType_.reset();
     stderrSrAndChildTxtAtLineStart_ = true;
+    stderrChildTxtLastWrittenPayloadType_.reset();
+    stderrChildTxtAtLineStart_ = true;
     stderrSrAndChildInclStdoutTxtLastWrittenPayloadType_.reset();
     stderrSrAndChildInclStdoutTxtAtLineStart_ = true;
 
@@ -205,7 +204,7 @@ void SRFileSinkWorker::AttachLogWritersLocked_(
 ) {
     FileTargetConfig& stdoutTxtConfig =
         domain_.targetConfigs[
-            SR::JobTargetWorkerConfigIndexOf(
+            domain_.targetLayout.ConfigIndexOf(
                 SR::JobTarget::StdoutTxt
             )
         ];
@@ -215,7 +214,7 @@ void SRFileSinkWorker::AttachLogWritersLocked_(
 
     FileTargetConfig& stderrSrAndChildTxtConfig =
         domain_.targetConfigs[
-            SR::JobTargetWorkerConfigIndexOf(
+            domain_.targetLayout.ConfigIndexOf(
                 SR::JobTarget::StderrSrAndChildTxt
             )
         ];
@@ -225,7 +224,7 @@ void SRFileSinkWorker::AttachLogWritersLocked_(
 
     FileTargetConfig& stderrChildTxtConfig =
         domain_.targetConfigs[
-            SR::JobTargetWorkerConfigIndexOf(
+            domain_.targetLayout.ConfigIndexOf(
                 SR::JobTarget::StderrChildTxt
             )
         ];
@@ -235,7 +234,7 @@ void SRFileSinkWorker::AttachLogWritersLocked_(
 
     FileTargetConfig& stderrSrTxtConfig =
         domain_.targetConfigs[
-            SR::JobTargetWorkerConfigIndexOf(
+            domain_.targetLayout.ConfigIndexOf(
                 SR::JobTarget::StderrSrTxt
             )
         ];
@@ -244,7 +243,7 @@ void SRFileSinkWorker::AttachLogWritersLocked_(
     stderrSrTxtConfig.runningPath = stderrSrTxtRunningPath;
     FileTargetConfig& stderrSrAndChildInclStdoutTxtConfig =
         domain_.targetConfigs[
-            SR::JobTargetWorkerConfigIndexOf(
+            domain_.targetLayout.ConfigIndexOf(
                 SR::JobTarget::StderrSrAndChildInclStdoutTxt
             )
         ];
@@ -273,7 +272,7 @@ void SRFileSinkWorker::AttachJsonlWritersLocked_(
 ) {
     FileTargetConfig& stdoutJsonlConfig =
         domain_.targetConfigs[
-            SR::JobTargetWorkerConfigIndexOf(
+            domain_.targetLayout.ConfigIndexOf(
                 SR::JobTarget::StdoutJsonl
             )
         ];
@@ -283,7 +282,7 @@ void SRFileSinkWorker::AttachJsonlWritersLocked_(
 
     FileTargetConfig& stderrSrAndChildJsonlConfig =
         domain_.targetConfigs[
-            SR::JobTargetWorkerConfigIndexOf(
+            domain_.targetLayout.ConfigIndexOf(
                 SR::JobTarget::StderrSrAndChildJsonl
             )
         ];
@@ -293,7 +292,7 @@ void SRFileSinkWorker::AttachJsonlWritersLocked_(
 
     FileTargetConfig& stderrChildJsonlConfig =
         domain_.targetConfigs[
-            SR::JobTargetWorkerConfigIndexOf(
+            domain_.targetLayout.ConfigIndexOf(
                 SR::JobTarget::StderrChildJsonl
             )
         ];
@@ -303,7 +302,7 @@ void SRFileSinkWorker::AttachJsonlWritersLocked_(
 
     FileTargetConfig& stderrSrJsonlConfig =
         domain_.targetConfigs[
-            SR::JobTargetWorkerConfigIndexOf(
+            domain_.targetLayout.ConfigIndexOf(
                 SR::JobTarget::StderrSrJsonl
             )
         ];
@@ -312,7 +311,7 @@ void SRFileSinkWorker::AttachJsonlWritersLocked_(
     stderrSrJsonlConfig.runningPath = stderrSrJsonlRunningPath;
     FileTargetConfig& stderrSrAndChildInclStdoutJsonlConfig =
         domain_.targetConfigs[
-            SR::JobTargetWorkerConfigIndexOf(
+            domain_.targetLayout.ConfigIndexOf(
                 SR::JobTarget::StderrSrAndChildInclStdoutJsonl
             )
         ];
@@ -710,7 +709,8 @@ SR::JobResult SRFileSinkWorker::ExecuteFileTarget_(
     const WriteConfigSnapshot writeConfig = RetrieveWriteConfig_(target);
     const FileTargetConfig& targetConfig = writeConfig.targetConfig;
     const SR::JobTargetFormat targetFormat =
-        SR::JobTargetFormatOf(target);
+        targetConfig.format;
+
 
 
     if (targetFormat == SR::JobTargetFormat::Txt) {
@@ -771,7 +771,8 @@ SR::JobResult SRFileSinkWorker::ExecuteFileTarget_(
         }
 
         DWORD gle = 0;
-        if (!TryWriteJsonlTarget_(job, targetConfig, &gle)) {
+        if (!TryWriteJsonlTarget_(job, writeConfig, &gle)) {
+
 
             ProbeLine_(
                 SR::FormatJobTargetState(
@@ -837,19 +838,16 @@ SRFileSinkWorker::WriteConfigSnapshot SRFileSinkWorker::RetrieveWriteConfig_(
 
     WriteConfigSnapshot snapshot;
 
-    if (SR::JobTargetWorkerOf(target) ==
-        SR::JobTargetWorker::SRFileSinkWorker) {
-        const std::size_t workerConfigIndex =
-            SR::JobTargetWorkerConfigIndexOf(target);
+    const std::size_t workerConfigIndex =
+        domain_.targetLayout.ConfigIndexOf(target);
 
-        if (workerConfigIndex < domain_.targetConfigs.size()) {
-            snapshot.targetConfig =
-                domain_.targetConfigs[
-                    workerConfigIndex
-                ];
-        } else {
-            snapshot.targetConfig = FileTargetConfig{target};
-        }
+    if (workerConfigIndex !=
+            SR::kInvalidJobTargetWorkerConfigIndex &&
+        workerConfigIndex < domain_.targetConfigs.size()) {
+        snapshot.targetConfig =
+            domain_.targetConfigs[
+                workerConfigIndex
+            ];
     } else {
         snapshot.targetConfig = FileTargetConfig{target};
     }
@@ -857,6 +855,14 @@ SRFileSinkWorker::WriteConfigSnapshot SRFileSinkWorker::RetrieveWriteConfig_(
     if (snapshot.targetConfig.headerParsingTokenEnabled) {
         snapshot.parsingToken = domain_.config.parsingToken;
     }
+    snapshot.stdoutPresentation =
+        domain_.config.stdoutPresentation;
+    snapshot.stderrChildPresentation =
+        domain_.config.stderrChildPresentation;
+    snapshot.jsonlPayloadPresentation =
+        domain_.config.jsonlPayloadPresentation;
+
+
 
     return snapshot;
 }
@@ -980,21 +986,21 @@ void SRFileSinkWorker::SuppressFileTargetAfterWriteFailure_(
 
 // Serializes and writes one pending job to a TXT file target.
 //
-// For parseable stderr-sr-and-child TXT targets, this method owns the segment framing:
-// - determines whether a new SrDiag or ChildStderr header is required,
-// - formats the header through SRPhaseTimelineEntryFormatter,
-// - inserts an LF before a header when the preceding raw payload did not end
-//   at a line boundary,
-// - writes the entry payload,
-// - updates stderr-sr-and-child TXT segment and line-boundary state.
-//
-// For ordinary TXT targets, child stdout/stderr payloads remain raw bytes.
-//
-// The formatter defines header and line contents; this method defines their
-// placement, framing, writing, and flushing.
-//
-// Keep stderr-sr-and-child TXT header selection, LF separation, and payload ordering aligned
-// with SRParentEmitWorker::BuildPayloadBytes_().
+    // For parseable TXT targets, this method owns the segment framing:
+    // - determines whether a payload header is required,
+    // - formats the header through SRPhaseTimelineEntryFormatter,
+    // - inserts an LF before a header when the preceding child payload did not end
+    //   at a line boundary,
+    // - writes the entry payload,
+    // - updates TXT segment and line-boundary state.
+    //
+    // For non-parseable TXT targets, child stdout/stderr payloads remain raw bytes.
+    //
+    // The formatter defines header and line contents; this method defines their
+    // placement, framing, writing, and flushing.
+    //
+    // Keep TXT header selection, LF separation, and payload ordering aligned
+    // with SRParentEmitWorker::BuildPayloadBytes_().
 bool SRFileSinkWorker::TryWriteTxtTarget_(
     const SR::PendingJob& job,
     const WriteConfigSnapshot& writeConfig,
@@ -1040,10 +1046,23 @@ bool SRFileSinkWorker::TryWriteTxtTarget_(
         std::optional<SR::JobPayloadType>* lastWrittenPayloadType = nullptr;
         bool* atLineStart = nullptr;
         switch (targetConfig.target) {
+            case SR::JobTarget::StdoutTxt:
+                lastWrittenPayloadType =
+                    &stdoutTxtLastWrittenPayloadType_;
+                atLineStart =
+                    &stdoutTxtAtLineStart_;
+                break;
             case SR::JobTarget::StderrSrAndChildTxt:
                 lastWrittenPayloadType =
                     &stderrSrAndChildTxtLastWrittenPayloadType_;
-                atLineStart = &stderrSrAndChildTxtAtLineStart_;
+                atLineStart =
+                    &stderrSrAndChildTxtAtLineStart_;
+                break;
+            case SR::JobTarget::StderrChildTxt:
+                lastWrittenPayloadType =
+                    &stderrChildTxtLastWrittenPayloadType_;
+                atLineStart =
+                    &stderrChildTxtAtLineStart_;
                 break;
             case SR::JobTarget::StderrSrAndChildInclStdoutTxt:
                 lastWrittenPayloadType =
@@ -1075,7 +1094,11 @@ bool SRFileSinkWorker::TryWriteTxtTarget_(
                 break;
 
             case SR::JobPayloadType::ChildStderr:
-                headerRequired = startsNewSegment;
+                headerRequired =
+                    writeConfig.stderrChildPresentation ==
+                        SR::ChildOutputPresentation::Event ||
+                    startsNewSegment;
+
                 if (headerRequired) {
                     header =
                         SR::SRPhaseTimelineEntryFormatter::FormatChildStderrTxtHeader(
@@ -1085,7 +1108,11 @@ bool SRFileSinkWorker::TryWriteTxtTarget_(
                 }
                 break;
             case SR::JobPayloadType::ChildStdout:
-                headerRequired = startsNewSegment;
+                headerRequired =
+                    writeConfig.stdoutPresentation ==
+                        SR::ChildOutputPresentation::Event ||
+                    startsNewSegment;
+
                 if (headerRequired) {
                     header =
                         SR::SRPhaseTimelineEntryFormatter::FormatChildStdoutTxtHeader(
@@ -1197,7 +1224,7 @@ bool SRFileSinkWorker::TryWriteTxtTarget_(
         return true;
     } else {
         const std::vector<char>* payloadBytes = nullptr;
-        // Ordinary TXT targets write child output as raw bytes without segment framing.
+        // Non-parseable TXT targets write child output as raw bytes without segment framing.
         switch (job.payloadType) {
             case SR::JobPayloadType::ChildStdout:
                 payloadBytes = &job.childStdout.bytes;
@@ -1245,10 +1272,12 @@ bool SRFileSinkWorker::TryWriteTxtTarget_(
 
 bool SRFileSinkWorker::TryWriteJsonlTarget_(
     const SR::PendingJob& job,
-    const FileTargetConfig& targetConfig,
-
+    const WriteConfigSnapshot& writeConfig,
     DWORD* outGle
 ) {
+    const FileTargetConfig& targetConfig =
+        writeConfig.targetConfig;
+
     if (outGle) {
         *outGle = 0;
     }
@@ -1282,24 +1311,27 @@ bool SRFileSinkWorker::TryWriteJsonlTarget_(
     switch (job.payloadType) {
         case SR::JobPayloadType::SrDiag:
             line = SR::SRPhaseTimelineEntryFormatter::FormatJsonLine(
-                job.srDiag
+                job.srDiag,
+                writeConfig.jsonlPayloadPresentation
             );
-
             break;
 
         case SR::JobPayloadType::ChildStdout:
             line = SR::SRPhaseTimelineEntryFormatter::FormatJsonLine(
-                job.childStdout
+                job.childStdout,
+                writeConfig.jsonlPayloadPresentation
             );
-
             break;
 
         case SR::JobPayloadType::ChildStderr:
             line = SR::SRPhaseTimelineEntryFormatter::FormatJsonLine(
-                job.childStderr
+                job.childStderr,
+                writeConfig.jsonlPayloadPresentation
             );
             break;
     }
+
+
 
     if (!targetConfig.writer->WriteLine(line.data(), line.size(), outGle)) {
 
