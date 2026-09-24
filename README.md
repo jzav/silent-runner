@@ -44,14 +44,124 @@ Key capabilities include:
 SilentRunner is organized as an event-driven processing pipeline rather
 than a monolithic command wrapper.
 
-SilentRunner separates child process execution management from child stdout/stderr
-capture and routing to parent stdout/stderr and persistent logs. The child process tree
-is tracked and controlled through Windows Job Object integration, including process-tree
-termination and debug monitoring.
+Child stdout and stderr are captured as byte streams and divided into
+individual output events according to the configured event framing.
+SilentRunner diagnostics are produced as diagnostic events. These child
+output events and diagnostic events then enter a common execution timeline.
 
-Child process stdout/stderr and SilentRunner diagnostics are collected into a
-common execution timeline. The timeline maintains job state and queue semantics, while
-independent worker components handle parent stdout/stderr emission and persistent logging.
+The execution timeline provides shared ordering and processing of events.
+Independent output workers consume selected views of that timeline and expose
+them through parent stdout/stderr and persistent TXT or JSONL logs.
+
+Child process execution is managed separately from output capture and event
+processing. The child process tree is tracked and controlled through Windows
+Job Object integration, including process-tree termination and debug monitoring.
+
+NOTE: When SilentRunner itself runs inside an existing Job Object, Windows may
+form a nested Job Object hierarchy. Restrictions imposed by the outer job may
+affect or prevent assigning the child process to SilentRunner's own Job Object.
+See Microsoft documentation on
+[Nested Jobs](https://learn.microsoft.com/en-us/windows/win32/procthread/nested-jobs)
+and
+[Assigning Processes to a Job Object](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects#assigning-processes-to-a-job-object).
+
+### Child Event Model
+
+#### Framing
+
+Framing determines how captured child stdout and stderr byte streams are divided
+into individual child output events before those events enter the execution
+timeline.
+
+Stdout and stderr framing are configured independently.
+
+With `chunk` framing, each underlying read chunk becomes one child output event.
+This is the default behavior.
+
+With `lf` or its alias `newline`, an event ends when LF is encountered. With
+`crlf`, an event ends only when an exact CRLF sequence is encountered.
+
+When a child stream ends, any remaining bytes are emitted as the final event.
+
+#### Event Metadata
+
+Each event entering the execution timeline carries metadata describing its
+payload type, timestamp, execution phase, event ordering, payload size, and
+related processing state. SilentRunner diagnostic events additionally include
+diagnostic severity.
+
+Metadata belongs to the event itself. How that metadata is exposed depends on
+the output representation described below.
+
+#### Timeline and Views
+
+Child stdout events, child stderr events, and SilentRunner diagnostic events
+share the same execution timeline and event ordering.
+
+Individual parent outputs and persistent logs are views of that timeline. A
+particular view may contain only a subset of events depending on the selected
+stdout/stderr target and diagnostic level.
+
+For example, an stdout-only view does not contain child stderr or SilentRunner
+diagnostic events, while stderr-child-only and stderr-sr-only views expose
+different subsets of the same timeline.
+
+Consequently, event numbers visible in a particular output view do not
+necessarily form a continuous sequence. Apparently missing event numbers do not
+by themselves indicate that events were lost. They may belong to events excluded
+from that view or filtered by diagnostic level.
+
+The selected events are then represented either as headered text or as JSONL,
+as described below.
+
+#### Output Representation
+
+SilentRunner currently exposes timeline views primarily as headered text or
+JSONL. Both representations are based on the same underlying events, but they
+differ in how child event boundaries, metadata, and payloads are presented.
+
+##### TXT Presentation
+
+For child stdout and stderr, TXT presentation is derived from the corresponding
+event framing.
+
+Framing `chunk` uses **Block presentation**. Consecutive child events of the same
+payload type may be represented as one text segment. The segment header identifies
+the first event in the block, while subsequent events remain part of the same
+payload segment. Individual child event boundaries therefore do not necessarily
+remain visible in TXT output.
+
+Framing `lf`, `newline`, and `crlf` uses **Event presentation**. Every child
+output event receives its own header, so the event boundaries established by
+framing remain visible in the text representation.
+
+Stdout and stderr derive their TXT presentation independently from their
+respective framing settings.
+
+SilentRunner diagnostic events are always represented individually and are not
+subject to child Block/Event presentation.
+
+TXT event metadata is written in a header preceding the represented payload.
+With Block presentation, the header therefore describes the first child event in
+the represented block.
+
+When a new TXT header must be written and the preceding child payload does not
+end at the start of a new line, SilentRunner inserts an LF separator before the
+header. This separator belongs to the text representation and is not part of the
+child payload itself.
+
+##### JSONL Representation
+
+JSONL always uses an event-level representation. Every event included in the
+selected view is written as a separate JSONL record together with its event
+metadata.
+
+JSONL therefore preserves every event boundary established by the configured
+child event framing.
+
+The `--jsonl-payload-presentation` option does not change event boundaries.
+It controls only how the payload of each individual event is represented inside
+its JSONL record.
 
 ------------------------------------------------------------------------
 
@@ -70,6 +180,11 @@ The first non-option argument marks the beginning of the child command.
 That argument is treated as the script or executable path, and all
 remaining arguments are treated as child arguments.
 
+The child script or executable command is passed to `cmd.exe` for
+resolution and is not pre-resolved by SilentRunner. Relative child
+commands are therefore resolved in the child working directory,
+which can be specified with `--cwd`.
+
 Paths and arguments containing spaces should be enclosed in quotes.
 
 ### Raw mode
@@ -78,9 +193,9 @@ Paths and arguments containing spaces should be enclosed in quotes.
 SilentRunner.exe [SilentRunner options...] -c "<raw-cmd>"
 ```
 
-In Raw mode, `-c` consumes the following argument as the complete raw
-command string. Enclose the command in quotes when needed to keep it as
-a single argument.
+In Raw mode, `-c` must be immediately followed by the complete raw command
+string as a single argument. Enclose the command in quotes when necessary to
+preserve it as one argument.
 
 ------------------------------------------------------------------------
 
@@ -135,6 +250,47 @@ Options:
 -   `--id-prefix <value>`
 -   `--id-base <value>`
 -   `--id-suffix <timestamp|pid|timestamp+pid|pid+timestamp>`
+
+------------------------------------------------------------------------
+
+### Child Event Framing
+
+Controls how child stdout and stderr byte streams are divided into individual
+events before they enter the execution timeline.
+
+Stdout and stderr framing are configured independently.
+
+Supported framing modes:
+
+-   `chunk` -- Create events from the underlying read chunks. This is the
+    default.
+-   `lf` or `newline` -- End an event when LF is encountered.
+-   `crlf` -- End an event when an exact CRLF sequence is encountered.
+
+For newline-based framing (`lf`, `newline`, or `crlf`), a maximum event size
+may also be configured. If the configured newline sequence is not encountered
+before this threshold is reached, the current event is emitted and a new event
+begins.
+
+If a newline maximum is not specified, newline-based framing uses a default
+threshold of 524288 bytes (512 KiB).
+
+With `crlf` framing, the configured threshold is not a strict byte limit.
+If the threshold is reached with a trailing CR, SilentRunner may consume one
+additional byte to determine whether it completes a CRLF sequence.
+
+The `*-event-newline-max-bytes` options must be greater than zero and are
+valid only when the corresponding event framing is `lf`, `newline`, or `crlf`.
+
+With newline-based framing, when the child stream ends, any remaining bytes
+are emitted as the final event.
+
+Options:
+
+-   `--stdout-event-framing <chunk|lf|newline|crlf>`
+-   `--stdout-event-newline-max-bytes <bytes>`
+-   `--stderr-child-event-framing <chunk|lf|newline|crlf>`
+-   `--stderr-child-event-newline-max-bytes <bytes>`
 
 ------------------------------------------------------------------------
 
@@ -199,6 +355,18 @@ result: `success` or `failure`.
 For example: `my-execution_stdout_running.log` →
 `my-execution_stdout_success.log` or `my-execution_stdout_failure.log`.
 
+The `--jsonl-payload-presentation` option controls how event payloads are
+represented in JSONL logs. The default is text.
+
+-   `text` -- Write the payload as text.
+-   `base64` -- Write the payload as Base64.
+-   `text+base64` or `base64+text` -- Write both text and Base64
+    representations. The two values are equivalent.
+
+When a child stdout or stderr payload is not valid UTF-8, a requested text
+representation automatically falls back to Base64 so that the original payload
+bytes can be preserved without producing invalid JSON text.
+
 Options:
 
 -   `--stdout-dir <dir>`
@@ -211,6 +379,7 @@ Options:
 -   `--stderr-dir-sr-jsonl <dir>`
 -   `--stderr-dir-incl-stdout <dir>`
 -   `--stderr-dir-incl-stdout-jsonl <dir>`
+-   `--jsonl-payload-presentation <text|base64|text+base64|base64+text>`
 
 ------------------------------------------------------------------------
 
