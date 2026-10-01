@@ -91,7 +91,7 @@ flowchart LR
     end
 
     subgraph OUTPUT["Output views"]
-        WORKERS["Independent output workers<br/>selected timeline views"]
+        WORKERS["Independent workers producing per-target event views"]
         PARENT["Parent stdout / stderr"]
         LOGS["Persistent logs<br/>TXT / JSONL"]
 
