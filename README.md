@@ -55,7 +55,7 @@ By default, each execution is assigned an ID generated from the UTC timestamp an
 
 While the execution is in progress, the log filename contains the `running` suffix. After completion, it is renamed to reflect the final `success` or `failure` result.
 
-Child stdout and stderr are also streamed to the parent process while the per-execution JSONL log is written; this can be disabled.
+Child stdout and stderr are also streamed to SilentRunner's parent process while the per-execution JSONL log is written; this can be disabled.
 
 For more complex examples and configuration options, see [Usage](#usage).
 
