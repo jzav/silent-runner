@@ -83,7 +83,7 @@ flowchart LR
         STREAMS["stdout / stderr<br/>byte streams"]
         FRAMING["Child event framing<br/>chunk / LF / CRLF"]
         DIAG["SilentRunner<br/>diagnostic events"]
-        TIMELINE["Common execution timeline<br/>ordered events + metadata"]
+        TIMELINE["Common execution timeline<br/>(ordered events + metadata)"]
 
         STREAMS --> FRAMING
         FRAMING --> TIMELINE
