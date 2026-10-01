@@ -39,6 +39,28 @@ Key capabilities include:
 
 ------------------------------------------------------------------------
 
+## Quick Start
+
+Download `SilentRunner.exe` from the [latest release](https://github.com/jzav/silent-runner/releases/latest).
+
+Run a script and record its execution timeline as JSONL:
+
+```cmd
+SilentRunner.exe --stderr-dir-incl-stdout-jsonl ".\logs" task.cmd
+```
+
+Each execution produces its own JSONL log, combining child stdout, child stderr, and SilentRunner diagnostics in chronological event order, with metadata for each event.
+
+By default, each execution is assigned an ID generated from the UTC timestamp and process ID (timestamp+pid), which is used as the base of its log filename.
+
+While the execution is in progress, the log filename contains the `running` suffix. After completion, it is renamed to reflect the final `success` or `failure` result.
+
+Child stdout and stderr are also streamed to the parent process while the per-execution JSONL log is written; this can be disabled.
+
+For more complex examples and configuration options, see [Usage](#usage).
+
+------------------------------------------------------------------------
+
 ## Architecture Overview
 
 SilentRunner is organized as an event-driven processing pipeline rather
