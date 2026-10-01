@@ -67,6 +67,43 @@ For more complex examples and configuration options, see [Usage](#usage).
 SilentRunner is organized as an event-driven processing pipeline rather
 than a monolithic command wrapper.
 
+```mermaid
+flowchart LR
+    subgraph EXEC["Process execution"]
+        SR["SilentRunner"]
+        JOB["Windows Job Object"]
+        CHILD["Child process tree"]
+
+        SR -->|"starts"| CHILD
+        SR -.->|"manages via"| JOB
+        JOB -.->|"tracks / controls"| CHILD
+    end
+
+    subgraph EVENTS["Event processing"]
+        STREAMS["stdout / stderr<br/>byte streams"]
+        FRAMING["Child event framing<br/>chunk / LF / CRLF"]
+        DIAG["SilentRunner<br/>diagnostic events"]
+        TIMELINE["Common execution timeline<br/>ordered events + metadata"]
+
+        STREAMS --> FRAMING
+        FRAMING --> TIMELINE
+        DIAG --> TIMELINE
+    end
+
+    subgraph OUTPUT["Output views"]
+        WORKERS["Independent output workers<br/>selected timeline views"]
+        PARENT["Parent stdout / stderr"]
+        LOGS["Persistent logs<br/>TXT / JSONL"]
+
+        WORKERS --> PARENT
+        WORKERS --> LOGS
+    end
+
+    CHILD --> STREAMS
+    SR --> DIAG
+    TIMELINE --> WORKERS
+```
+
 Child stdout and stderr are captured as byte streams and divided into
 individual output events according to the configured event framing.
 SilentRunner diagnostics are produced as diagnostic events. These child
