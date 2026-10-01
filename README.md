@@ -43,7 +43,7 @@ Key capabilities include:
 
 Download `SilentRunner.exe` from the [latest release](https://github.com/jzav/silent-runner/releases/latest).
 
-Run a script and record its execution timeline as JSONL:
+Run a script without opening a console window (no flashing) and record its execution timeline as JSONL:
 
 ```cmd
 SilentRunner.exe --stderr-dir-incl-stdout-jsonl ".\logs" task.cmd
