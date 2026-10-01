@@ -12,9 +12,10 @@ diagnostics. Execution results can be independently
 used to control parent stdout/stderr emission, log retention,
 and post-execution actions.
 
+[![CI](https://github.com/jzav/silent-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/jzav/silent-runner/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightblue)
-![Build](https://img.shields.io/badge/build-gcc-9cf)
+![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
 
 Key capabilities include:
 
