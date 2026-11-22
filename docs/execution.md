@@ -8,9 +8,6 @@ SilentRunner's managed execution lifecycle consists of two phases:
 - **Runtime phase** -- Starts and supervises the child process, captures its output,
   and determines the runtime result, including timeout or buffer-limit failures.
 
-Normal completion requires the main child, managed process tree, and both
-readers to finish. The reported child exit code comes from the main child;
-descendant exit codes are not combined.
 Runtime phase is entered only if Prepare phase succeeds. Once the required
 infrastructure is available, the finalization procedure concludes either
 a failed Prepare phase or the Runtime phase. It handles delayed parent replay,
@@ -86,6 +83,35 @@ name for its log files. By default, it combines a UTC timestamp with the
 SilentRunner process ID (`timestamp+pid`). Optional prefix, base, and suffix
 components can be configured independently; see
 [Execution ID Configuration](parameters.md#execution-id-configuration).
+
+## Runtime Completion
+
+SilentRunner considers the Runtime phase normally completed only when all
+three conditions are satisfied:
+
+1. **Main child process finished** -- The command interpreter (`cmd.exe`)
+   has exited, allowing SilentRunner to obtain its exit code.
+2. **Managed process tree finished** -- All processes belonging to
+   SilentRunner's Windows Job Object have exited, including descendants
+   that continue running after the main child exits.
+3. **Both child stdout and stderr readers finished** -- Both captured streams
+   have reached EOF, allowing their remaining output to be processed.
+
+Child scripts and applications are responsible for managing the lifetime
+of the processes they start. If a long-running descendant remains inside
+the managed process tree, SilentRunner continues waiting for it.
+SilentRunner does not currently provide a mode for leaving managed descendants
+running after normal completion.
+
+Waiting for the managed process tree does not mean combining the exit
+codes of its processes. SilentRunner normally uses the main child's exit
+code. Scripts that require successful completion of individual
+descendants must check their results and propagate failures themselves.
+
+Normal completion is coordinated with Runtime phase stop conditions, including
+execution timeout, replay buffer limits, and runtime supervision failures.
+See [Exit Codes](#exit-codes) and
+[Process Environment](parameters.md#process-environment).
 
 ## Exit Codes
 
