@@ -6,11 +6,11 @@ while capturing **exit code, stdout, stderr, and execution
 diagnostics**.
 
 SilentRunner is designed for unattended and automated execution
-scenarios such as scripting, CI/CD pipelines, and scheduled tasks, while
-retaining detailed control over process execution, output, and
-diagnostics. Execution results can be independently
-used to control parent stdout/stderr emission, log retention,
-and post-execution actions.
+scenarios such as scripting, CI/CD pipelines, and scheduled tasks.
+Its unified chronological timeline can combine captured child output,
+process lifecycle events, and execution diagnostics, making it easier
+to reconstruct execution flow and investigate failures in both simple
+and complex multi-process workflows.
 
 [![CI](https://github.com/jzav/silent-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/jzav/silent-runner/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
@@ -27,16 +27,16 @@ Key capabilities include:
 -   Immediate or delayed emission to parent stdout/stderr,
     with delayed output optionally replayed from buffer or persistent logs
     `at the end of execution`, `on execution success`, or `on execution failure`.
--   Persistent TXT and JSONL logging with configurable retention
-    policies (`always` | `success` | `failure`) and the execution result
-    recorded in log filenames.
+-   Persistent TXT and JSONL logging with configurable retention policies
+    (`always` | `success` | `failure`) and the execution result recorded
+    in log filenames.
 -   Configurable execution IDs for log naming and workflow integration.
 -   Post-execution hooks (`on success` | `on failure`) with execution metadata exposed through
     environment variables.
 -   Configurable environment: working directory, standard input, UTF-8 mode, and
     execution timeout.
--   Multiple diagnostic levels ranging from normal execution messages to
-    detailed debugging and verbose execution summaries.
+-   Multiple diagnostic levels, from basic execution messages to detailed debugging with
+    process lifecycle tracking and verbose execution summaries.
 
 ------------------------------------------------------------------------
 
@@ -44,789 +44,270 @@ Key capabilities include:
 
 Download `SilentRunner.exe` from the [latest release](https://github.com/jzav/silent-runner/releases/latest).
 
-Run a script without opening a console window (no flashing) and record its execution timeline as JSONL:
-
-```cmd
-SilentRunner.exe --stderr-dir-incl-stdout-jsonl ".\logs" task.cmd
-```
-
-Each execution produces its own JSONL log, combining child stdout, child stderr, and SilentRunner diagnostics in chronological event order, with metadata for each event.
-
-By default, each execution is assigned an ID generated from the UTC timestamp and process ID (timestamp+pid), which is used as the base of its log filename.
-
-While the execution is in progress, the log filename contains the `running` suffix. After completion, it is renamed to reflect the final `success` or `failure` result.
-
-Child stdout and stderr are also streamed to SilentRunner's parent process while the per-execution JSONL log is written; this can be disabled.
-
-For more complex examples and configuration options, see [Usage](#usage).
-
-------------------------------------------------------------------------
-
-## Architecture Overview
-
-SilentRunner is organized as an event-driven processing pipeline rather
-than a monolithic command wrapper.
-
-```mermaid
-flowchart LR
-    subgraph EXEC["Process execution"]
-        SR["SilentRunner"]
-        JOB["Windows Job Object"]
-        CHILD["Child process tree"]
-
-        SR -->|"starts"| CHILD
-        SR -.->|"manages via"| JOB
-        JOB -.->|"tracks / controls"| CHILD
-    end
-
-    subgraph EVENTS["Event processing"]
-        STREAMS["stdout / stderr<br/>byte streams"]
-        FRAMING["Child event framing<br/>chunk / LF / CRLF"]
-        DIAG["SilentRunner<br/>diagnostic events"]
-        TIMELINE["Common execution timeline<br/>(ordered events + metadata)"]
-
-        STREAMS --> FRAMING
-        FRAMING --> TIMELINE
-        DIAG --> TIMELINE
-    end
-
-    subgraph OUTPUT["Output views"]
-        WORKERS["Independent workers producing per-target event views"]
-        PARENT["Parent stdout / stderr"]
-        LOGS["Persistent logs<br/>TXT / JSONL"]
-
-        WORKERS --> PARENT
-        WORKERS --> LOGS
-    end
-
-    CHILD --> STREAMS
-    SR --> DIAG
-    TIMELINE --> WORKERS
-```
-
-Child stdout and stderr are captured as byte streams and divided into
-individual output events according to the configured event framing.
-SilentRunner diagnostics are produced as diagnostic events. These child
-output events and diagnostic events then enter a common execution timeline.
-
-The execution timeline provides shared ordering and processing of events.
-Independent output workers consume selected views of that timeline and expose
-them through parent stdout/stderr and persistent TXT or JSONL logs.
-
-Child process execution is managed separately from output capture and event
-processing. The child process tree is tracked and controlled through Windows
-Job Object integration, including process-tree termination and debug monitoring.
-
-NOTE: When SilentRunner itself runs inside an existing Job Object, Windows may
-form a nested Job Object hierarchy. Restrictions imposed by the outer job may
-affect or prevent assigning the child process to SilentRunner's own Job Object.
-See Microsoft documentation on
-[Nested Jobs](https://learn.microsoft.com/en-us/windows/win32/procthread/nested-jobs)
-and
-[Assigning Processes to a Job Object](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects#assigning-processes-to-a-job-object).
-
-### Child Event Model
-
-#### Framing
-
-Framing determines how captured child stdout and stderr byte streams are divided
-into individual child output events before those events enter the execution
-timeline.
-
-Stdout and stderr framing are configured independently.
-
-With `chunk` framing, each underlying read chunk becomes one child output event.
-This is the default behavior.
-
-With `lf` or its alias `newline`, an event ends when LF is encountered. With
-`crlf`, an event ends only when an exact CRLF sequence is encountered.
-
-When a child stream ends, any remaining bytes are emitted as the final event.
-
-#### Event Metadata
-
-Each event entering the execution timeline carries metadata describing its
-payload type, timestamp, execution phase, event ordering, payload size, and
-related processing state. SilentRunner diagnostic events additionally include
-diagnostic severity.
-
-Metadata belongs to the event itself. How that metadata is exposed depends on
-the output representation described below.
-
-#### Timeline and Views
-
-Child stdout events, child stderr events, and SilentRunner diagnostic events
-share the same execution timeline and event ordering.
-
-Individual parent outputs and persistent logs are views of that timeline. A
-particular view may contain only a subset of events depending on the selected
-stdout/stderr target and diagnostic level.
-
-For example, an stdout-only view does not contain child stderr or SilentRunner
-diagnostic events, while stderr-child-only and stderr-sr-only views expose
-different subsets of the same timeline.
-
-Consequently, event numbers visible in a particular output view do not
-necessarily form a continuous sequence. Apparently missing event numbers do not
-by themselves indicate that events were lost. They may belong to events excluded
-from that view or filtered by diagnostic level.
-
-The selected events are then represented either as headered text or as JSONL,
-as described below.
-
-#### Output Representation
-
-SilentRunner currently exposes timeline views primarily as headered text or
-JSONL. Both representations are based on the same underlying events, but they
-differ in how child event boundaries, metadata, and payloads are presented.
-
-##### TXT Presentation
-
-For child stdout and stderr, TXT presentation is derived from the corresponding
-event framing.
-
-Framing `chunk` uses **Block presentation**. Consecutive child events of the same
-payload type may be represented as one text segment. The segment header identifies
-the first event in the block, while subsequent events remain part of the same
-payload segment. Individual child event boundaries therefore do not necessarily
-remain visible in TXT output.
-
-Framing `lf`, `newline`, and `crlf` uses **Event presentation**. Every child
-output event receives its own header, so the event boundaries established by
-framing remain visible in the text representation.
-
-Stdout and stderr derive their TXT presentation independently from their
-respective framing settings.
-
-SilentRunner diagnostic events are always represented individually and are not
-subject to child Block/Event presentation.
-
-TXT event metadata is written in a header preceding the represented payload.
-With Block presentation, the header therefore describes the first child event in
-the represented block.
-
-When a new TXT header must be written and the preceding child payload does not
-end at the start of a new line, SilentRunner inserts an LF separator before the
-header. This separator belongs to the text representation and is not part of the
-child payload itself.
-
-##### JSONL Representation
-
-JSONL always uses an event-level representation. Every event included in the
-selected view is written as a separate JSONL record together with its event
-metadata.
-
-JSONL therefore preserves every event boundary established by the configured
-child event framing.
-
-The `--jsonl-payload-representation` option does not change event boundaries.
-It controls only how the payload of each individual event is represented inside
-its JSONL record.
-
-------------------------------------------------------------------------
-
-## Execution Modes
-
-SilentRunner supports two execution modes:
-
-### Script/Executable mode
-
-``` text
-SilentRunner.exe [SilentRunner options...] <script-or-exe> [child args...]
-```
-
-In Script/Executable mode, SilentRunner parses its own options first.
-The first non-option argument marks the beginning of the child command.
-That argument is treated as the script or executable path, and all
-remaining arguments are treated as child arguments.
-
-The child script or executable command is passed to `cmd.exe` for
-resolution and is not pre-resolved by SilentRunner. Relative child
-commands are therefore resolved in the child working directory,
-which can be specified with `--cwd`.
-
-Paths and arguments containing spaces should be enclosed in quotes.
-
-### Raw mode
-
-``` text
-SilentRunner.exe [SilentRunner options...] -c "<raw-cmd>"
-```
-
-In Raw mode, `-c` must be immediately followed by the complete raw command
-string as a single argument. Enclose the command in quotes when necessary to
-preserve it as one argument.
-
-------------------------------------------------------------------------
-
-## Parameter Categories
-
-SilentRunner options are organized into logical groups. Most execution
-scenarios require configuring only a small subset of these categories.
-
-### Process Environment
-
-Controls the execution environment and runtime behavior of the child
-process and run hooks.
-
-By default, the child process inherits SilentRunner's current working
-directory, receives `NUL` as its standard input, uses the system's
-default console code page, and runs without a time limit.
-
-The configured working directory controls the working directory in which the
-child process and run hooks execute. It does not change the base directory used
-to resolve relative paths in SilentRunner path options; those paths are resolved
-relative to SilentRunner's inherited working directory.
-
-These options allow the working directory, standard input handling,
-console code page, and execution timeout to be customized.
-
-Options:
-
--   `--cwd <dir>`
--   `--inherit-stdin`
--   `--utf8` or `--utf-8`
--   `--timeout-ms <ms>`
-
-------------------------------------------------------------------------
-
-### Execution ID
-
-Controls the identifier assigned to each execution.
-
-The execution ID is used to uniquely identify an execution and forms the
-base name of all log files created during that run.
-
-The execution ID is composed as:
-
-`id-prefix + id-base + id-suffix`
-
-All three components are optional and may be used independently.
-
-If none is specified, the execution ID defaults to `timestamp+pid` (UTC).
-
-Options:
-
--   `--id-prefix <value>`
--   `--id-base <value>`
--   `--id-suffix <timestamp|pid|timestamp+pid|pid+timestamp>`
-
-------------------------------------------------------------------------
-
-### Child Event Framing
-
-Controls how child stdout and stderr byte streams are divided into individual
-events before they enter the execution timeline.
-
-Stdout and stderr framing are configured independently.
-
-Supported framing modes:
-
--   `chunk` -- Create events from the underlying read chunks. This is the
-    default.
--   `lf` or `newline` -- End an event when LF is encountered.
--   `crlf` -- End an event when an exact CRLF sequence is encountered.
-
-For newline-based framing (`lf`, `newline`, or `crlf`), a maximum event size
-may also be configured. If the configured newline sequence is not encountered
-before this threshold is reached, the current event is emitted and a new event
-begins.
-
-If a newline maximum is not specified, newline-based framing uses a default
-threshold of 524288 bytes (512 KiB).
-
-With `crlf` framing, the configured threshold is not a strict byte limit.
-If the threshold is reached with a trailing CR, SilentRunner may consume one
-additional byte to determine whether it completes a CRLF sequence.
-
-The `*-event-newline-max-bytes` options must be greater than zero and are
-valid only when the corresponding event framing is `lf`, `newline`, or `crlf`.
-
-With newline-based framing, when the child stream ends, any remaining bytes
-are emitted as the final event.
-
-Options:
-
--   `--stdout-event-framing <chunk|lf|newline|crlf>`
--   `--stdout-event-newline-max-bytes <bytes>`
--   `--stderr-child-event-framing <chunk|lf|newline|crlf>`
--   `--stderr-child-event-newline-max-bytes <bytes>`
-
-------------------------------------------------------------------------
-
-### Parent Emission
-
-Controls which output is emitted to the parent process and when it is
-emitted.
-
-Emission modes:
-
--   `stream` -- Emit child stdout/stderr to the parent stdout/stderr as it is produced (default).
--   `end` -- Emit the buffered output after the execution finishes.
--   `success` -- Emit the buffered output only if execution succeeds.
--   `failure` -- Emit the buffered output only if execution fails.
--   `never` -- Never emit the selected stream to the parent. When used
-    with `--stderr-emit`, this disables the default parent diagnostic
-    channel. Unless another SilentRunner diagnostic channel, such as
-    `--stderr-dir`, is available, SilentRunner terminates before
-    starting the child process with exit code 254.
-
-Options:
-
--   `--stdout-emit <mode>` -- Controls emission of the child process
-    stdout.
--   `--stderr-emit <mode>` -- Controls emission of the mixed stderr
-    view: child stderr and SilentRunner diagnostics.
--   `--stderr-emit-child <mode>` -- Controls emission of child stderr
-    only.
--   `--stderr-emit-sr <mode>` -- Controls emission of SilentRunner
-    diagnostics only.
--   `--stderr-emit-incl-stdout <mode>` -- Controls emission of the combined
-    stderr view including child stdout: child stdout, child stderr, and
-    SilentRunner diagnostics.
-
-The four stderr emit options are mutually exclusive.
-
-------------------------------------------------------------------------
-
-### Persistent Logging
-
-In addition to Output Routing, SilentRunner can write execution output
-to persistent log files.
-
-Persistent logging is independent of parent stdout/stderr emission. Any
-combination of parent emission and log files can be used simultaneously.
-For example, output may be streamed to the parent process while also
-being recorded as TXT and/or JSONL logs.
-
-Unlike the parent stderr routing options, all stderr log destinations
-may be enabled at the same time. This allows child stderr and SilentRunner
-diagnostics (described below) to be logged separately, as a mixed stderr
-stream, and as a combined chronological stream including child stdout.
-
-
-Each execution creates a new set of log files. SilentRunner never
-appends output to an existing log file. Log file names are derived from
-the execution ID, which is described above.
-
-While execution is in progress, log file names include the running state.
-After execution completes, they are renamed to reflect the final execution
-result: `success` or `failure`.
-For example: `my-execution_stdout_running.log` →
-`my-execution_stdout_success.log` or `my-execution_stdout_failure.log`.
-
-The `--jsonl-payload-representation` option controls how event payloads are
-represented in JSONL logs. The default is text.
-
--   `text` -- Write the payload as text.
--   `base64` -- Write the payload as Base64.
--   `text+base64` or `base64+text` -- Write both text and Base64
-    representations. The two values are equivalent.
-
-When a child stdout or stderr payload is not valid UTF-8, a requested text
-representation automatically falls back to Base64 so that the original payload
-bytes can be preserved without producing invalid JSON text.
-
-Options:
-
--   `--stdout-dir <dir>`
--   `--stdout-dir-jsonl <dir>`
--   `--stderr-dir <dir>`
--   `--stderr-dir-jsonl <dir>`
--   `--stderr-dir-child <dir>`
--   `--stderr-dir-child-jsonl <dir>`
--   `--stderr-dir-sr <dir>`
--   `--stderr-dir-sr-jsonl <dir>`
--   `--stderr-dir-incl-stdout <dir>`
--   `--stderr-dir-incl-stdout-jsonl <dir>`
--   `--jsonl-payload-representation <text|base64|text+base64|base64+text>`
-
-------------------------------------------------------------------------
-
-### Log Retention
-
-Controls whether persistent log files are retained after execution
-completes.
-
-Each stdout and stderr log target has its own retention policy. JSONL
-log files use the same retention policy as the corresponding TXT log
-stream.
-
-Logs removed by a retention policy are deleted permanently and are not
-moved to the Windows Recycle Bin.
-
-Supported modes:
-
--   `always` -- Always keep the log file (default).
--   `success` -- Keep the log file only if execution succeeds.
--   `failure` -- Keep the log file only if execution fails.
-
-Options:
-
--   `--stdout-dir-keep-log <mode>`
--   `--stderr-dir-keep-log <mode>`
--   `--stderr-dir-child-keep-log <mode>`
--   `--stderr-dir-sr-keep-log <mode>`
--   `--stderr-dir-incl-stdout-keep-log <mode>`
-
-------------------------------------------------------------------------
-
-### Buffering
-
-Controls how much output may be buffered in memory for delayed parent
-replay (`end`, `success`, or `failure` emission modes). By default,
-buffer limits are 0 (unlimited).
-
-Buffering is only used for output that needs to be retained for delayed
-parent replay. Output that is streamed to the parent process does not
-require replay buffering.
-
-If persistent logging is enabled for the corresponding replay source,
-SilentRunner can replay the output from the persistent log file instead
-of the in-memory buffer. For example, `--stderr-emit-sr end` can replay
-from logs written by `--stderr-dir-sr` or `--stderr-dir-sr-jsonl`, while
-`--stderr-emit-incl-stdout end` can replay from logs written by
-`--stderr-dir-incl-stdout` or `--stderr-dir-incl-stdout-jsonl`. This
-allows delayed replay of arbitrarily large outputs while keeping memory
-usage bounded.
-
-Options:
-
-- `--stdout-max-buffer-bytes <bytes>`
-- `--stderr-max-buffer-bytes <bytes>`
-- `--std-total-max-buffer-bytes <bytes>`
-
-------------------------------------------------------------------------
-
-### Post-Execution Hooks
-
-Runs an external program after execution without arguments.
-
-Hooks execute in the same process environment as the child process,
-including the configured working directory and environment variables.
-The hook path itself is resolved before execution relative to SilentRunner's
-inherited working directory, not relative to the directory specified by
-`--cwd`.
-
-SilentRunner also provides additional execution-specific environment
-variables, allowing hooks to access execution metadata such as the
-execution ID, execution result, and log file locations.
-
-The complete list of currently available environment variables can be displayed
-using `SilentRunner --help`. Requests for additional environment variables are
-welcome.
-
-Post-execution hooks are started as detached processes without inherited
-standard handles. The hook and programs started by it therefore cannot
-rely on the original SilentRunner parent stdout or stderr handles.
-
-If a hook starts another SilentRunner instance, that instance must have an
-available diagnostic channel. For example, persistent stderr logging can be
-enabled with `--stderr-dir`; otherwise, if no diagnostic channel is available,
-the nested SilentRunner terminates with exit code 254.
-
-Options:
-
--   `--run-on-success <path>`
--   `--run-on-failure <path>`
-
-------------------------------------------------------------------------
-
-### Diagnostics
-
-Controls the level of SilentRunner diagnostics.
-
-Informational, error, and fatal diagnostics are enabled by default.
-Their parent emission and persistent logging follow the SilentRunner
-diagnostic routing configured through the stderr Output Routing and
-Persistent Logging options. SilentRunner diagnostics may be routed
-independently, together with child stderr, or as part of the combined
-chronological stream including child stdout.
-
-If no SilentRunner diagnostic channel is available (neither parent
-emission nor persistent logging) before the child process starts,
-SilentRunner terminates immediately with exit code 254, because
-diagnostic messages could not be reported.
-
-Exit code 255 indicates an internal SilentRunner failure.
-
-The `--debug` option enables additional diagnostic messages describing
-internal execution flow, child (sub)process lifecycle, and output
-routing decisions.
-
-The `--verbose` option implies `--debug` and adds detailed execution
-summaries, including event processing, worker activity, and final
-processing results.
-
-Options:
-
--   `--debug`
--   `--verbose`
-
-------------------------------------------------------------------------
-
-### Help
-
-Displays the built-in CLI reference.
-
-Options:
-
--   `--help`
-
-------------------------------------------------------------------------
-
-## Usage
-
-### 1. Basic execution
-
-Run a command using the default SilentRunner configuration:
-
-```text
-SilentRunner.exe task.cmd
-```
-
-- `task.cmd` runs without creating a console window.
-- The child process inherits SilentRunner's current working directory.
-- Standard input is connected to `NUL`.
-- UTF-8 mode is not enabled.
-- No execution timeout is applied.
-- Child stdout is streamed to parent stdout.
-- Child stderr and SilentRunner diagnostics are both streamed to parent stderr.
-- No persistent log files are created.
-- Debug and verbose diagnostics are disabled.
-- No post-execution hooks are executed.
-
-------------------------------------------------------------------------
-
-### 2. Controlling the process environment
-
-Run the child process in a specific working directory with a five-second
-execution timeout:
-
-```text
-SilentRunner.exe --cwd "D:\Work" --utf8 --timeout-ms 5000 task.cmd
-```
-
-`task.cmd`:
-
-```text
+### Example 1: Programmatic Integration
+
+This example reads the volume of a Windows audio output device without
+flashing a console window. The same command is called from Python, Node.js,
+and AutoHotkey. SilentRunner streams raw stdout to the calling application,
+which uses the exit code to decide whether to use the result. Diagnostic
+logs are retained only on failure.
+
+**Shared script (`getdevicevolume.cmd`):**
+
+The script uses NirSoft's
+[SoundVolumeCommandLine](https://www.nirsoft.net/utils/sound_volume_command_line.html)
+(`svcl.exe`) and
+[GetNir](https://www.nirsoft.net/utils/get_nir_command_line_tool.html)
+to extract the volume percentage of an active audio device:
+
+~~~cmd
 @echo off
-echo Příliš žluťoučký kůň úpěl ďábelské ódy
-echo こんにちは
+"D:\Tools\svcl.exe" /scomma "" | "D:\Tools\GetNir.exe" "Volume Percent" "'Command-Line Friendly ID'='YOUR_DEVICE_ID' && 'Device State'=Active"
+~~~
+
+Replace `YOUR_DEVICE_ID` with the device's Command-Line Friendly ID and
+adjust the executable paths.
+
+To pass the device ID as a command-line argument instead of hardcoding it
+in the script, see
+[Tutorial — Execution with parameters](docs/tutorial.md#3-execution-with-parameters).
+
+#### Python
+
+~~~python
+import subprocess
+import sys
+
+sr_exe = r"D:\Tools\SilentRunner.exe"
+cmd_file = r"D:\Scripts\getdevicevolume.cmd"
+log_dir = r"D:\Logs\SilentRunner"
+
+cmd = [
+    sr_exe,
+    "--stdout-emit-raw", "stream",
+    "--stderr-emit", "never",
+    "--debug",
+    "--stderr-dir-incl-stdout", log_dir,
+    "--stderr-dir-incl-stdout-keep-log", "failure",
+    "--timeout-ms", "3000",
+    cmd_file,
+]
+
+try:
+    completed = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+except OSError as err:
+    print(f"Failed to start SilentRunner: {err}", file=sys.stderr)
+else:
+    volume = completed.stdout
+
+    if completed.returncode == 0 and volume:
+        print(f"Device volume: {volume}%")
+    else:
+        print(f"Volume not available (exit code {completed.returncode}).", file=sys.stderr)
+~~~
+
+#### Node.js
+
+~~~javascript
+import { spawn } from "node:child_process";
+
+const srExe = "D:\\Tools\\SilentRunner.exe";
+const cmdFile = "D:\\Scripts\\getdevicevolume.cmd";
+const logDir = "D:\\Logs\\SilentRunner";
+
+const args = [
+    "--stdout-emit-raw", "stream",
+    "--stderr-emit", "never",
+    "--debug",
+    "--stderr-dir-incl-stdout", logDir,
+    "--stderr-dir-incl-stdout-keep-log", "failure",
+    "--timeout-ms", "3000",
+    cmdFile
+];
+
+const p = spawn(srExe, args);
+let volume = "";
+let spawnFailed = false;
+
+p.stdout.setEncoding("utf8");
+p.stdout.on("data", data => { volume += data; });
+
+p.on("error", err => {
+    spawnFailed = true;
+    console.error(`Failed to start SilentRunner: ${err.message}`);
+});
+
+p.on("close", code => {
+    if (spawnFailed) return;
+
+    if (code === 0 && volume !== "")
+        console.log(`Device volume: ${volume}%`);
+    else
+        console.error(`Volume not available (exit code ${code}).`);
+});
+~~~
+
+#### AutoHotkey_L (v1.1)
+
+~~~autohotkey
+srExe := "D:\Tools\SilentRunner.exe"
+cmdFile := "D:\Scripts\getdevicevolume.cmd"
+logDir := "D:\Logs\SilentRunner"
+q := Chr(34)
+
+cmd := q . srExe . q
+    . " --stdout-emit-raw stream"
+    . " --stderr-emit never"
+    . " --debug"
+    . " --stderr-dir-incl-stdout " . q . logDir . q
+    . " --stderr-dir-incl-stdout-keep-log failure"
+    . " --timeout-ms 3000 " . q . cmdFile . q
+
+try
+    exec := ComObjCreate("WScript.Shell").Exec(cmd)
+catch e
+{
+    MsgBox, % "Failed to start SilentRunner: " . e.Message
+    return
+}
+
+volume := exec.StdOut.ReadAll()
+code := exec.ExitCode
+
+if (code = 0 && volume != "")
+    MsgBox, % "Device volume: " . volume . "%"
+else
+    MsgBox, % "Volume not available (exit code " . code . ")."
+~~~
+
+#### SilentRunner Configuration
+
+All three implementations use the same SilentRunner options:
+
+- `--stdout-emit-raw stream` forwards the original child stdout to the
+  calling application without headers or diagnostic messages.
+- `--stderr-emit never` suppresses parent stderr output.
+- `--stderr-dir-incl-stdout` records child stdout, child stderr, and
+  SilentRunner diagnostics in a single Headered TXT log.
+- `--debug` adds detailed execution and process lifecycle diagnostics.
+- `--stderr-dir-incl-stdout-keep-log failure` retains the log only when
+  execution fails.
+- `--timeout-ms 3000` limits execution to three seconds.
+
+Each execution has its own log file, identified by an execution ID
+(`timestamp+pid` by default). Files are written with a `running` suffix
+during execution and renamed with a `success` or `failure` suffix during
+finalization. Successful runs leave no log files; failed runs retain the
+combined diagnostic log, making it easier to identify the cause of a problem.
+
+### Example 2: VLC - Long-Running Diagnostics
+
+VLC, like many other applications, can run continuously for a long time,
+producing diagnostic messages without individual timestamps.
+SilentRunner captures these messages, adds UTC timestamps, and writes
+them to a continuously updated log without modifying VLC itself. 
+
+#### Prepare VLC
+
+In VLC, open **Tools > Preferences > Interface > Playlist and Instances** and
+enable **Allow only one instance** and **Use only one instance when started
+from file manager**. This allows media opened later from File Explorer to be
+handled by the already running VLC instance.
+
+Also disable VLC's built-in file logging so that SilentRunner can capture its
+diagnostic output.
+
+#### Launch VLC using a Windows shortcut (.lnk)
+
+For manual launching, create a Windows shortcut (`.lnk`) with the following
+properties:
+
+**Target:**
+
+```text
+"D:\Tools\SilentRunner.exe" --debug --stderr-child-event-framing lf --stderr-dir-incl-stdout "D:\Logs" "C:\Program Files\VideoLAN\VLC\vlc.exe" --verbose=2
 ```
 
-- `task.cmd` runs with `D:\Work` as its working directory.
-- UTF-8 code page (`65001`) is enabled for the child process.
-- If execution exceeds five seconds, SilentRunner terminates the child process tree with exit code 124.
-- All other settings retain their default behavior described in the previous example.
+**Start in:**
+
+```text
+"C:\Program Files\VideoLAN\VLC"
+```
+
+#### Start VLC at logon with Task Scheduler
+
+As an alternative to launching VLC manually through the shortcut, Windows Task
+Scheduler can start VLC through SilentRunner automatically when the user logs on.
+This keeps VLC ready for opening media files while capturing its diagnostics
+from the beginning of the session.
+
+Create a new task in Task Scheduler (`taskschd.msc`) with these settings:
+
+| Tab | Setting | Value |
+| --- | --- | --- |
+| General | Name | `VLC with SilentRunner logging` |
+| General | Security options | `Run only when user is logged on` |
+| Triggers | Begin the task | `At log on` (specific user) |
+| Actions | Action | `Start a program` |
+| Actions | Program/script | `D:\Tools\SilentRunner.exe` |
+| Actions | Add arguments | See below |
+| Actions | Start in | `C:\Program Files\VideoLAN\VLC` |
+| Settings | If the task is already running | `Do not start a new instance` |
+| Settings | Stop the task if it runs longer than | Disabled |
+
+**Add arguments:**
+
+~~~text
+--debug --stderr-child-event-framing lf --stderr-dir-incl-stdout "D:\Logs" "C:\Program Files\VideoLAN\VLC\vlc.exe" --verbose=2
+~~~
+
+Use `Run only when user is logged on` because VLC is a graphical application
+that needs access to the interactive desktop. 
+
+#### Understanding the VLC diagnostic log
+
+The `--verbose=2` argument belongs to VLC and enables detailed VLC
+diagnostics. SilentRunner's `--stderr-child-event-framing lf` divides
+VLC's stderr into individual line-based events, each receiving its
+own timestamped header.
+
+For a step-by-step comparison of `chunk` and `lf` framing, see
+[Tutorial — Controlling child event framing](docs/tutorial.md#8-controlling-child-event-framing).
+
+An illustrative excerpt from the Headered TXT log (some header fields
+and message details omitted):
+
+~~~text
+[payloadType=CHILDSTDERR] [tsUtc=2026-11-17T12:31:12.550Z] [executionId=2026-11-17_12-31-12Z_pid14636][phase=RUNTIME][phaseOrderNo=2][eventOrderNo=35] ...
+[0000020767ec38f0] main libvlc debug: VLC media player - 3.0.24 Vetinari
+[payloadType=CHILDSTDERR] [tsUtc=2026-11-17T12:31:12.550Z] [executionId=2026-11-17_12-31-12Z_pid14636][phase=RUNTIME][phaseOrderNo=2][eventOrderNo=36] ...
+[0000020767ec38f0] main libvlc debug: Copyright © 1996-2026 the VideoLAN team
+[payloadType=CHILDSTDERR] [tsUtc=2026-11-17T12:31:12.550Z] [executionId=2026-11-17_12-31-12Z_pid14636][phase=RUNTIME][phaseOrderNo=2][eventOrderNo=37] ...
+[0000020767ec38f0] main libvlc debug: revision 3.0.24-rc1-0-g6de05adcba
+~~~
+
+The `--stderr-dir-incl-stdout` target records VLC stderr and stdout
+alongside SilentRunner diagnostics in a single chronological log.
+With `--debug`, the log also includes process lifecycle information.
+
+For a general step-by-step introduction, see [Tutorial](docs/tutorial.md).
+For detailed configuration options, see
+[Parameter Categories](docs/parameters.md).
 
 ------------------------------------------------------------------------
 
-### 3. Controlling parent output
+## Documentation
 
-Keep child stdout/stderr out of parent output during execution and emit it
-only if the execution fails:
-
-```text
-SilentRunner.exe --stdout-emit failure --stderr-emit failure task.cmd
-```
-
-- Child stdout and stderr and SilentRunner diagnostics are not streamed to parent
-  stdout/stderr while `task.cmd` is running.
-- Child stdout/stderr and SilentRunner diagnostics are buffered in memory in the
-  execution timeline during execution.
-- If the execution fails, the buffered stdout/stderr is replayed to
-  parent stdout/stderr after execution completes.
-- If the execution succeeds, no child stdout/stderr is emitted to the
-  parent.
-- All other settings retain their default behavior described in the first
-  example.
-
-------------------------------------------------------------------------
-
-### 4. Adding persistent logging
-
-Stream child output to the parent while also recording it in persistent
-log files:
-
-```text
-SilentRunner.exe --stdout-dir "D:\Logs" --stderr-dir "D:\Logs" task.cmd
-```
-
-- Child stdout is streamed to parent stdout.
-- Child stderr and SilentRunner diagnostics are streamed to parent stderr.
-- Child stdout is also written to a persistent TXT stdout log.
-- Child stderr and SilentRunner diagnostics are also written to a persistent
-  mixed stderr TXT log.
-- While execution is running, the log file names contain the `running` state.
-  After execution completes, they are renamed to contain `success` or `failure`
-  according to the final execution result.
-- The log files are retained after execution using the default `always`
-  retention policy.
-- All other settings retain their default behavior described in the first
-  example.
-
-------------------------------------------------------------------------
-
-### 5. Advanced persistent logging
-
-Record child stdout, child stderr, and SilentRunner diagnostics
-to persistent TXT and JSONL log files:
-
-```text
-SilentRunner.exe ^
-  --stdout-dir "D:\Logs" ^
-  --stdout-dir-jsonl "D:\Logs" ^
-  --stderr-dir "D:\Logs" ^
-  --stderr-dir-jsonl "D:\Logs" ^
-  --stderr-dir-child "D:\Logs" ^
-  --stderr-dir-child-jsonl "D:\Logs" ^
-  --stderr-dir-sr "D:\Logs" ^
-  --stderr-dir-sr-jsonl "D:\Logs" ^
-  --stderr-dir-incl-stdout "D:\Logs" ^
-  --stderr-dir-incl-stdout-jsonl "D:\Logs" ^
-  pathTo\task.cmd
-```
-
-- Child stdout is recorded independently in TXT and JSONL formats.
-- The mixed stderr stream, combining child stderr and SR diagnostics, is
-  recorded independently in TXT and JSONL formats.
-- Child stderr is also recorded separately in TXT and JSONL formats.
-- SilentRunner diagnostics are also recorded separately in TXT and JSONL formats.
-- The combined chronological stream including child stdout, child stderr, and
-  SilentRunner diagnostics is also recorded in TXT and JSONL formats.
-- All persistent log destinations may be enabled at the same time.
-- Parent stdout/stderr emission keeps its default streaming behavior.
-- Log retention keeps its default `always` policy.
-
-------------------------------------------------------------------------
-
-### 6. Failure-only diagnostic replay from persistent logs
-
-Keep SilentRunner diagnostics out of parent stderr during execution, persist
-them as JSONL, and replay them to the parent only if execution fails:
-
-```text
-SilentRunner.exe ^
-  --stderr-emit-sr failure ^
-  --stderr-dir-sr-jsonl "D:\Logs" ^
-  --stderr-dir-sr-keep-log failure ^
-  task.cmd
-```
-
-- SilentRunner diagnostics are not streamed to parent stderr while `task.cmd`
-  is running.
-- SilentRunner diagnostics are written to a persistent JSONL log.
-- The persistent log is used as the replay source instead of the in-memory
-  execution timeline buffer.
-- If execution fails, the diagnostics are replayed from the JSONL log to
-  parent stderr after execution completes.
-- If execution succeeds, no SilentRunner diagnostics are emitted to parent
-  stderr.
-- The JSONL diagnostic log is retained only on failure. The
-  `--stderr-dir-sr-keep-log` policy applies to both TXT and JSONL logs for
-  the SilentRunner diagnostic stream.
-- Child stdout keeps its default streaming behavior to parent stdout.
-
-------------------------------------------------------------------------
-
-### 7. Execution ID, structured diagnostics, and post-execution hooks
-
-Run a data-processing task with a custom execution ID, persist structured
-SilentRunner diagnostics, and process them through chained post-execution
-hooks:
-
-```text
-SilentRunner.exe ^
-  --id-prefix processing ^
-  --id-base data ^
-  --id-suffix timestamp+pid ^
-  --stderr-dir-sr-jsonl "D:\Logs" ^
-  --debug ^
-  --run-on-success "D:\Hooks\filter-execution-data.cmd" ^
-  process-data.cmd "D:\Input" --mode fast
-```
-
-`process-data.cmd`:
-
-```text
-@echo off
-set "SOURCE=%~1"
-set "MODE=%~3"
-
-echo Processing %SOURCE%...
-echo Mode: %MODE%
-```
-
-`filter-execution-data.cmd`:
-
-```text
-@echo off
-
-pathTo\SilentRunner.exe ^
-  --stdout-dir "%TEMP%" ^
-  --stderr-dir "%TEMP%" ^
-  --run-on-success "%~dp0store-execution-data.cmd" ^
-  "%~dp0jq.exe" -c "select(.payloadText | startswith(\"[JOB]\"))" ^
-  "%SILENTRUNNER_STDERR_SR_JSONL_LOG%"
-```
-
-`store-execution-data.cmd`:
-
-```text
-@echo off
-
-set "FILTERED_DATA=%SILENTRUNNER_STDOUT_LOG%"
-
-rem Store the filtered data in SQLite or elsewhere.
-...
-```
-
-- The execution ID is built from the configured prefix, base, and
-  `timestamp+pid` suffix and identifies the original execution and its log files.
-- `process-data.cmd` is the child script; `"D:\Input"` and `--mode fast` are
-  passed to it as child arguments.
-- SilentRunner diagnostics are recorded in a persistent JSONL log.
-- Debug diagnostics are enabled, including child process lifecycle information.
-- `filter-execution-data.cmd` runs after a successful execution.
-- Hooks receive execution metadata through SilentRunner environment variables,
-  including the execution ID, execution result, and retained log file locations.
-- Use `--help` for the complete list of available environment variables.
-- `filter-execution-data.cmd` uses `SILENTRUNNER_STDERR_SR_JSONL_LOG` to access
-  the retained SilentRunner diagnostic JSONL log.
-- [`jq`](https://jqlang.org/) is an external command-line tool for processing
-  JSON data. Here it filters the structured diagnostic log to retain only
-  records whose `payloadText` starts with `[JOB]`. `[JOB]` identifies process
-  lifecycle diagnostics generated from Windows Job Object events.
-- `--stderr-dir "%TEMP%"` provides a persistent diagnostic channel for the
-  nested SilentRunner. Since post-execution hooks do not inherit standard
-  handles, without an available diagnostic channel the nested SilentRunner
-  would terminate before starting `jq` with exit code 254.
-- The nested SilentRunner starts a separate execution with its own execution ID
-  and captures the filtered `jq` output using its TXT stdout log. Since `jq -c`
-  already produces one JSON object per line, this preserves the filtered JSONL
-  data directly.
-- After `jq` completes successfully, the nested SilentRunner runs
-  `store-execution-data.cmd`. Its `SILENTRUNNER_STDOUT_LOG` environment variable
-  provides the path to the filtered data produced by `jq`.
-- `store-execution-data.cmd` can then store the filtered data in SQLite or another destination.
-
-------------------------------------------------------------------------
-
-### 8. Raw command execution
-
-Execute a complete command using raw `cmd.exe` shell syntax:
-
-```text
-SilentRunner.exe -c "echo Starting... & task1.exe | task2.exe"
-```
-
-- The entire quoted string after `-c` is treated as a single raw command.
-- Shell operators such as `&` and `|` are interpreted by `cmd.exe`.
-- Unlike Script/Executable mode, the command is not separated into a script or
-  executable path and individual child arguments.
-- All other settings retain their default behavior described in the first
-  example.
+- [Architecture Overview](docs/architecture.md)
+- [Execution](docs/execution.md)
+- [Parameter Categories](docs/parameters.md)
+- [Tutorial](docs/tutorial.md)
 
 ------------------------------------------------------------------------
 
@@ -845,5 +326,3 @@ security notes are welcome.
 ## License
 
 Released under the MIT License --- see `LICENSE` for details.
-
-------------------------------------------------------------------------

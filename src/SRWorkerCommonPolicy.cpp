@@ -1,5 +1,5 @@
 #include "SRWorkerCommonPolicy.h"
-#include "SRConfigsBuilderTypes.h"
+#include "FileHelpers.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -56,11 +56,30 @@ bool SRWorkerCommonPolicy::Init(
 ) noexcept {
     needsParsingToken_ = false;
     parsingToken_.clear();
+    executionId_.clear();
+    generatedSuffix_.clear();
 
-    stdoutPresentation_ =
-        config.stdoutPresentation;
-    stderrChildPresentation_ =
-        config.stderrChildPresentation;
+    try {
+        idPrefix_ = config.idPrefix;
+        idBase_ = config.idBase;
+        const bool anyIdPart =
+            !idPrefix_.empty() || !idBase_.empty() ||
+            config.idSuffix != SR::IdSuffixMode::None;
+        useDefaultSuffixMode_ = !anyIdPart;
+        effectiveIdSuffixMode_ = useDefaultSuffixMode_
+            ? SR::IdSuffixMode::TimestampPid : config.idSuffix;
+        generatedSuffix_ = FileHelpers::BuildIdSuffix(effectiveIdSuffixMode_);
+        executionId_ = FileHelpers::BuildExecutionId(
+            idPrefix_, idBase_, generatedSuffix_
+        );
+    } catch (...) {
+        return false;
+    }
+
+    stdoutTxtHeaderGranularity_ =
+        config.stdoutTxtHeaderGranularity;
+    stderrChildTxtHeaderGranularity_ =
+        config.stderrChildTxtHeaderGranularity;
 
     if (!config.needsParsingToken) {
         return true;
@@ -74,6 +93,15 @@ bool SRWorkerCommonPolicy::Init(
     return true;
 }
 
+
+
+const std::wstring& SRWorkerCommonPolicy::ExecutionId() const noexcept { return executionId_; }
+const std::wstring& SRWorkerCommonPolicy::IdPrefix() const noexcept { return idPrefix_; }
+const std::wstring& SRWorkerCommonPolicy::IdBase() const noexcept { return idBase_; }
+const std::wstring& SRWorkerCommonPolicy::GeneratedSuffix() const noexcept { return generatedSuffix_; }
+SR::IdSuffixMode SRWorkerCommonPolicy::EffectiveIdSuffixMode() const noexcept { return effectiveIdSuffixMode_; }
+bool SRWorkerCommonPolicy::UseDefaultSuffixMode() const noexcept { return useDefaultSuffixMode_; }
+
 bool SRWorkerCommonPolicy::NeedsParsingToken() const noexcept {
     return needsParsingToken_;
 }
@@ -82,12 +110,13 @@ const std::string&
 SRWorkerCommonPolicy::ParsingToken() const noexcept {
     return parsingToken_;
 }
-SR::ChildOutputPresentation
-SRWorkerCommonPolicy::StdoutPresentation() const noexcept {
-    return stdoutPresentation_;
+SR::ChildTxtHeaderGranularity
+SRWorkerCommonPolicy::StdoutTxtHeaderGranularity() const noexcept {
+    return stdoutTxtHeaderGranularity_;
 }
 
-SR::ChildOutputPresentation
-SRWorkerCommonPolicy::StderrChildPresentation() const noexcept {
-    return stderrChildPresentation_;
+SR::ChildTxtHeaderGranularity
+SRWorkerCommonPolicy::StderrChildTxtHeaderGranularity() const noexcept {
+    return stderrChildTxtHeaderGranularity_;
+
 }

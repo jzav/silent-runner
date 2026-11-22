@@ -10,14 +10,7 @@ against an existing SilentRunner.exe.
 
 Current registered test count: 288
 
-
-
-
-
-
-
-
-
+Last reported full CTest run (2026-11-07): 288 passed, 0 failed.
 
 
 
@@ -63,6 +56,20 @@ with add_test(). Each CTest case starts CMake in script mode (-P) for one .cmake
 test file. The test script creates an isolated sandbox, uses or creates its
 fixtures, runs SilentRunner.exe with execute_process(), and asserts
 exit code/output/files.
+
+
+Runtime supervision checks
+--------------------------
+The timeout.completes-before-timeout test verifies that normal completion waits
+for a descendant even after the main child exits. It also confirms that enabling
+--abort-on-runtime-failure does not alter a successful execution.
+
+The timeout.exit-124 test verifies that a timeout after the main child exits
+returns 124, emits the timeout diagnostic, and terminates the remaining
+descendant. A delayed marker check detects a descendant that survives.
+
+Both scenarios use CMake-generated .cmd fixtures. The help regression test also
+checks that --abort-on-runtime-failure appears in the public CLI reference.
 
 
 Configure and run
@@ -139,5 +146,5 @@ Notes
 - TXT log files use the current SilentRunner .log naming convention.
 - JSONL tests use CMake's string(JSON) support when exact schema fields, metadata, or decoded payload values need validation.
 - The suite intentionally does not require PowerShell or a custom test-runner EXE.
-- The advanced scenarios like the ones listed as DEFERRED in TEST-PLAN.txt are intentionally
-  excluded for now
+- Monitoring fault injection and blocked-reader CancelIoEx scenarios remain deferred;
+  see TEST-PLAN.txt for the rationale and other deferred cases.

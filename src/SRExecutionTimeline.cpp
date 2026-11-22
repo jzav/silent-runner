@@ -3,7 +3,8 @@
 #include "FileHelpers.h"
 #include "TextHelpers.h"
 #include "SRLifecycleDiagnostics.h"
-#include "SRConfigsBuilderTypes.h"
+#include "SRParentEmitPolicy.h"
+#include "SRParentReplayTypes.h"
 
 #include "SRReplayJobsBatch.h"
 
@@ -15,10 +16,10 @@
 #include <type_traits>
 
 
-bool ExecutionTimeline::Init(const SR::ExecutionTimelineConfig& config) {
+bool ExecutionTimeline::Init(bool verbose) {
 
     std::lock_guard<std::mutex> lock(mutex_);
-    verboseEnabled_.store(config.verbose, std::memory_order_relaxed);
+    verboseEnabled_.store(verbose, std::memory_order_relaxed);
 
 
     prepareTimeline_.Reset(
@@ -207,6 +208,61 @@ bool ExecutionTimeline::EndPhase(PhaseContext context) {
     phaseTimeline.End();
 
     return true;
+}
+
+bool ExecutionTimeline::SetPhaseExitCode(
+    PhaseContext context,
+    int exitCode
+) {
+    if (!context.phaseTimeline_) return false;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    PhaseTimeline& phaseTimeline = *context.phaseTimeline_;
+    if (phaseTimeline.phaseStartUtc.empty() ||
+        phaseTimeline.phaseExitCode.has_value()) {
+        return false;
+    }
+
+    phaseTimeline.phaseExitCode = exitCode;
+    return true;
+}
+
+bool ExecutionTimeline::SetRuntimeChildExitCode(DWORD exitCode) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (runtimeTimeline_.phaseStartUtc.empty() ||
+        runtimeTimeline_.childExitCode.has_value()) {
+        return false;
+    }
+    runtimeTimeline_.childExitCode = exitCode;
+    return true;
+}
+
+std::optional<int> ExecutionTimeline::GetPhaseExitCode(
+    PhaseContext context
+) const {
+    if (!context.phaseTimeline_) return std::nullopt;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    return context.phaseTimeline_->phaseExitCode;
+}
+
+std::wstring ExecutionTimeline::GetPhaseStartUtc(
+    PhaseContext context
+) const {
+    if (!context.phaseTimeline_) return {};
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    return context.phaseTimeline_->phaseStartUtc;
+}
+
+std::wstring ExecutionTimeline::GetPhaseEndUtc(
+    PhaseContext context
+) const {
+    if (!context.phaseTimeline_) return {};
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    return context.phaseTimeline_->phaseEndUtc;
 }
 
 void ExecutionTimeline::EndCurrentPhase() {
@@ -902,20 +958,6 @@ void ExecutionTimeline::PruneCompletedLocked_(
         return;
     }
 
-    if (parentEmitPolicy_->NeedsStdoutReplayBuffer()) {
-        for (const SR::CompletedResultsGroup& group : completedResultsGroups) {
-            recordSkipped(group, SR::PruneSkippedReason::StdoutReplayBufferNeeded);
-        }
-        return;
-    }
-
-    if (parentEmitPolicy_->NeedsStderrReplayBuffer()) {
-        for (const SR::CompletedResultsGroup& group : completedResultsGroups) {
-            recordSkipped(group, SR::PruneSkippedReason::StderrReplayBufferNeeded);
-        }
-        return;
-    }
-
     std::vector<std::size_t> preparePruneIndexes;
     std::vector<std::size_t> runtimePruneIndexes;
 
@@ -1121,26 +1163,6 @@ void ExecutionTimeline::PruneUnobtainableLocked_(
         return;
     }
 
-    if (parentEmitPolicy_->NeedsStdoutReplayBuffer()) {
-        for (const PruneCandidate& candidate : candidates) {
-            recordSkipped(
-                candidate,
-                SR::PruneSkippedReason::StdoutReplayBufferNeeded
-            );
-        }
-        return;
-    }
-
-    if (parentEmitPolicy_->NeedsStderrReplayBuffer()) {
-        for (const PruneCandidate& candidate : candidates) {
-            recordSkipped(
-                candidate,
-                SR::PruneSkippedReason::StderrReplayBufferNeeded
-            );
-        }
-        return;
-    }
-
     std::vector<std::size_t> preparePruneIndexes;
     std::vector<std::size_t> runtimePruneIndexes;
 
@@ -1273,12 +1295,14 @@ bool ExecutionTimeline::ReplayToParent(
     if (parameters.stdoutParentReplayParameters.source ==
         SR::ParentReplaySource::Timeline) {
         if (parameters.stdoutParentReplayParameters.target !=
-            SR::JobTarget::StdoutParent) {
+                SR::JobTarget::StdoutParent &&
+            parameters.stdoutParentReplayParameters.target !=
+                SR::JobTarget::StdoutParentRaw) {
             return false;
         }
-        SR::GetAllDelayedFilter filter;
-        filter.stdoutParent = true;
-
+        SR::GetAllDelayedFilter filter{
+            parameters.stdoutParentReplayParameters.target
+        };
         succeeded =
             ReplayDelayedToParent_(
                 filter,
@@ -1289,29 +1313,21 @@ bool ExecutionTimeline::ReplayToParent(
 
     if (parameters.stderrParentReplayParameters.source ==
         SR::ParentReplaySource::Timeline) {
-        SR::GetAllDelayedFilter filter;
+        const SR::JobTarget target =
+            parameters.stderrParentReplayParameters.target;
 
-        switch (parameters.stderrParentReplayParameters.target) {
+        switch (target) {
             case SR::JobTarget::StderrSrAndChildParent:
-                filter.stderrSrAndChildParent = true;
-                break;
-
             case SR::JobTarget::StderrChildParent:
-                filter.stderrChildParent = true;
-                break;
-
+            case SR::JobTarget::StderrChildParentRaw:
             case SR::JobTarget::StderrSrParent:
-                filter.stderrSrParent = true;
-                break;
             case SR::JobTarget::StderrSrAndChildInclStdoutParent:
-                filter.stderrSrAndChildInclStdoutParent = true;
                 break;
-
-
             default:
                 return false;
         }
 
+        SR::GetAllDelayedFilter filter{target};
         succeeded =
             ReplayDelayedToParent_(
                 filter,

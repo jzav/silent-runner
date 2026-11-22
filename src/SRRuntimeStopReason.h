@@ -1,7 +1,7 @@
 // ============================================================================
 // SRRuntimeStopReason.h
 // ----------------------------------------------------------------------------
-// Internal termination reason model for SRRuntime.
+// Internal completion and abort reason model for SRRuntime.
 //
 // Scope:
 //   - INTERNAL USE ONLY (SRRuntime layer)
@@ -23,10 +23,11 @@ namespace SRRuntimeStopReason {
 enum class StopReason {
     None = 0,
     NormalExit,
-    WaitFailed,
+    RuntimeSetupFailed,
     ResumeThreadFailed,
     Timeout,
     BufferLimit,
+    RuntimeFailure,
     UnhandledException
 };
 
@@ -34,10 +35,8 @@ enum class StopReason {
 // Mapping helpers
 // ----------------------------------------------------------------------------
 
-const wchar_t* ToReaderJoinDiagnosticLabel(StopReason reason) noexcept;
-DWORD ToChildTerminateExitCode(StopReason reason) noexcept;
+const wchar_t* ToDiagnosticLabel(StopReason reason) noexcept;
+DWORD ToChildAbortExitCode(StopReason reason) noexcept;
 int ToSRExitCode(StopReason reason) noexcept;
-bool ShouldTreatAsSRFailure(StopReason reason, int exitCode) noexcept;
-StopReason FromWaitResult(DWORD waitResult) noexcept;
 
 } // namespace SRRuntimeStopReason

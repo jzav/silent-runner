@@ -9,6 +9,7 @@
 
 #include "LogReader.h"
 #include "SRReplayJobsBatch.h"
+#include "SRParentReplayTypes.h"
 #include "SRJobsExchange.h"
 #include "SRLifecycleDiagnostics.h"
 #include "SRPendingJobTypes.h"

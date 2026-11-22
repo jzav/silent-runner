@@ -3,3 +3,45 @@ sr_test_init(DESCRIPTION "Emits child stdout in success mode when the child succ
 sr_run(r ARGS --stdout-emit success "${SR_STDOUT_CMD}")
 sr_assert_exit(r 0)
 sr_assert_stdout_contains(r "${SR_TEST_CHILD_STDOUT_MARKER}")
+# Verify both Raw stdout conditional modes against child success and failure.
+# Run each combination with timeline replay and a persistent Raw TXT source.
+set(raw_stdout_expected "${SR_TEST_ROOT}/raw-stdout-expected.bin")
+sr_write_crlf_terminated_fixture("${raw_stdout_expected}" "${SR_TEST_CHILD_STDOUT_MARKER}")
+foreach(raw_source IN ITEMS timeline txt)
+    foreach(raw_condition IN ITEMS success failure)
+        foreach(raw_outcome IN ITEMS success failure)
+            set(raw_execution_id "raw-stdout-${raw_source}-${raw_condition}-${raw_outcome}")
+            set(raw_output "${SR_TEST_ROOT}/${raw_execution_id}.bin")
+            set(raw_dir "${SR_TEST_ROOT}/${raw_execution_id}-logs")
+            set(raw_log_options)
+            if(raw_source STREQUAL "txt")
+                list(APPEND raw_log_options --stdout-dir-raw "${raw_dir}")
+            endif()
+            if(raw_outcome STREQUAL "success")
+                set(raw_cmd "${SR_STDOUT_CMD}")
+                set(raw_exit 0)
+            else()
+                set(raw_cmd "${SR_FAIL}")
+                set(raw_exit "${SR_TEST_FAIL_CMD_EXIT_CODE}")
+            endif()
+            sr_run(raw OUTPUT_FILE "${raw_output}" ARGS
+                --id-base "${raw_execution_id}"
+                --stdout-emit-raw "${raw_condition}"
+                ${raw_log_options}
+                --stderr-emit-sr stream
+                "${raw_cmd}"
+            )
+            sr_assert_exit(raw "${raw_exit}")
+            if(raw_condition STREQUAL raw_outcome)
+                sr_assert_files_equal_bytes("${raw_output}" "${raw_stdout_expected}")
+            else()
+                sr_assert_file_hex("${raw_output}" "")
+            endif()
+            if(raw_source STREQUAL "txt")
+                set(raw_log "${raw_dir}/${raw_execution_id}_stdout_raw_${raw_outcome}.log")
+                sr_assert_files_equal_bytes("${raw_log}" "${raw_stdout_expected}")
+                sr_assert_directory_file_count("${raw_dir}" 1)
+            endif()
+        endforeach()
+    endforeach()
+endforeach()

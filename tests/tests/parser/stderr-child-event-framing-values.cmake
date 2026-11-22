@@ -12,13 +12,13 @@ function(assert_stderr_child_framing expected_framing expected_max_bytes)
     sr_assert_exit(r 0)
     sr_assert_stderr_contains(
         r
-        "STDERR_CHILD_EVENT_FRAMING=${expected_framing} STDERR_CHILD_EVENT_NEWLINE_MAX_BYTES=${expected_max_bytes}"
+        "STDERR_CHILD_EVENT_FRAMING=${expected_framing} NEWLINE_MAX_BYTES=${expected_max_bytes}"
     )
 
     # The stderr-child option must not accidentally populate stdout framing.
     sr_assert_stderr_contains(
         r
-        "STDOUT_EVENT_FRAMING=chunk STDOUT_EVENT_NEWLINE_MAX_BYTES=0"
+        "STDOUT_EVENT_FRAMING=chunk NEWLINE_MAX_BYTES=0"
     )
 endfunction()
 

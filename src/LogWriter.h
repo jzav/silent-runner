@@ -7,13 +7,11 @@
 #include <string>
 
 #include "CoreHelpers.h"
-#include "SRTypes.h"
 
 namespace LogWriter {
 
-// A thin wrapper around file output used for writing logs and routed streams.
-// We keep it in FileHelpers earlier only if we truly need it elsewhere;
-// here it's explicitly "log file" for std-dir.
+ // Byte-oriented writer for per-execution persistent log files.
+ // Presentation (Raw, Headered, or JSON record) is handled by the file sink worker.
 class FileWriter {
 public:
     FileWriter() = default;
@@ -27,14 +25,13 @@ public:
     bool WriteRaw(const char* p, size_t n, DWORD* outGle);
     bool WriteLine(const char* p, size_t n, DWORD* outGle);
     bool Flush(DWORD* outGle);
-    void Close();
+    bool Close(DWORD* outGle);
 
 private:
     CoreHelpers::UniqueHandle h_;
     std::wstring path_;
 };
 
-bool ShouldKeepLogFile(SR::KeepLogMode mode, bool isSuccess);
 
 bool TryDeleteLogFile(
     const std::wstring& path,

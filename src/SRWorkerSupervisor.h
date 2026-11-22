@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "SRPendingJobTypes.h"
+#include "SRWorkerTypes.h"
 
 namespace SR {
 
@@ -17,10 +17,13 @@ struct WorkerFailureRecord {
 using WorkerFailureRecords = std::vector<WorkerFailureRecord>;
 
 //
-// Tracks permanent worker availability.
+ // Tracks permanent worker availability and worker-specific operational failures.
 //
 // Once a worker becomes unavailable, new jobs are no longer
 // scheduled to that worker.
+ //
+ // Operational failures are recorded independently of worker availability.
+ // They do not prevent the worker from receiving new jobs.
 //
 // The goal is not to recover in-flight jobs, but to prevent
 // future TimelineEntry retention and unbounded Timeline buffer
@@ -38,6 +41,15 @@ public:
         JobTargetWorker worker,
         const std::wstring& failureText
     );
+    void ReportFileSinkWorkerFailure(
+        const FileSinkWorkerFailureState& failure
+    );
+    void ReportParentEmitWorkerFailure(
+        const ParentEmitWorkerFailureState& failure
+    );
+    WorkerOperationalFailureState RetrieveWorkerOperationalFailure(
+        JobTargetWorker worker
+    ) const;
 
     bool IsWorkerAvailable(JobTargetWorker worker) const;
     bool IsAnyWorkerAvailable() const;
@@ -51,6 +63,7 @@ private:
         bool available = false;
         bool failed = false;
         std::wstring failureText;
+        WorkerOperationalFailureState operationalFailure;
     };
     WorkerState& WorkerStateOf_(JobTargetWorker worker);
     const WorkerState& WorkerStateOf_(JobTargetWorker worker) const;

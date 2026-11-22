@@ -9,6 +9,7 @@
 #include <windows.h>
 
 #include "ParentStdEmitter.h"
+#include "SRParentEmitPolicy.h"
 #include "SRJobDiagnostics.h"
 #include "SRPhaseTimelineEntry.h"
 #include "SRPhaseTimelineEntryFormatter.h"
@@ -47,21 +48,19 @@ bool SRParentEmitWorker::Init(
     {
         std::scoped_lock lock(domainMutex_, failureLatchMutex_);
         domain_ = WorkerDomain{};
-        domain_.targetLayout = targetLayout;
         domain_.config.parsingToken =
             workerCommonPolicy.ParsingToken();
-        domain_.config.stdoutPresentation =
-            workerCommonPolicy.StdoutPresentation();
-        domain_.config.stderrChildPresentation =
-            workerCommonPolicy.StderrChildPresentation();
+        domain_.config.executionId = workerCommonPolicy.ExecutionId();
+        domain_.config.stdoutTxtHeaderGranularity =
+            workerCommonPolicy.StdoutTxtHeaderGranularity();
+        domain_.config.stderrChildTxtHeaderGranularity =
+            workerCommonPolicy.StderrChildTxtHeaderGranularity();
 
         for (std::size_t workerConfigIndex = 0;
              workerConfigIndex < domain_.targetConfigs.size();
              ++workerConfigIndex) {
-            const SR::JobTargetWorkerLayoutEntry& targetLayoutEntry =
-                domain_.targetLayout.targets[
-                    workerConfigIndex
-                ];
+            const SR::WorkerTargetLayoutEntry& targetLayoutEntry =
+                targetLayout.targets[workerConfigIndex];
 
             ParentTargetConfig& targetConfig =
                 domain_.targetConfigs[
@@ -72,8 +71,8 @@ bool SRParentEmitWorker::Init(
                 targetLayoutEntry.target;
             targetConfig.stream =
                 targetLayoutEntry.stream;
-            targetConfig.headerParsingTokenEnabled =
-                targetLayoutEntry.headerParsingTokenEnabled;
+            targetConfig.headerEnabled =
+                targetLayoutEntry.headerEnabled;
             targetConfig.enabled = true;
         }
     }
@@ -448,23 +447,20 @@ SRParentEmitWorker::RetrieveWriteConfig_(
     std::lock_guard<std::mutex> lock(domainMutex_);
     WriteConfigSnapshot snapshot;
 
-    const std::size_t workerConfigIndex =
-        domain_.targetLayout.ConfigIndexOf(target);
-
-    if (workerConfigIndex !=
-            SR::kInvalidJobTargetWorkerConfigIndex &&
-        workerConfigIndex < domain_.targetConfigs.size()) {
-        snapshot.targetConfig = domain_.targetConfigs[
-            workerConfigIndex
-        ];
+    for (const auto& candidate : domain_.targetConfigs) {
+        if (candidate.target == target) {
+            snapshot.targetConfig = candidate;
+            break;
+        }
     }
-    if (snapshot.targetConfig.headerParsingTokenEnabled) {
+    if (snapshot.targetConfig.headerEnabled) {
         snapshot.parsingToken = domain_.config.parsingToken;
     }
-    snapshot.stdoutPresentation =
-        domain_.config.stdoutPresentation;
-    snapshot.stderrChildPresentation =
-        domain_.config.stderrChildPresentation;
+    snapshot.executionId = domain_.config.executionId;
+    snapshot.stdoutTxtHeaderGranularity =
+        domain_.config.stdoutTxtHeaderGranularity;
+    snapshot.stderrChildTxtHeaderGranularity =
+        domain_.config.stderrChildTxtHeaderGranularity;
 
     return snapshot;
 }
@@ -500,7 +496,7 @@ bool SRParentEmitWorker::IsParentTargetSuppressed_(
 
         return false;
     }
-    const ParentEmitFailureLatch& latch =
+        const SR::ParentEmitWorkerFailureState::StreamFailure& latch =
         FailureLatchForStream_(targetConfig.stream);
 
     if (!latch.suppressed) {
@@ -540,7 +536,7 @@ void SRParentEmitWorker::SuppressParentTargetAfterWriteFailure_(
         return;
     }
 
-    ParentEmitFailureLatch& latch =
+    SR::ParentEmitWorkerFailureState::StreamFailure& latch =
         FailureLatchForStream_(targetConfig.stream);
 
 
@@ -551,29 +547,34 @@ void SRParentEmitWorker::SuppressParentTargetAfterWriteFailure_(
     latch.suppressed = true;
     latch.gle = gle;
     latch.reason = reason;
+    if (workerSupervisor_) {
+        workerSupervisor_->ReportParentEmitWorkerFailure(
+            domain_.config.failure
+        );
+    }
 }
 
 
-SRParentEmitWorker::ParentEmitFailureLatch&
+SR::ParentEmitWorkerFailureState::StreamFailure&
 SRParentEmitWorker::FailureLatchForStream_(
     ParentStreamType streamType
 ) noexcept {
     if (streamType == ParentStreamType::Stdout) {
-        return domain_.config.workerStdoutFailure;
+        return domain_.config.failure.workerStdoutFailure;
     }
 
-    return domain_.config.workerStderrFailure;
+    return domain_.config.failure.workerStderrFailure;
 }
 
-const SRParentEmitWorker::ParentEmitFailureLatch&
+const SR::ParentEmitWorkerFailureState::StreamFailure&
 SRParentEmitWorker::FailureLatchForStream_(
     ParentStreamType streamType
 ) const noexcept {
     if (streamType == ParentStreamType::Stdout) {
-        return domain_.config.workerStdoutFailure;
+        return domain_.config.failure.workerStdoutFailure;
     }
 
-    return domain_.config.workerStderrFailure;
+    return domain_.config.failure.workerStderrFailure;
 }
 
 bool SRParentEmitWorker::TryEmitParentTarget_(
@@ -629,7 +630,7 @@ bool SRParentEmitWorker::TryEmitParentTarget_(
         return false;
     }
 
-    if (targetConfig.headerParsingTokenEnabled) {
+    if (targetConfig.headerEnabled) {
         std::optional<SR::JobPayloadType>* lastWrittenPayloadType = nullptr;
         bool* atLineStart = nullptr;
     
@@ -696,8 +697,8 @@ bool SRParentEmitWorker::TryEmitParentTarget_(
 // Builds the complete byte sequence for one parent-target emission.
 //
     // For parseable parent output, this method applies the same
-    // segment framing contract as the file-sink TXT path:
-    // - decides whether a segment header is required,
+    // block framing contract as the file-sink TXT path:
+    // - decides whether a block header is required,
     // - obtains the header text from SRPhaseTimelineEntryFormatter,
     // - inserts a separating LF when the previous child payload did not end at a
     //   line boundary,
@@ -721,7 +722,7 @@ bool SRParentEmitWorker::BuildPayloadBytes_(
     const ParentTargetConfig& targetConfig = writeConfig.targetConfig;
 
 
-    if (targetConfig.headerParsingTokenEnabled) {
+    if (targetConfig.headerEnabled) {
 
         const std::string& parsingToken = writeConfig.parsingToken;
         bool headerRequired = false;
@@ -761,7 +762,7 @@ bool SRParentEmitWorker::BuildPayloadBytes_(
                 break;
         }
     
-        const bool startsNewSegment =
+        const bool startsNewBlock =
             lastWrittenPayloadType &&
             (
                 !lastWrittenPayloadType->has_value() ||
@@ -770,23 +771,24 @@ bool SRParentEmitWorker::BuildPayloadBytes_(
 
         std::string header;
 
-        // Determine whether this payload starts a new TXT segment and build the
-        // corresponding segment header when required.
+        // Determine whether this payload starts a new TXT block and build the
+        // corresponding block header when required.
         switch (job.payloadType) {
             case SR::JobPayloadType::SrDiag:
                 headerRequired = true;
                 header =
                     SR::SRPhaseTimelineEntryFormatter::FormatSrDiagTxtHeader(
                         job.srDiag,
-                        parsingToken
+                        parsingToken,
+                        writeConfig.executionId
                     );
                 break;
 
             case SR::JobPayloadType::ChildStderr:
                 headerRequired =
-                    writeConfig.stderrChildPresentation ==
-                        SR::ChildOutputPresentation::Event ||
-                    startsNewSegment;
+                    writeConfig.stderrChildTxtHeaderGranularity ==
+                        SR::ChildTxtHeaderGranularity::Event ||
+                    startsNewBlock;
 
 
 
@@ -794,22 +796,25 @@ bool SRParentEmitWorker::BuildPayloadBytes_(
                     header =
                         SR::SRPhaseTimelineEntryFormatter::FormatChildStderrTxtHeader(
                             job.childStderr,
-                            parsingToken
+                            parsingToken,
+                            writeConfig.executionId
                         );
                 }
                 break;
 
             case SR::JobPayloadType::ChildStdout:
                 headerRequired =
-                    writeConfig.stdoutPresentation ==
-                        SR::ChildOutputPresentation::Event ||
-                    startsNewSegment;
+                    writeConfig.stdoutTxtHeaderGranularity ==
+
+                        SR::ChildTxtHeaderGranularity::Event ||
+                    startsNewBlock;
     
                 if (headerRequired) {
                     header =
                         SR::SRPhaseTimelineEntryFormatter::FormatChildStdoutTxtHeader(
                             job.childStdout,
-                            parsingToken
+                            parsingToken,
+                            writeConfig.executionId
                         );
                 }
                 break;
@@ -867,7 +872,8 @@ bool SRParentEmitWorker::BuildPayloadBytes_(
 
         return false;
     } else {
-        // Build the raw byte representation for parent targets without TXT segment
+        // Build the raw byte representation for parent targets without TXT block
+
         // framing.
         switch (job.payloadType) {
 

@@ -1,5 +1,5 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init(DESCRIPTION "Keeps SR diagnostics out of a child-only parent stderr view while an SR-only persistent log provides the diagnostic channel.")
+sr_test_init(DESCRIPTION "Keeps SR diagnostics out of a child-only parent stderr view while recording them in an SR-only persistent log.")
 
 set(log_dir "${SR_TEST_ROOT}/logs")
 set(execution_id "ctest-cross-no-parent-diagnostics-with-sr-log")

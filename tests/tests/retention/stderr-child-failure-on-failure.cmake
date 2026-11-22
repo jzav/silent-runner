@@ -1,9 +1,20 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
-sr_test_init(DESCRIPTION "Keeps the child stderr log on failure under failure-only retention.")
+sr_test_init(DESCRIPTION "Keeps all three child stderr log presentations on failure under failure-only retention.")
 set(log_dir "${SR_TEST_ROOT}/logs")
 set(execution_id "ctest-ret-stderr-child-failure-failure")
 set(expected_log "${log_dir}/${execution_id}_stderr_child_failure.log")
-sr_run(r ARGS --id-base "${execution_id}" --stderr-dir-child "${log_dir}" --stderr-dir-child-keep-log failure "${SR_FAIL}")
+set(expected_jsonl_log "${log_dir}/${execution_id}_stderr_child_failure.jsonl")
+set(expected_raw_log "${log_dir}/${execution_id}_stderr_child_raw_failure.log")
+sr_run(r ARGS
+    --id-base "${execution_id}"
+    --stderr-dir-child "${log_dir}"
+    --stderr-dir-child-jsonl "${log_dir}"
+    --stderr-dir-child-raw "${log_dir}"
+    --stderr-dir-child-keep-log failure
+    "${SR_FAIL}"
+)
 sr_assert_exit(r "${SR_TEST_FAIL_CMD_EXIT_CODE}")
 sr_assert_path_exists("${expected_log}")
-sr_assert_directory_file_count("${log_dir}" 1)
+sr_assert_path_exists("${expected_jsonl_log}")
+sr_assert_path_exists("${expected_raw_log}")
+sr_assert_directory_file_count("${log_dir}" 3)

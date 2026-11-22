@@ -17,17 +17,22 @@
 #include "SRTypes.h"
 #include "SRConfigsBuilder.h"
 #include "SRRuntime.h"
+#include "SRExecutionTimeline.h"
 #include "HelpGenerator.h"
 #include "FileHelpers.h"
 #include "ErrorHelpers.h"
 #include "ParentStdEmitter.h"
+#include "HandleHelpers.h"
 #include "SRPrepareRuntime.h"
+#include "SRTargetLogFiles.h"
 #include "SRLifecycleDiagnostics.h"
 #include "SRLifecycleFinalizeExecution.h"
 #include "SRParentEmitPolicy.h"
 #include "SRWorkerCommonPolicy.h"
-#include "SRWorkerTypes.h"
+#include "SRWorkers.h"
 #include "SRBufferLimiter.h"
+#include "SRRuntimeCoordinator.h"
+#include "SRTimeLimiter.h"
 
 
 // Linker hint (MSVC-style). With MinGW, you typically pass subsystem via linker flags,
@@ -50,9 +55,85 @@ using LocalFreeArgsPtr =
 
 [[noreturn]] void SilentRunnerTerminateHandler() noexcept;
 
+// Check standard handles using the existing write probe.
+bool IsUsableStdHandle(HANDLE handle) noexcept {
+    const auto probe = HandleHelpers::ProbeStdHandleForWrite(handle);
+
+    return !probe.isNull &&
+           !probe.isInvalid &&
+           (probe.fileType != FILE_TYPE_UNKNOWN ||
+            probe.fileTypeGle == ERROR_SUCCESS);
+}
+
+// Attach only to an existing parent console. Never allocate a new console.
+// Preserve inherited redirections and initialize missing output handles.
+void AttachParentConsoleIfNeeded() noexcept {
+    const HANDLE originalStdin = GetStdHandle(STD_INPUT_HANDLE);
+    const HANDLE originalStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+    const HANDLE originalStderr = GetStdHandle(STD_ERROR_HANDLE);
+
+    const bool stdinValid = IsUsableStdHandle(originalStdin);
+    const bool stdoutValid = IsUsableStdHandle(originalStdout);
+    const bool stderrValid = IsUsableStdHandle(originalStderr);
+
+    if (stdoutValid && stderrValid) {
+        return;
+    }
+
+    if (!AttachConsole(ATTACH_PARENT_PROCESS)) {
+        return;
+    }
+
+    // Restore inherited handles in case console attachment replaced them.
+    if (stdinValid) {
+        SetStdHandle(STD_INPUT_HANDLE, originalStdin);
+    }
+    if (stdoutValid) {
+        SetStdHandle(STD_OUTPUT_HANDLE, originalStdout);
+    }
+    if (stderrValid) {
+        SetStdHandle(STD_ERROR_HANDLE, originalStderr);
+    }
+
+    // AttachConsole may initialize standard handles automatically.
+    // Open the existing console only for outputs that remain unavailable.
+    const bool stdoutMissing =
+        !IsUsableStdHandle(GetStdHandle(STD_OUTPUT_HANDLE));
+    const bool stderrMissing =
+        !IsUsableStdHandle(GetStdHandle(STD_ERROR_HANDLE));
+
+    if (stdoutMissing || stderrMissing) {
+        HANDLE consoleOutput = CreateFileW(
+            L"CONOUT$",
+            GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            nullptr,
+            OPEN_EXISTING,
+            0,
+            nullptr
+        );
+
+        if (consoleOutput != INVALID_HANDLE_VALUE) {
+            bool assigned = false;
+
+            if (stdoutMissing) {
+                assigned |= SetStdHandle(STD_OUTPUT_HANDLE, consoleOutput) != 0;
+            }
+            if (stderrMissing) {
+                assigned |= SetStdHandle(STD_ERROR_HANDLE, consoleOutput) != 0;
+            }
+
+            // Keep the handle open while referenced by a standard stream.
+            if (!assigned) {
+                CloseHandle(consoleOutput);
+            }
+        }
+    }
+}
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
+    AttachParentConsoleIfNeeded();
     std::set_terminate(&SilentRunnerTerminateHandler);
 
     int argsCount = 0;
@@ -66,7 +147,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     if (!argsVector) {
         const DWORD gle = GetLastError();
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
+            FileHelpers::MakeEventUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
             SR::LifecyclePhase::Prepare,
             L"CommandLineToArgvW failed; " + ErrorHelpers::FormatGle(gle)
@@ -75,9 +156,17 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     }
 
     SR::SRConfigsBuilder configsBuilder;
-    if (!configsBuilder.Build(argsCount, argsVector.get())) {
+    configsBuilder.Init(
+        SR::kFileSinkWorkerTargetLayout,
+        SR::kParentEmitWorkerTargetLayout
+    );
+
+    if (!configsBuilder.Build(
+            argsCount,
+            argsVector.get()
+        )) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
+            FileHelpers::MakeEventUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
             SR::LifecyclePhase::Prepare,
             configsBuilder.err
@@ -93,12 +182,27 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 0;
     }
     
+    // Initialize common execution identity before timeline events are created.
+    SRWorkerCommonPolicy workerCommonPolicy;
+    if (!workerCommonPolicy.Init(configs.workerCommonPolicy)) {
+        SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
+            FileHelpers::MakeEventUtcTimestamp(),
+            SR::DiagnosticSeverity::Fatal,
+            SR::LifecyclePhase::Prepare,
+            L"Failed to initialize worker common policy"
+        );
+        return 255;
+    }
+    configs.finalizeExecution.executionId = workerCommonPolicy.ExecutionId();
+
     auto executionTimeline = std::make_shared<ExecutionTimeline>();
     
-    if (!executionTimeline->Init(configsBuilder.configs.executionTimeline)) {
+    if (!executionTimeline->Init(
+            configsBuilder.configs.executionTimeline.verbose
+        )) {
 
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
+            FileHelpers::MakeEventUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
             SR::LifecyclePhase::Prepare,
             L"Failed to initialize execution timeline"
@@ -108,7 +212,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     
     if (!executionTimeline->StartPhase(executionTimeline->PrepareContext())) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
+            FileHelpers::MakeEventUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
             SR::LifecyclePhase::Prepare,
             L"Failed to start prepare phase"
@@ -116,29 +220,46 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 255;
     }
 
+
+    SRTargetLogFiles targetLogFiles;
+    targetLogFiles.Init(
+        SR::kFileSinkWorkerTargetLayout,
+        configsBuilder.configs.targetLogFiles
+    );
+    
     SRParentEmitPolicy parentEmitPolicy;
-    if (!parentEmitPolicy.Init(configsBuilder.configs.parentEmitPolicy)) {
+    if (!parentEmitPolicy.Init(
+            configsBuilder.configs.parentEmitPolicy,
+            targetLogFiles.BuildReplaySourceAvailability(),
+            SR::kParentReplaySourceLayout
+        )) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
+            FileHelpers::MakeEventUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
             SR::LifecyclePhase::Prepare,
             L"Failed to initialize parent emit policy"
         );
         return 255;
     }
-    SRBufferLimiter bufferLimiter;
+    SRRuntimeCoordinator runtimeCoordinator;
+    runtimeCoordinator.Init(configs.runtimeCoordinator.abortOnRuntimeFailure);
+    SRTimeLimiter timeLimiter;
+    timeLimiter.Init(runtimeCoordinator, configsBuilder.configs.timeLimiter);
+
+    SRBufferLimiter bufferLimiter(runtimeCoordinator);
     SRBufferLimiter* bufferLimitPtr = nullptr;
 
     
 
     SRLifecycleDiagnostics lifecycleDiag;
     if (!lifecycleDiag.Init(
-        configsBuilder.configs.lifecycleDiagnostics,
-        parentEmitPolicy,
-        executionTimeline.get()
-    )) {
+            configsBuilder.configs.lifecycleDiagnostics,
+            parentEmitPolicy,
+            executionTimeline.get()
+        )) {
+
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
+            FileHelpers::MakeEventUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
             SR::LifecyclePhase::Prepare,
             L"Failed to initialize lifecycle diagnostics"
@@ -146,18 +267,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 255;
     }
     executionTimeline->SetLifecycleDiagnostics(lifecycleDiag);
-    SRWorkerCommonPolicy workerCommonPolicy;
-    if (!workerCommonPolicy.Init(configsBuilder.configs.workerCommonPolicy)) {
-        SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
-            SR::DiagnosticSeverity::Fatal,
-            SR::LifecyclePhase::Prepare,
-            L"Failed to initialize worker common policy"
-        );
-
-        return 255;
-    }
-
 
     SRPrepareResult prepareResult;
     SRWorkers workers;
@@ -177,13 +286,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     if (!workers.fileSink->Init(
             &lifecycleDiag,
             SR::kFileSinkWorkerTargetLayout,
-            configsBuilder.configs.fileSinkWorker,
+            configsBuilder.configs.fileSinkWorker.jsonlPayloadRepresentation,
             workerCommonPolicy
         )) {
 
 
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
+            FileHelpers::MakeEventUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
             SR::LifecyclePhase::Prepare,
             L"Failed to initialize file sink worker"
@@ -198,7 +307,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
             workerCommonPolicy
         )) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
+            FileHelpers::MakeEventUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
             SR::LifecyclePhase::Prepare,
             L"Failed to initialize parent emit worker"
@@ -208,7 +317,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
     if (!workers.jobsExchange->Init(&lifecycleDiag)) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
+            FileHelpers::MakeEventUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
             SR::LifecyclePhase::Prepare,
             L"Failed to initialize jobs exchange"
@@ -222,7 +331,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
     if (!workers.fileSink->StartPaused()) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
+            FileHelpers::MakeEventUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
             SR::LifecyclePhase::Prepare,
             L"Failed to start file sink worker"
@@ -232,7 +341,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
     if (!workers.parentEmit->Start()) {
         SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
+            FileHelpers::MakeEventUtcTimestamp(),
             SR::DiagnosticSeverity::Fatal,
             SR::LifecyclePhase::Prepare,
             L"Failed to start parent emit worker"
@@ -242,16 +351,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     
     executionTimeline->SetJobsExchange(*workers.jobsExchange);
 
-
-
-    
+   
     const bool needStdoutReplayBuffer =
         parentEmitPolicy.NeedsStdoutReplayBuffer();
     const bool needStderrReplayBuffer =
         parentEmitPolicy.NeedsStderrReplayBuffer();
 
     if (needStdoutReplayBuffer || needStderrReplayBuffer) {
-        bufferLimiter.Init(configsBuilder.configs.bufferLimiter, &lifecycleDiag);
+        bufferLimiter.Init(
+            configsBuilder.configs.bufferLimiter,
+            &lifecycleDiag
+        );
+
         bufferLimitPtr = &bufferLimiter;
     }
 
@@ -260,18 +371,74 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
     executionTimeline->SetParentEmitPolicy(parentEmitPolicy);
     
-    lifecycleDiag.InfoLine(
-        L"SilentRunner starts; std::terminate handler registered"
-    );
+    lifecycleDiag.InfoLine(L"SilentRunner starts");
+    lifecycleDiag.VerboseLine(L"std::terminate handler registered");
 
     lifecycleDiag.DebugLine(
-        L"PrepareRuntime phase starts"
+        L"PrepareRuntime phase starts; phaseStartUtc=" +
+            executionTimeline->GetPhaseStartUtc(executionTimeline->PrepareContext())
     );
 
+    const auto finalize = [&](
+        int exitCode,
+        const SRRuntimeResult* runtimeResult
+    ) -> int {
+        const PhaseContext phaseContext = runtimeResult
+            ? executionTimeline->RuntimeContext()
+            : executionTimeline->PrepareContext();
+
+        if (!executionTimeline->GetPhaseExitCode(phaseContext).has_value()) {
+            const int phaseExitCode = runtimeResult
+                ? runtimeResult->exitCode
+                : exitCode;
+
+            if (!executionTimeline->SetPhaseExitCode(
+                    phaseContext,
+                    phaseExitCode
+                )) {
+                lifecycleDiag.FatalErrorLine(
+                    L"Failed to capture phase exit code"
+                );
+                return 255;
+            }
+
+            lifecycleDiag.DebugLine(
+                SR::ExecutionExitCodeKey(
+                    runtimeResult
+                        ? SR::LifecyclePhase::Runtime
+                        : SR::LifecyclePhase::Prepare
+                ) + L"=" + std::to_wstring(phaseExitCode)
+            );
+        }
+
+        return FinalizeExecution(
+            configsBuilder.configs.finalizeExecution,
+            workers,
+            targetLogFiles,
+            SR::kFileSinkWorkerTargetLayout,
+            parentEmitPolicy,
+            workerCommonPolicy.ParsingToken(),
+            exitCode,
+            lifecycleDiag,
+            runtimeResult,
+            executionTimeline.get(),
+            executionTimeline->GetPhaseExitCode(
+                executionTimeline->PrepareContext()
+            ),
+            executionTimeline->GetPhaseExitCode(
+                executionTimeline->RuntimeContext()
+            )
+        );
+    };
+    
     try {
         PrepareRuntime(
-            configs,
+            configs.prepareRuntime,
+            configs.executeChildProcess,
+            configs.finalizeExecution,
+            workerCommonPolicy,
             *workers.fileSink,
+            targetLogFiles,
             parentEmitPolicy,
             lifecycleDiag,
             prepareResult
@@ -280,7 +447,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         lifecycleDiag.FatalErrorLine(
             L"PrepareRuntime phase failed: std::bad_alloc"
         );
-        const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, nullptr, executionTimeline.get());
+        const int finalExitCode = finalize(255, nullptr);
 
 
         return finalExitCode;
@@ -295,7 +462,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
                 L"PrepareRuntime phase failed: unhandled std::exception"
             );
         }
-        const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, nullptr, executionTimeline.get());
+        const int finalExitCode = finalize(255, nullptr);
 
 
         return finalExitCode;
@@ -303,7 +470,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         lifecycleDiag.FatalErrorLine(
             L"PrepareRuntime phase failed: unhandled unknown exception"
         );
-        const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, nullptr, executionTimeline.get());
+        const int finalExitCode = finalize(255, nullptr);
 
 
         return finalExitCode;
@@ -311,7 +478,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
     if (!prepareResult.ok) {
 
-        const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), prepareResult.earlyExitCode, lifecycleDiag, nullptr, executionTimeline.get());
+        const int finalExitCode =
+            finalize(prepareResult.earlyExitCode, nullptr);
 
 
         return finalExitCode;
@@ -321,7 +489,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         lifecycleDiag.FatalErrorLine(
             L"PrepareRuntime phase failed: worker infrastructure missing"
         );
-        const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, nullptr, executionTimeline.get());
+        const int finalExitCode = finalize(255, nullptr);
 
         return finalExitCode;
     }
@@ -334,8 +502,23 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 255;
     }
 
+    if (!executionTimeline->SetPhaseExitCode(
+            executionTimeline->PrepareContext(),
+            0
+        )) {
+        lifecycleDiag.FatalErrorLine(
+                L"Failed to capture prepare phase exit code"
+            );
+        return 255;
+    }
+
     lifecycleDiag.DebugLine(
-        L"PrepareRuntime phase ends"
+        SR::ExecutionExitCodeKey(SR::LifecyclePhase::Prepare) + L"=0"
+    );
+
+    lifecycleDiag.DebugLine(
+        L"PrepareRuntime phase ends; phaseEndUtc=" +
+            executionTimeline->GetPhaseEndUtc(executionTimeline->PrepareContext())
     );
 
 
@@ -349,7 +532,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     }
 
     lifecycleDiag.DebugLine(
-        L"Runtime phase starts"
+        L"Runtime phase starts; phaseStartUtc=" +
+            executionTimeline->GetPhaseStartUtc(executionTimeline->RuntimeContext())
     );
 
     SRRuntimeResult runtimeResult;
@@ -357,9 +541,15 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
     bool runtimeFatal = false;
     try {
-        runtimeResult = RunHiddenWithRouting(
-            configsBuilder.configs.runHiddenWithRouting,
-            prepareResult.logFiles.paths,
+        SR::JobTargetFilter runtimeLogPathFilter;
+        runtimeLogPathFilter.worker = SR::JobTargetWorker::SRFileSinkWorker;
+        const auto runtimeLogPaths =
+            targetLogFiles.BuildRunningPathBindings(runtimeLogPathFilter);
+        ExecuteChildProcess(
+            configsBuilder.configs.executeChildProcess,
+            SR::kFileSinkWorkerTargetLayout,
+            runtimeLogPaths,
+            prepareResult.comspecPath,
             prepareResult.fullCmdLineForCreateProcess,
             prepareResult.stdoutStdHandleProbe,
             prepareResult.stderrStdHandleProbe,
@@ -369,7 +559,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
             executionTimeline,
             parentEmitPolicy,
             workerCommonPolicy,
-            bufferLimitPtr
+            bufferLimitPtr,
+            runtimeCoordinator,
+            timeLimiter,
+            runtimeResult
         );
     } catch (const std::bad_alloc&) {
         lifecycleDiag.FatalErrorLine(
@@ -402,10 +595,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     // FinalizeExecution still performs any eligible parent replay before shutdown.
 
     if (runtimeFatal || (runtimeResult.fatal && !runtimeResult.childStarted)) {
-        const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), 255, lifecycleDiag, &runtimeResult, executionTimeline.get());
+        const int finalExitCode =
+            finalize(255, &runtimeResult);
 
 
-        // emitJsonSummaryFullIfRequested(runtimeResult, finalExitCode);
 
         return finalExitCode;
     }
@@ -422,12 +615,15 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     }
 
     lifecycleDiag.DebugLine(
-        L"Runtime phase ends; exitCode=" +
-            std::to_wstring(runtimeResult.exitCode)
+        L"Runtime phase ends; phaseEndUtc=" +
+            executionTimeline->GetPhaseEndUtc(executionTimeline->RuntimeContext()) +
+            L"; " +
+            SR::ExecutionExitCodeKey(SR::LifecyclePhase::Runtime) +
+            L"=" + std::to_wstring(runtimeResult.exitCode)
     );
 
-    const int finalExitCode = FinalizeExecution(configsBuilder.configs.finalizeExecution, workers, prepareResult.logFiles, parentEmitPolicy, workerCommonPolicy.ParsingToken(), finalizationExitCode, lifecycleDiag, &runtimeResult, executionTimeline.get());
-    // emitJsonSummaryFullIfRequested(runtimeResult, finalExitCode);
+    const int finalExitCode =
+        finalize(finalizationExitCode, &runtimeResult);
 
     return finalExitCode;
 }
@@ -448,14 +644,14 @@ namespace {
 //
 // Design:
 // - Try to report the active exception via shared SRLifecycleDiagnostics helpers.
-// - On any failure, fall back to the shared last-resort lifecycle helper.
+ // - On any failure, write a static message directly to parent stderr.
 // - Always terminate the process via std::abort().
 [[noreturn]] void SilentRunnerTerminateHandler() noexcept {
     // Best effort only. Do not throw from here.
     try {
         const auto emitTerminateError = [&](const std::wstring& msg) {
             SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
-                FileHelpers::MakeRunUtcTimestamp(),
+                FileHelpers::MakeEventUtcTimestamp(),
                 SR::DiagnosticSeverity::Fatal,
                 SR::LifecyclePhase::Runtime, 
                 msg
@@ -492,13 +688,10 @@ namespace {
             );
         }
     } catch (...) {
-        // Absolute last fallback: do not let terminate handler throw.
-        SRLifecycleDiagnostics::LastResortEmitFormattedToParentStderr(
-            FileHelpers::MakeRunUtcTimestamp(),
-            SR::DiagnosticSeverity::Fatal,
-            SR::LifecyclePhase::Runtime,
-            L"std::terminate called; terminate handler failed"
-        );
+        // Absolute last fallback: no allocation, formatting, or UTF conversion.
+        constexpr char message[] =
+            "std::terminate called; terminate handler failed\n";
+        ParentStdEmitter::EmitStderrLastResort(message, sizeof(message) - 1);
     }
 
     std::abort();

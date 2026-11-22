@@ -1,53 +1,40 @@
 #pragma once
 
+#include <array>
 #include <string>
 #include <vector>
 
-#include "LogWriter.h"
 #include "HandleHelpers.h"
 #include "SRTypes.h"
-#include "SRConfigsBuilderTypes.h"
+#include "SRJobTypes.h"
 
 class SRLifecycleDiagnostics;
 class SRParentEmitPolicy;
 class SRFileSinkWorker;
+class SRTargetLogFiles;
+class SRWorkerCommonPolicy;
 
-struct SRLogFileWriters {
-    LogWriter::FileWriter stdoutLogWriter;
-    LogWriter::FileWriter stderrLogWriter;
-    LogWriter::FileWriter stderrChildLogWriter;
-    LogWriter::FileWriter stderrSrLogWriter;
-    LogWriter::FileWriter stderrSrAndChildInclStdoutLogWriter;
-    LogWriter::FileWriter stdoutJsonlWriter;
-    LogWriter::FileWriter stderrJsonlWriter;
-    LogWriter::FileWriter stderrChildJsonlWriter;
-    LogWriter::FileWriter stderrSrJsonlWriter;
-    LogWriter::FileWriter stderrSrAndChildInclStdoutJsonlWriter;
-};
-
-struct SRLogFiles {
-    SR::LogPaths paths;
-    SR::LogFileCreationResults creationResults;
-    SRLogFileWriters writers;
-};
 
 struct SRPrepareResult {
     bool ok = false;
     int earlyExitCode = 255;
 
+    std::wstring comspecPath;
     std::wstring fullCmdLineForCreateProcess;
     HandleHelpers::StdHandleWriteProbeResult stdoutStdHandleProbe;
     HandleHelpers::StdHandleWriteProbeResult stderrStdHandleProbe;
 
     std::wstring specialCharactersDebugMessage;
     std::vector<std::wstring> unboundedReplayBufferDebugMessages;
-    SRLogFiles logFiles;
 };
 
 void PrepareRuntime(
-    SR::SRConfigs& configs,
+    SR::PrepareRuntimeConfig& config,
+    SR::ExecuteChildProcessConfig& runtimeConfig,
+    SR::FinalizeExecutionConfig& finalizeConfig,
+    const SRWorkerCommonPolicy& workerCommonPolicy,
     SRFileSinkWorker& fileSinkWorker,
-
+    SRTargetLogFiles& targetLogFiles,
     const SRParentEmitPolicy& parentEmitPolicy,
     SRLifecycleDiagnostics& lifecycleDiag,
     SRPrepareResult& result

@@ -3,7 +3,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 set "ERRORLEVEL="
 
 rem Do not redirect this invocation or disable diagnostics explicitly.
-rem The missing diagnostic channel must result from detached hook execution.
+rem Verify that the nested SilentRunner succeeds despite the missing diagnostic channel.
 "%SR_TEST_NESTED_EXE%" "%~dp0ok.cmd"
 set "nested_exit_code=%ERRORLEVEL%"
 

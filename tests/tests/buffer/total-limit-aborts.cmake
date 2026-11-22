@@ -27,10 +27,19 @@ sr_assert_stdout_not_contains(
 
 sr_assert_stderr_contains(
     r
-    "Fatal runtime stop: Buffer limit exceeded; first_hit=stdout stdout_max=0 stderr_max=0 total_max=1 action=abort"
+    "Runtime stop: Buffer limit exceeded; first_hit=stdout stdout_max=0 stderr_max=0 total_max=1 action=abort"
 )
 
 sr_assert_stderr_not_contains(
     r
     "${SR_TEST_CHILD_STDERR_MARKER}"
 )
+# Raw timeline replay is also subject to the shared stdout/stderr RAM limit.
+sr_run(raw ARGS
+    --stdout-emit-raw end
+    --std-total-max-buffer-bytes 1
+    --stderr-emit-sr stream
+    "${SR_STDOUT_CMD}"
+)
+sr_assert_exit(raw "${SR_TEST_EXIT_BUFFER_LIMIT}")
+sr_assert_stderr_contains(raw "Runtime stop: Buffer limit exceeded; first_hit=stdout")

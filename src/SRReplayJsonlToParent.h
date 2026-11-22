@@ -1,6 +1,9 @@
 #pragma once
 
-#include "SRParentReplayTypes.h"
+namespace SR {
+struct ParentReplayParameters;
+struct ParentReplayParameterSet;
+}
 
 class SRJobsExchange;
 class SRLifecycleDiagnostics;

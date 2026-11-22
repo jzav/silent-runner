@@ -60,6 +60,19 @@
         1 \
     ) \
     X( \
+        &SRPhaseTimelineEntrySchemaData::SrDiagData::executionId, \
+        "executionId", \
+        \
+        true, \
+        TextHelpers::AppendJsonWideStringField, \
+        TextHelpers::TryParseJsonWideStringField, \
+        \
+        true, \
+        TextHelpers::AppendTxtWideStringField, \
+        TextHelpers::TryParseTxtWideStringField, \
+        0 \
+    ) \
+    X( \
         &SRPhaseTimelineEntrySchemaData::SrDiagData::phase, \
         "phase", \
         \
@@ -218,6 +231,19 @@
         1 \
     ) \
     X( \
+        &SRPhaseTimelineEntrySchemaData::ChildStdoutData::executionId, \
+        "executionId", \
+        \
+        true, \
+        TextHelpers::AppendJsonWideStringField, \
+        TextHelpers::TryParseJsonWideStringField, \
+        \
+        true, \
+        TextHelpers::AppendTxtWideStringField, \
+        TextHelpers::TryParseTxtWideStringField, \
+        0 \
+    ) \
+    X( \
         &SRPhaseTimelineEntrySchemaData::ChildStdoutData::phase, \
         "phase", \
         \
@@ -361,6 +387,19 @@
         TextHelpers::AppendTxtWideStringField, \
         TextHelpers::TryParseTxtWideStringField, \
         1 \
+    ) \
+    X( \
+        &SRPhaseTimelineEntrySchemaData::ChildStderrData::executionId, \
+        "executionId", \
+        \
+        true, \
+        TextHelpers::AppendJsonWideStringField, \
+        TextHelpers::TryParseJsonWideStringField, \
+        \
+        true, \
+        TextHelpers::AppendTxtWideStringField, \
+        TextHelpers::TryParseTxtWideStringField, \
+        0 \
     ) \
     X( \
         &SRPhaseTimelineEntrySchemaData::ChildStderrData::phase, \

@@ -29,9 +29,8 @@ set(SR_TEST_EXIT_CLI_ERROR 2)
 set(SR_TEST_FAIL_CMD_EXIT_CODE 7)
 set(SR_TEST_EXIT_TIMEOUT 124)
 set(SR_TEST_EXIT_BUFFER_LIMIT 125)
+set(SR_TEST_EXIT_HOOK_LAUNCH_FAILURE 253)
 
-
-set(SR_TEST_EXIT_NO_DIAGNOSTIC_CHANNEL 254)
 set(SR_TEST_EXIT_INTERNAL 255)
 set(SR_TEST_PUBLIC_CLI_HELP_ENTRIES
     "--help"
@@ -41,6 +40,7 @@ set(SR_TEST_PUBLIC_CLI_HELP_ENTRIES
     "--inherit-stdin"
     "--utf8 or --utf-8"
     "--timeout-ms <ms>"
+    "--abort-on-runtime-failure"
     "--cwd <dir>"
     "--run-on-success <path>"
     "--run-on-failure <path>"
@@ -48,8 +48,10 @@ set(SR_TEST_PUBLIC_CLI_HELP_ENTRIES
     "--id-base <value>"
     "--id-suffix <timestamp|pid|timestamp+pid|pid+timestamp>"
     "--stdout-emit <mode>"
+    "--stdout-emit-raw <mode>"
     "--stderr-emit <mode>"
     "--stderr-emit-child <mode>"
+    "--stderr-emit-child-raw <mode>"
     "--stderr-emit-sr <mode>"
     "--stderr-emit-incl-stdout <mode>"
     "--stdout-event-framing <chunk|lf|newline|crlf>"
@@ -60,8 +62,10 @@ set(SR_TEST_PUBLIC_CLI_HELP_ENTRIES
     "--stderr-max-buffer-bytes <bytes>"
     "--std-total-max-buffer-bytes <bytes>"
     "--stdout-dir <dir>"
+    "--stdout-dir-raw <dir>"
     "--stderr-dir <dir>"
     "--stderr-dir-child <dir>"
+    "--stderr-dir-child-raw <dir>"
     "--stderr-dir-sr <dir>"
     "--stderr-dir-incl-stdout <dir>"
     "--stdout-dir-jsonl <dir>"
@@ -202,6 +206,13 @@ function(sr_assert_file_hex path expected_hex)
         )
     endif()
 endfunction()
+function(sr_assert_files_equal_bytes actual_path expected_path)
+    if(NOT EXISTS "${expected_path}")
+        message(FATAL_ERROR "Expected reference file does not exist: ${expected_path}")
+    endif()
+    file(READ "${expected_path}" expected_hex HEX)
+    sr_assert_file_hex("${actual_path}" "${expected_hex}")
+endfunction()
 
 # Assert a single headered TXT parent-output event against an exact payload
 # fixture. The parseable header is inspected as text while the complete payload
@@ -341,6 +352,37 @@ function(sr_write_type_emitter_cmd path payload_path stream)
 endfunction()
 
 
+# Create a launcher that exits after its descendant has started.
+# The descendant writes a second marker only after its delay completes.
+# Both processes must remain in SilentRunner's Job Object.
+function(sr_make_process_tree_fixture prefix ping_count)
+    set(launcher "${SR_TEST_ROOT}/${prefix}-launcher.cmd")
+    set(descendant "${SR_TEST_ROOT}/${prefix}-descendant.cmd")
+    set(started "${SR_TEST_ROOT}/${prefix}-started.marker")
+    set(finished "${SR_TEST_ROOT}/${prefix}-finished.marker")
+
+    file(WRITE "${descendant}"
+        "@echo off\r\n"
+        "> \"%~dp0${prefix}-started.marker\" echo started\r\n"
+        "ping 127.0.0.1 -n ${ping_count} >nul\r\n"
+        "> \"%~dp0${prefix}-finished.marker\" echo finished\r\n"
+        "exit /b 0\r\n"
+    )
+
+    file(WRITE "${launcher}"
+        "@echo off\r\n"
+        "start \"\" /b \"%~dp0${prefix}-descendant.cmd\"\r\n"
+        "for /L %%i in (1,1,5) do (\r\n"
+        "  if exist \"%~dp0${prefix}-started.marker\" exit /b 0\r\n"
+        "  ping 127.0.0.1 -n 2 >nul\r\n"
+        ")\r\n"
+        "exit /b 9\r\n"
+    )
+
+    set(${prefix}_LAUNCHER "${launcher}" PARENT_SCOPE)
+    set(${prefix}_STARTED "${started}" PARENT_SCOPE)
+    set(${prefix}_FINISHED "${finished}" PARENT_SCOPE)
+endfunction()
 function(sr_run prefix)
     set(options)
     set(one_value_args WORKING_DIRECTORY INPUT_FILE OUTPUT_FILE ERROR_FILE)

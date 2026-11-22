@@ -139,7 +139,7 @@ sr_add_script_test(path.stdout-dir.asterisk                               path/s
 
 # cwd
 sr_add_script_test(cwd.invalid-character                      cwd/invalid-character.cmake)
-sr_add_script_test(cwd.create-relative                        cwd/create-relative.cmake)
+sr_add_script_test(cwd.missing-relative                       cwd/missing-relative.cmake)
 sr_add_script_test(cwd.existing-relative                      cwd/existing-relative.cmake)
 sr_add_script_test(cwd.existing-absolute                      cwd/existing-absolute.cmake)
 sr_add_script_test(cwd.points-to-file                         cwd/points-to-file.cmake)
@@ -182,6 +182,8 @@ sr_add_script_test(command.raw-pipe                        command/raw-pipe.cmak
 sr_add_script_test(command.raw-redirection                 command/raw-redirection.cmake)
 sr_add_script_test(command.inherit-stdin-content                     command/inherit-stdin-content.cmake)
 
+# console
+sr_add_script_test(console.cmd-redirection console/cmd-redirection.cmake)
 
 # utf8
 sr_add_script_test(utf8.codepage-65001    utf8/codepage-65001.cmake)

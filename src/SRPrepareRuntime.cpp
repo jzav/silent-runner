@@ -1,9 +1,10 @@
 #include "SRPrepareRuntime.h"
+#include "SRWorkerCommonPolicy.h"
+#include "SRTargetLogFiles.h"
 
 #include "SRChildCmdBuilder.h"
 #include "ErrorHelpers.h"
 #include "FileHelpers.h"
-#include "LogWriter.h"
 #include "SRLifecycleDiagnostics.h"
 #include "SRParentEmitPolicy.h"
 #include "SRFileSinkWorker.h"
@@ -34,16 +35,31 @@ static void AppendUnboundedBufferedReplayDebugMessages(
     if (needStderrReplayBuffer &&
         config.stderrMaxBufferBytes == 0 &&
         !hasTotalLimit) {
-        const SR::StderrEmitSource stderrEmitSource =
-            parentEmitPolicy.StderrEmitSource();
+        const SR::JobTarget stderrParentTarget =
+            parentEmitPolicy.StderrParentTarget();
         const wchar_t* sourceName =
-            SR::StderrEmitSourceToString(stderrEmitSource);
-        const wchar_t* dirArg =
-            (stderrEmitSource == SR::StderrEmitSource::SrAndChild) ? L"--stderr-dir or --stderr-dir-jsonl" :
-            (stderrEmitSource == SR::StderrEmitSource::Child) ? L"--stderr-dir-child or --stderr-dir-child-jsonl" :
-            (stderrEmitSource == SR::StderrEmitSource::Sr) ? L"--stderr-dir-sr or --stderr-dir-sr-jsonl" :
-            (stderrEmitSource == SR::StderrEmitSource::SrAndChildInclStdout) ? L"--stderr-dir-incl-stdout or --stderr-dir-incl-stdout-jsonl" :
-            L"<unknown stderr emit source>";
+            SR::JobTargetNameToString(stderrParentTarget);
+        const wchar_t* dirArg = L"<unknown stderr target>";
+
+        switch (stderrParentTarget) {
+            case SR::JobTarget::StderrSrAndChildParent:
+                dirArg = L"--stderr-dir or --stderr-dir-jsonl";
+                break;
+            case SR::JobTarget::StderrChildParent:
+                dirArg = L"--stderr-dir-child or --stderr-dir-child-jsonl";
+                break;
+            case SR::JobTarget::StderrChildParentRaw:
+                dirArg = L"--stderr-dir-child-raw";
+                break;
+            case SR::JobTarget::StderrSrParent:
+                dirArg = L"--stderr-dir-sr or --stderr-dir-sr-jsonl";
+                break;
+            case SR::JobTarget::StderrSrAndChildInclStdoutParent:
+                dirArg = L"--stderr-dir-incl-stdout or --stderr-dir-incl-stdout-jsonl";
+                break;
+            default:
+                break;
+        }
 
         messages.push_back(
             std::wstring(L"Stderr buffering is enabled for ") + sourceName +
@@ -55,22 +71,58 @@ static void AppendUnboundedBufferedReplayDebugMessages(
     }
 }
 
-static bool EnsureConfiguredCwdExists(
-    const std::wstring& cwd,
+static bool TryExpandConfiguredPath(
+    const std::wstring& rawPath,
+    const wchar_t* argumentName,
+    std::wstring& expandedPath,
+    std::wstring& err
+) {
+    std::wstring missingVariable;
+    DWORD gle = 0;
+    if (FileHelpers::TryExpandEnvironmentVariables(
+            rawPath,
+            expandedPath,
+            missingVariable,
+            &gle
+        )) {
+        return true;
+    }
+    err = std::wstring(L"Invalid value for ") +
+        argumentName + L": ";
+    if (!missingVariable.empty()) {
+        err += L"environment variable %" +
+            missingVariable + L"% is not defined";
+    } else {
+        err += L"failed to expand environment variables " +
+            ErrorHelpers::FormatGle(gle);
+    }
+    return false;
+}
+
+static bool ValidateConfiguredCwd(
+    std::wstring& cwd,
     std::wstring& err
 ) {
     if (cwd.empty()) {
         return true;
     }
-
-    DWORD cwdGle = 0;
-    if (!FileHelpers::EnsureDirExists(cwd, &cwdGle)) {
-        err =
-            L"Invalid value for --cwd: "
-            L"path must point to an existing or creatable directory";
+    std::wstring expandedCwd;
+    if (!TryExpandConfiguredPath(
+            cwd,
+            L"--cwd",
+            expandedCwd,
+            err
+        )) {
         return false;
     }
-
+    if (expandedCwd.empty() ||
+        !FileHelpers::DirectoryExists(expandedCwd)) {
+        err =
+            L"Invalid value for --cwd: "
+            L"path must point to an existing directory";
+        return false;
+    }
+    cwd = expandedCwd;
     return true;
 }
 
@@ -86,36 +138,26 @@ static bool TryResolveExistingRunHookPath(
         return true;
     }
 
-    const DWORD required =
-        GetFullPathNameW(rawPath.c_str(), 0, nullptr, nullptr);
-
-    if (required == 0) {
+    std::wstring expandedPath;
+    if (!TryExpandConfiguredPath(
+            rawPath,
+            argumentName,
+            expandedPath,
+            err
+        )) {
+        return false;
+    }
+    std::wstring resolvedPath;
+    if (!FileHelpers::TryResolveFullPath(
+            expandedPath,
+            resolvedPath
+        )) {
         err =
             std::wstring(L"Invalid value for ") +
             argumentName +
             L": failed to resolve path";
         return false;
     }
-
-    std::wstring resolvedPath(required, L'\0');
-
-    const DWORD written =
-        GetFullPathNameW(
-            rawPath.c_str(),
-            required,
-            resolvedPath.data(),
-            nullptr
-        );
-
-    if (written == 0 || written >= required) {
-        err =
-            std::wstring(L"Invalid value for ") +
-            argumentName +
-            L": failed to resolve path";
-        return false;
-    }
-
-    resolvedPath.resize(written);
 
     if (!FileHelpers::FileExists(resolvedPath)) {
         err =
@@ -130,17 +172,22 @@ static bool TryResolveExistingRunHookPath(
 }
 
 void PrepareRuntime(
-    SR::SRConfigs& configs,
+    SR::PrepareRuntimeConfig& config,
+    SR::ExecuteChildProcessConfig& runtimeConfig,
+    SR::FinalizeExecutionConfig& finalizeConfig,
+    const SRWorkerCommonPolicy& workerCommonPolicy,
     SRFileSinkWorker& fileSinkWorker,
+    SRTargetLogFiles& targetLogFiles,
     const SRParentEmitPolicy& parentEmitPolicy,
     SRLifecycleDiagnostics& lifecycleDiag,
     SRPrepareResult& result
 ) {
-    auto& config = configs.prepareRuntime;
-    SRLogFiles& logFiles = result.logFiles;
-    SR::LogPaths& logPaths = logFiles.paths;
-    SR::LogFileCreationResults& creationResults = logFiles.creationResults;
-    SRLogFileWriters& writers = logFiles.writers;
+    SRTargetLogFiles& logFiles = targetLogFiles;
+    std::wstring probePath;
+    finalizeConfig.comspecPath.clear();
+    finalizeConfig.runOnSuccessPath.clear();
+    finalizeConfig.runOnFailurePath.clear();
+
     AppendUnboundedBufferedReplayDebugMessages(
         config,
         parentEmitPolicy,
@@ -152,29 +199,18 @@ void PrepareRuntime(
     result.stderrStdHandleProbe =
         HandleHelpers::ProbeStdHandleForWrite(GetStdHandle(STD_ERROR_HANDLE));
 
-    const bool srDiagFileRequested =
-        !config.stderrDir.empty() ||
-        !config.stderrDirSr.empty() ||
-        !config.stderrDirInclStdout.empty() ||
-        !config.stderrDirJsonl.empty() ||
-        !config.stderrDirSrJsonl.empty() ||
-        !config.stderrDirInclStdoutJsonl.empty();
-
-    const bool srDiagParentRequested =
-        parentEmitPolicy.StderrEmitMode() != SR::EmitMode::Never &&
-        parentEmitPolicy.StderrEmitSource() != SR::StderrEmitSource::Child;
-
-    const bool srDiagParentAvailable =
-        srDiagParentRequested &&
-        result.stderrStdHandleProbe.probablyWritable;
-
-    if (!srDiagFileRequested && !srDiagParentAvailable) {
-        result.earlyExitCode = 254;
+    std::wstring preparePathError;
+    if (!FileHelpers::TryResolveComSpecPath(
+            result.comspecPath,
+            preparePathError
+        )) {
+        lifecycleDiag.FatalErrorLine(preparePathError);
+        result.earlyExitCode = 255;
         return;
     }
-    std::wstring preparePathError;
+    finalizeConfig.comspecPath = result.comspecPath;
 
-    if (!EnsureConfiguredCwdExists(
+    if (!ValidateConfiguredCwd(
             config.cwd,
             preparePathError
         )) {
@@ -182,6 +218,8 @@ void PrepareRuntime(
         result.earlyExitCode = 2;
         return;
     }
+    runtimeConfig.cwd = config.cwd;
+    finalizeConfig.cwd = config.cwd;
 
     std::wstring resolvedRunOnSuccessPath;
     if (!TryResolveExistingRunHookPath(
@@ -207,70 +245,48 @@ void PrepareRuntime(
         return;
     }
 
-    configs.finalizeExecution.runOnSuccessPath =
+    finalizeConfig.runOnSuccessPath =
         resolvedRunOnSuccessPath;
-    configs.finalizeExecution.runOnFailurePath =
+    finalizeConfig.runOnFailurePath =
         resolvedRunOnFailurePath;
 
-    const bool userEnteredAnyIdPart =
-        !config.idPrefix.empty() ||
-        !config.idBase.empty() ||
-        (config.idSuffix != SR::IdSuffixMode::None);
-
-    config.useDefaultSuffixMode = !userEnteredAnyIdPart;
-
-    config.effectiveIdSuffixMode =
-        config.useDefaultSuffixMode ? SR::IdSuffixMode::TimestampPid : config.idSuffix;
-
-    if (config.effectiveIdSuffixMode != SR::IdSuffixMode::None) {
-        config.generatedSuffix =
-            FileHelpers::BuildIdSuffix(config.effectiveIdSuffixMode);
-    }
-
-    config.executionId = FileHelpers::BuildExecutionId(
-        config.idPrefix,
-        config.idBase,
-        config.generatedSuffix
-    );
-
-    configs.runHiddenWithRouting.generatedSuffix =
-        config.generatedSuffix;
-    configs.runHiddenWithRouting.effectiveIdSuffixMode =
-        config.effectiveIdSuffixMode;
-    configs.runHiddenWithRouting.useDefaultSuffixMode =
-        config.useDefaultSuffixMode;
-    configs.runHiddenWithRouting.executionId =
-        config.executionId;
-
-    configs.finalizeExecution.executionId =
-        config.executionId;
-
-
-
-
-    // Build the candidate log paths before opening any log files.
-    //
-    // Important:
-    // - config.stdoutDir / config.stderrDir may be relative paths.
-    // - Relative log directories are resolved later by WinAPI calls against
-    //   SilentRunner's inherited current working directory (from parent process), not against --cwd.
-    // - --cwd affects the child process and run-on-* hook working directory only.
-    // - Preflight checks include running/success/failure names so SilentRunner does
-    //   not overwrite an existing log from a previous execution ID.
+    // Resolve and validate persistent log paths before creating any log files.
+    // Relative directories are resolved against SilentRunner's inherited
+    // working directory, not the child working directory (--cwd).
+    // The probe log is prepared separately.
     if (!config.probeDir.empty()) {
-        logPaths.probe =
+        std::wstring expandedProbeDir;
+        if (!TryExpandConfiguredPath(
+                config.probeDir,
+                L"--probe-dir",
+                expandedProbeDir,
+                preparePathError
+            )) {
+            lifecycleDiag.FatalErrorLine(preparePathError);
+            result.earlyExitCode = 2;
+            return;
+        }
+        if (expandedProbeDir.empty()) {
+            lifecycleDiag.FatalErrorLine(
+                L"Invalid value for --probe-dir: expanded path is empty"
+            );
+            result.earlyExitCode = 2;
+            return;
+        }
+        config.probeDir = expandedProbeDir;
+        probePath =
             FileHelpers::JoinPath(
                 config.probeDir,
-                config.executionId + L"_probe.log"
+                workerCommonPolicy.ExecutionId() + L"_probe.log"
             );
 
-        if (FileHelpers::FileExists(logPaths.probe)) {
+        if (FileHelpers::FileExists(probePath)) {
             lifecycleDiag.FatalErrorLine(
                 L"Refusing to start: probe log file already exists\n"
-                L"  EXECUTION_ID=" + config.executionId + L"\n"
+                L"  EXECUTION_ID=" + workerCommonPolicy.ExecutionId() + L"\n"
                 L"  DIR=" + config.probeDir + L"\n"
                 L"  EXISTING PATH:\n"
-                L"    " + logPaths.probe
+                L"    " + probePath
             );
             result.earlyExitCode = 255;
             return;
@@ -278,349 +294,85 @@ void PrepareRuntime(
     }
 
 
-    if (!config.stderrDir.empty()) {
-        logPaths.running.stderrSrAndChildTxt =
-            FileHelpers::JoinPath(
-                config.stderrDir,
-                config.executionId + L"_stderr_running.log"
-            );
-        logPaths.success.stderrSrAndChildTxt =
-            FileHelpers::JoinPath(
-                config.stderrDir,
-                config.executionId + L"_stderr_success.log"
-            );
-        logPaths.failure.stderrSrAndChildTxt =
-            FileHelpers::JoinPath(
-                config.stderrDir,
-                config.executionId + L"_stderr_failure.log"
-            );
+    LogCreationFailure logFailure;
 
-        if (FileHelpers::FileExists(logPaths.running.stderrSrAndChildTxt) ||
-            FileHelpers::FileExists(logPaths.success.stderrSrAndChildTxt) ||
-            FileHelpers::FileExists(logPaths.failure.stderrSrAndChildTxt)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Refusing to start: stderr-sr-and-child log files already exist\n"
-                L"  EXECUTION_ID=" + config.executionId + L"\n"
-                L"  DIR=" + config.stderrDir + L"\n"
-                L"  EXISTING PATHS:\n"
-                L"    " + logPaths.running.stderrSrAndChildTxt + L"\n"
-                L"    " + logPaths.success.stderrSrAndChildTxt + L"\n"
-                L"    " + logPaths.failure.stderrSrAndChildTxt
-            );
-            result.earlyExitCode = 255;
-            return;
+    if (!logFiles.ResolveDirectories(&logFailure)) {
+        const auto& target = logFiles.Target(logFailure.target);
+        const bool invalidConfiguration =
+            logFailure.reason == LogCreationFailureReason::ExpandDirectoryFailed;
+
+        std::wstring message =
+            invalidConfiguration
+                ? L"Invalid value for log directory; target="
+                : L"Failed to resolve log directory; target=";
+
+        message +=
+            std::wstring(SR::JobTargetNameToString(logFailure.target)) +
+            L"; path=" + target.config.directory;
+
+        if (invalidConfiguration && !logFailure.missingVariable.empty()) {
+            message +=
+                L"; environment variable %" +
+                logFailure.missingVariable + L"% is not defined";
+        } else if (invalidConfiguration && logFailure.gle == 0) {
+            message += L"; expanded directory path is empty";
+        } else {
+            message += L" " + ErrorHelpers::FormatGle(logFailure.gle);
         }
+
+        lifecycleDiag.FatalErrorLine(message);
+        result.earlyExitCode = invalidConfiguration ? 2 : 255;
+        return;
     }
 
-    if (!config.stderrDirSr.empty()) {
-        logPaths.running.stderrSrTxt =
-            FileHelpers::JoinPath(
-                config.stderrDirSr,
-                config.executionId + L"_stderr_sr_running.log"
-            );
-        logPaths.success.stderrSrTxt =
-            FileHelpers::JoinPath(
-                config.stderrDirSr,
-                config.executionId + L"_stderr_sr_success.log"
-            );
-        logPaths.failure.stderrSrTxt =
-            FileHelpers::JoinPath(
-                config.stderrDirSr,
-                config.executionId + L"_stderr_sr_failure.log"
-            );
+    logFiles.BuildLogPaths(workerCommonPolicy.ExecutionId());
 
-        if (FileHelpers::FileExists(logPaths.running.stderrSrTxt) ||
-            FileHelpers::FileExists(logPaths.success.stderrSrTxt) ||
-            FileHelpers::FileExists(logPaths.failure.stderrSrTxt)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Refusing to start: stderr-sr log files already exist\n"
-                L"  EXECUTION_ID=" + config.executionId + L"\n"
-                L"  DIR=" + config.stderrDirSr + L"\n"
-                L"  EXISTING PATHS:\n"
-                L"    " + logPaths.running.stderrSrTxt + L"\n"
-                L"    " + logPaths.success.stderrSrTxt + L"\n"
-                L"    " + logPaths.failure.stderrSrTxt
-            );
-            result.earlyExitCode = 255;
-            return;
+    if (!logFiles.ValidateLogPaths(&logFailure)) {
+        const auto& target = logFiles.Target(logFailure.target);
+
+        const std::wstring& path =
+            logFailure.slot == TargetLogFileSlot::Running
+                ? target.running.path
+                : logFailure.slot == TargetLogFileSlot::Success
+                    ? target.success.path
+                    : target.failure.path;
+
+        std::wstring message =
+            L"Refusing to start: log path validation failed; target=" +
+            std::wstring(SR::JobTargetNameToString(logFailure.target)) +
+            L"; path=" + path;
+
+        if (logFailure.reason == LogCreationFailureReason::DuplicatePath) {
+            const auto slotName = [](TargetLogFileSlot slot) {
+                switch (slot) {
+                    case TargetLogFileSlot::Running: return L"running";
+                    case TargetLogFileSlot::Success: return L"success";
+                    case TargetLogFileSlot::Failure: return L"failure";
+                }
+                return L"unknown";
+            };
+
+            message +=
+                L"; slot=" + std::wstring(slotName(logFailure.slot)) +
+                L"; duplicate of target=" +
+                std::wstring(
+                    SR::JobTargetNameToString(logFailure.conflictingTarget)
+                ) +
+                L"; slot=" + slotName(logFailure.conflictingSlot);
+        } else if (logFailure.reason == LogCreationFailureReason::ExistingPath) {
+            message += L"; path already exists or cannot be checked";
         }
+
+        if (logFailure.gle != 0) {
+            message += L" " + ErrorHelpers::FormatGle(logFailure.gle);
+        }
+
+        lifecycleDiag.FatalErrorLine(message);
+        result.earlyExitCode = 255;
+        return;
     }
 
-    if (!config.stderrDirChild.empty()) {
-        logPaths.running.stderrChildTxt =
-            FileHelpers::JoinPath(
-                config.stderrDirChild,
-                config.executionId + L"_stderr_child_running.log"
-            );
-        logPaths.success.stderrChildTxt =
-            FileHelpers::JoinPath(
-                config.stderrDirChild,
-                config.executionId + L"_stderr_child_success.log"
-            );
-        logPaths.failure.stderrChildTxt =
-            FileHelpers::JoinPath(
-                config.stderrDirChild,
-                config.executionId + L"_stderr_child_failure.log"
-            );
-
-        if (FileHelpers::FileExists(logPaths.running.stderrChildTxt) ||
-            FileHelpers::FileExists(logPaths.success.stderrChildTxt) ||
-            FileHelpers::FileExists(logPaths.failure.stderrChildTxt)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Refusing to start: stderr-child log files already exist\n"
-                L"  EXECUTION_ID=" + config.executionId + L"\n"
-                L"  DIR=" + config.stderrDirChild + L"\n"
-                L"  EXISTING PATHS:\n"
-                L"    " + logPaths.running.stderrChildTxt + L"\n"
-                L"    " + logPaths.success.stderrChildTxt + L"\n"
-                L"    " + logPaths.failure.stderrChildTxt
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-    }
-
-    if (!config.stdoutDir.empty()) {
-        logPaths.running.stdoutTxt =
-            FileHelpers::JoinPath(
-                config.stdoutDir,
-                config.executionId + L"_stdout_running.log"
-            );
-        logPaths.success.stdoutTxt =
-            FileHelpers::JoinPath(
-                config.stdoutDir,
-                config.executionId + L"_stdout_success.log"
-            );
-        logPaths.failure.stdoutTxt =
-            FileHelpers::JoinPath(
-                config.stdoutDir,
-                config.executionId + L"_stdout_failure.log"
-            );
-
-        if (FileHelpers::FileExists(logPaths.running.stdoutTxt) ||
-            FileHelpers::FileExists(logPaths.success.stdoutTxt) ||
-            FileHelpers::FileExists(logPaths.failure.stdoutTxt)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Refusing to start: stdout log files already exist\n"
-                L"  EXECUTION_ID=" + config.executionId + L"\n"
-                L"  DIR=" + config.stdoutDir + L"\n"
-                L"  EXISTING PATHS:\n"
-                L"    " + logPaths.running.stdoutTxt + L"\n"
-                L"    " + logPaths.success.stdoutTxt + L"\n"
-                L"    " + logPaths.failure.stdoutTxt
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-    }
-    if (!config.stderrDirInclStdout.empty()) {
-        logPaths.running.stderrSrAndChildInclStdoutTxt =
-            FileHelpers::JoinPath(
-                config.stderrDirInclStdout,
-                config.executionId + L"_stderr_incl_stdout_running.log"
-            );
-        logPaths.success.stderrSrAndChildInclStdoutTxt =
-            FileHelpers::JoinPath(
-                config.stderrDirInclStdout,
-                config.executionId + L"_stderr_incl_stdout_success.log"
-            );
-        logPaths.failure.stderrSrAndChildInclStdoutTxt =
-            FileHelpers::JoinPath(
-                config.stderrDirInclStdout,
-                config.executionId + L"_stderr_incl_stdout_failure.log"
-            );
-        if (FileHelpers::FileExists(logPaths.running.stderrSrAndChildInclStdoutTxt) ||
-            FileHelpers::FileExists(logPaths.success.stderrSrAndChildInclStdoutTxt) ||
-            FileHelpers::FileExists(logPaths.failure.stderrSrAndChildInclStdoutTxt)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Refusing to start: stderr-sr-and-child-incl-stdout log files already exist\n"
-                L"  EXECUTION_ID=" + config.executionId + L"\n"
-                L"  DIR=" + config.stderrDirInclStdout + L"\n"
-                L"  EXISTING PATHS:\n"
-                L"    " + logPaths.running.stderrSrAndChildInclStdoutTxt + L"\n"
-                L"    " + logPaths.success.stderrSrAndChildInclStdoutTxt + L"\n"
-                L"    " + logPaths.failure.stderrSrAndChildInclStdoutTxt
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-    }
-
-    if (!config.stderrDirJsonl.empty()) {
-        logPaths.running.stderrSrAndChildJsonl =
-            FileHelpers::JoinPath(
-                config.stderrDirJsonl,
-                config.executionId + L"_stderr_running.jsonl"
-            );
-        logPaths.success.stderrSrAndChildJsonl =
-            FileHelpers::JoinPath(
-                config.stderrDirJsonl,
-                config.executionId + L"_stderr_success.jsonl"
-            );
-        logPaths.failure.stderrSrAndChildJsonl =
-            FileHelpers::JoinPath(
-                config.stderrDirJsonl,
-                config.executionId + L"_stderr_failure.jsonl"
-            );
-
-        if (FileHelpers::FileExists(logPaths.running.stderrSrAndChildJsonl) ||
-            FileHelpers::FileExists(logPaths.success.stderrSrAndChildJsonl) ||
-            FileHelpers::FileExists(logPaths.failure.stderrSrAndChildJsonl)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Refusing to start: stderr-sr-and-child JSONL log files already exist\n"
-                L"  EXECUTION_ID=" + config.executionId + L"\n"
-                L"  DIR=" + config.stderrDirJsonl + L"\n"
-                L"  EXISTING PATHS:\n"
-                L"    " + logPaths.running.stderrSrAndChildJsonl + L"\n"
-                L"    " + logPaths.success.stderrSrAndChildJsonl + L"\n"
-                L"    " + logPaths.failure.stderrSrAndChildJsonl
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-    }
-
-    if (!config.stderrDirSrJsonl.empty()) {
-        logPaths.running.stderrSrJsonl =
-            FileHelpers::JoinPath(
-                config.stderrDirSrJsonl,
-                config.executionId + L"_stderr_sr_running.jsonl"
-            );
-        logPaths.success.stderrSrJsonl =
-            FileHelpers::JoinPath(
-                config.stderrDirSrJsonl,
-                config.executionId + L"_stderr_sr_success.jsonl"
-            );
-        logPaths.failure.stderrSrJsonl =
-            FileHelpers::JoinPath(
-                config.stderrDirSrJsonl,
-                config.executionId + L"_stderr_sr_failure.jsonl"
-            );
-
-        if (FileHelpers::FileExists(logPaths.running.stderrSrJsonl) ||
-            FileHelpers::FileExists(logPaths.success.stderrSrJsonl) ||
-            FileHelpers::FileExists(logPaths.failure.stderrSrJsonl)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Refusing to start: stderr-sr JSONL log files already exist\n"
-                L"  EXECUTION_ID=" + config.executionId + L"\n"
-                L"  DIR=" + config.stderrDirSrJsonl + L"\n"
-                L"  EXISTING PATHS:\n"
-                L"    " + logPaths.running.stderrSrJsonl + L"\n"
-                L"    " + logPaths.success.stderrSrJsonl + L"\n"
-                L"    " + logPaths.failure.stderrSrJsonl
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-    }
-
-    if (!config.stderrDirChildJsonl.empty()) {
-        logPaths.running.stderrChildJsonl =
-            FileHelpers::JoinPath(
-                config.stderrDirChildJsonl,
-                config.executionId + L"_stderr_child_running.jsonl"
-            );
-        logPaths.success.stderrChildJsonl =
-            FileHelpers::JoinPath(
-                config.stderrDirChildJsonl,
-                config.executionId + L"_stderr_child_success.jsonl"
-            );
-        logPaths.failure.stderrChildJsonl =
-            FileHelpers::JoinPath(
-                config.stderrDirChildJsonl,
-                config.executionId + L"_stderr_child_failure.jsonl"
-            );
-
-        if (FileHelpers::FileExists(logPaths.running.stderrChildJsonl) ||
-            FileHelpers::FileExists(logPaths.success.stderrChildJsonl) ||
-            FileHelpers::FileExists(logPaths.failure.stderrChildJsonl)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Refusing to start: stderr-child JSONL log files already exist\n"
-                L"  EXECUTION_ID=" + config.executionId + L"\n"
-                L"  DIR=" + config.stderrDirChildJsonl + L"\n"
-                L"  EXISTING PATHS:\n"
-                L"    " + logPaths.running.stderrChildJsonl + L"\n"
-                L"    " + logPaths.success.stderrChildJsonl + L"\n"
-                L"    " + logPaths.failure.stderrChildJsonl
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-    }
-
-    if (!config.stdoutDirJsonl.empty()) {
-        logPaths.running.stdoutJsonl =
-            FileHelpers::JoinPath(
-                config.stdoutDirJsonl,
-                config.executionId + L"_stdout_running.jsonl"
-            );
-        logPaths.success.stdoutJsonl =
-            FileHelpers::JoinPath(
-                config.stdoutDirJsonl,
-                config.executionId + L"_stdout_success.jsonl"
-            );
-        logPaths.failure.stdoutJsonl =
-            FileHelpers::JoinPath(
-                config.stdoutDirJsonl,
-                config.executionId + L"_stdout_failure.jsonl"
-            );
-
-        if (FileHelpers::FileExists(logPaths.running.stdoutJsonl) ||
-            FileHelpers::FileExists(logPaths.success.stdoutJsonl) ||
-            FileHelpers::FileExists(logPaths.failure.stdoutJsonl)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Refusing to start: stdout JSONL log files already exist\n"
-                L"  EXECUTION_ID=" + config.executionId + L"\n"
-                L"  DIR=" + config.stdoutDirJsonl + L"\n"
-                L"  EXISTING PATHS:\n"
-                L"    " + logPaths.running.stdoutJsonl + L"\n"
-                L"    " + logPaths.success.stdoutJsonl + L"\n"
-                L"    " + logPaths.failure.stdoutJsonl
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-    }
-    if (!config.stderrDirInclStdoutJsonl.empty()) {
-        logPaths.running.stderrSrAndChildInclStdoutJsonl =
-            FileHelpers::JoinPath(
-                config.stderrDirInclStdoutJsonl,
-                config.executionId + L"_stderr_incl_stdout_running.jsonl"
-            );
-        logPaths.success.stderrSrAndChildInclStdoutJsonl =
-            FileHelpers::JoinPath(
-                config.stderrDirInclStdoutJsonl,
-                config.executionId + L"_stderr_incl_stdout_success.jsonl"
-            );
-        logPaths.failure.stderrSrAndChildInclStdoutJsonl =
-            FileHelpers::JoinPath(
-                config.stderrDirInclStdoutJsonl,
-                config.executionId + L"_stderr_incl_stdout_failure.jsonl"
-            );
-        if (FileHelpers::FileExists(logPaths.running.stderrSrAndChildInclStdoutJsonl) ||
-            FileHelpers::FileExists(logPaths.success.stderrSrAndChildInclStdoutJsonl) ||
-            FileHelpers::FileExists(logPaths.failure.stderrSrAndChildInclStdoutJsonl)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Refusing to start: stderr-sr-and-child-incl-stdout JSONL log files already exist\n"
-                L"  EXECUTION_ID=" + config.executionId + L"\n"
-                L"  DIR=" + config.stderrDirInclStdoutJsonl + L"\n"
-                L"  EXISTING PATHS:\n"
-                L"    " + logPaths.running.stderrSrAndChildInclStdoutJsonl + L"\n"
-                L"    " + logPaths.success.stderrSrAndChildInclStdoutJsonl + L"\n"
-                L"    " + logPaths.failure.stderrSrAndChildInclStdoutJsonl
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-    }
-
-    // Create/open log directories and running log files.
-    //
-    // Directory semantics:
-    // - EnsureDirExists() has mkdir-p behavior and creates missing directories.
-    // - Relative directories are still resolved against SilentRunner's inherited current
-    //   working directory, not against --cwd.
-    // - CreateNewFile() uses no-overwrite creation for the *_running.log file.
+    // Prepare the probe log separately from persistent running logs.
     if (!config.probeDir.empty()) {
         DWORD gle = 0;
         if (!FileHelpers::EnsureDirExists(config.probeDir, &gle)) {
@@ -632,318 +384,45 @@ void PrepareRuntime(
             return;
         }
 
-        if (!lifecycleDiag.TrySetProbeLogPath(logPaths.probe)) {
+        if (!lifecycleDiag.TrySetProbeLogPath(probePath)) {
             lifecycleDiag.FatalErrorLine(
-                L"Failed to create probe log file: " + logPaths.probe
+                L"Failed to create probe log file: " + probePath
             );
             result.earlyExitCode = 255;
             return;
         }
-        creationResults.probe = true;
 
         lifecycleDiag.ProbeLine(
-            L"Probe log initialized; path=" + logPaths.probe
+            L"Probe log initialized; path=" + probePath
         );
     }
-    if (!config.stderrDir.empty()) {
-        DWORD gle = 0;
-        if (!FileHelpers::EnsureDirExists(config.stderrDir, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create/open --stderr-dir: " + config.stderrDir +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        lifecycleDiag.DebugLine(
-            L"Prepared stderr-sr-and-child log directory OK; path=" + config.stderrDir
+    if (!logFiles.PrepareRunningLogs(&logFailure)) {
+        const auto& target = logFiles.Target(logFailure.target);
+
+        const std::wstring messagePrefix =
+            logFailure.reason == LogCreationFailureReason::EnsureDirectoryFailed
+                ? L"Failed to create/open log directory; target="
+                : L"Failed to create running log file; target=";
+
+        const std::wstring& path =
+            logFailure.reason == LogCreationFailureReason::EnsureDirectoryFailed
+                ? target.config.directory
+                : target.running.path;
+
+        lifecycleDiag.FatalErrorLine(
+            messagePrefix +
+            std::wstring(SR::JobTargetNameToString(logFailure.target)) +
+            L"; path=" + path +
+            L" " + ErrorHelpers::FormatGle(logFailure.gle)
         );
-
-        gle = 0;
-        if (!writers.stderrLogWriter.CreateNewFile(logPaths.running.stderrSrAndChildTxt, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create stderr-sr-and-child log file: " + logPaths.running.stderrSrAndChildTxt +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        creationResults.stderrSrAndChildTxt = true;
-
-        lifecycleDiag.DebugLine(
-            L"Created stderr-sr-and-child running log OK; path=" + logPaths.running.stderrSrAndChildTxt
-        );
-    }
-
-    if (!config.stderrDirSr.empty()) {
-        DWORD gle = 0;
-        if (!FileHelpers::EnsureDirExists(config.stderrDirSr, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create/open --stderr-dir-sr: " + config.stderrDirSr +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        lifecycleDiag.DebugLine(
-            L"Prepared stderr-sr log directory OK; path=" + config.stderrDirSr
-        );
-
-        gle = 0;
-        if (!writers.stderrSrLogWriter.CreateNewFile(logPaths.running.stderrSrTxt, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create stderr-sr log file: " + logPaths.running.stderrSrTxt +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        creationResults.stderrSrTxt = true;
-
-        lifecycleDiag.DebugLine(
-            L"Created stderr-sr running log OK; path=" + logPaths.running.stderrSrTxt
-        );
-    }
-
-    if (!config.stderrDirChild.empty()) {
-        DWORD gle = 0;
-        if (!FileHelpers::EnsureDirExists(config.stderrDirChild, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create/open --stderr-dir-child: " + config.stderrDirChild +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        lifecycleDiag.DebugLine(
-            L"Prepared stderr-child log directory OK; path=" + config.stderrDirChild
-        );
-
-        gle = 0;
-        if (!writers.stderrChildLogWriter.CreateNewFile(logPaths.running.stderrChildTxt, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create stderr-child log file: " + logPaths.running.stderrChildTxt +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        creationResults.stderrChildTxt = true;
-
-        lifecycleDiag.DebugLine(
-            L"Created stderr-child running log OK; path=" + logPaths.running.stderrChildTxt
-        );
-    }
-    if (!config.stderrDirInclStdout.empty()) {
-        DWORD gle = 0;
-        if (!FileHelpers::EnsureDirExists(config.stderrDirInclStdout, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create/open --stderr-dir-incl-stdout: " + config.stderrDirInclStdout +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        lifecycleDiag.DebugLine(
-            L"Prepared stderr-sr-and-child-incl-stdout log directory OK; path=" + config.stderrDirInclStdout
-        );
-        gle = 0;
-        if (!writers.stderrSrAndChildInclStdoutLogWriter.CreateNewFile(logPaths.running.stderrSrAndChildInclStdoutTxt, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create stderr-sr-and-child-incl-stdout log file: " + logPaths.running.stderrSrAndChildInclStdoutTxt +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        creationResults.stderrSrAndChildInclStdoutTxt = true;
-
-        lifecycleDiag.DebugLine(
-            L"Created stderr-sr-and-child-incl-stdout running log OK; path=" + logPaths.running.stderrSrAndChildInclStdoutTxt
-        );
-    }
-
-    if (!config.stdoutDir.empty()) {
-        DWORD gle = 0;
-        if (!FileHelpers::EnsureDirExists(config.stdoutDir, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create/open --stdout-dir: " + config.stdoutDir +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        lifecycleDiag.DebugLine(
-            L"Prepared stdout log directory OK; path=" + config.stdoutDir
-        );
-
-
-        gle = 0;
-        if (!writers.stdoutLogWriter.CreateNewFile(logPaths.running.stdoutTxt, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create stdout log file: " + logPaths.running.stdoutTxt +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        creationResults.stdoutTxt = true;
-
-        lifecycleDiag.DebugLine(
-            L"Created stdout running log OK; path=" + logPaths.running.stdoutTxt
-        );
-    }
-
-    if (!config.stderrDirJsonl.empty()) {
-        DWORD gle = 0;
-        if (!FileHelpers::EnsureDirExists(config.stderrDirJsonl, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create/open --stderr-dir-jsonl: " + config.stderrDirJsonl +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        lifecycleDiag.DebugLine(
-            L"Prepared stderr-sr-and-child JSONL log directory OK; path=" + config.stderrDirJsonl
-        );
-
-        gle = 0;
-        if (!writers.stderrJsonlWriter.CreateNewFile(logPaths.running.stderrSrAndChildJsonl, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create stderr-sr-and-child JSONL log file: " + logPaths.running.stderrSrAndChildJsonl +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        creationResults.stderrSrAndChildJsonl = true;
-
-        lifecycleDiag.DebugLine(
-            L"Created stderr-sr-and-child JSONL running log OK; path=" + logPaths.running.stderrSrAndChildJsonl
-        );
-    }
-
-    if (!config.stderrDirSrJsonl.empty()) {
-        DWORD gle = 0;
-        if (!FileHelpers::EnsureDirExists(config.stderrDirSrJsonl, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create/open --stderr-dir-sr-jsonl: " + config.stderrDirSrJsonl +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        lifecycleDiag.DebugLine(
-            L"Prepared stderr-sr JSONL log directory OK; path=" + config.stderrDirSrJsonl
-        );
-
-        gle = 0;
-        if (!writers.stderrSrJsonlWriter.CreateNewFile(logPaths.running.stderrSrJsonl, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create stderr-sr JSONL log file: " + logPaths.running.stderrSrJsonl +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        creationResults.stderrSrJsonl = true;
-
-        lifecycleDiag.DebugLine(
-            L"Created stderr-sr JSONL running log OK; path=" + logPaths.running.stderrSrJsonl
-        );
-    }
-
-    if (!config.stderrDirChildJsonl.empty()) {
-        DWORD gle = 0;
-        if (!FileHelpers::EnsureDirExists(config.stderrDirChildJsonl, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create/open --stderr-dir-child-jsonl: " + config.stderrDirChildJsonl +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        lifecycleDiag.DebugLine(
-            L"Prepared stderr-child JSONL log directory OK; path=" + config.stderrDirChildJsonl
-        );
-
-        gle = 0;
-        if (!writers.stderrChildJsonlWriter.CreateNewFile(logPaths.running.stderrChildJsonl, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create stderr-child JSONL log file: " + logPaths.running.stderrChildJsonl +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        creationResults.stderrChildJsonl = true;
-
-        lifecycleDiag.DebugLine(
-            L"Created stderr-child JSONL running log OK; path=" + logPaths.running.stderrChildJsonl
-        );
-    }
-    if (!config.stderrDirInclStdoutJsonl.empty()) {
-        DWORD gle = 0;
-        if (!FileHelpers::EnsureDirExists(config.stderrDirInclStdoutJsonl, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create/open --stderr-dir-incl-stdout-jsonl: " + config.stderrDirInclStdoutJsonl +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        lifecycleDiag.DebugLine(
-            L"Prepared stderr-sr-and-child-incl-stdout JSONL log directory OK; path=" + config.stderrDirInclStdoutJsonl
-        );
-        gle = 0;
-        if (!writers.stderrSrAndChildInclStdoutJsonlWriter.CreateNewFile(logPaths.running.stderrSrAndChildInclStdoutJsonl, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create stderr-sr-and-child-incl-stdout JSONL log file: " + logPaths.running.stderrSrAndChildInclStdoutJsonl +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        creationResults.stderrSrAndChildInclStdoutJsonl = true;
-
-        lifecycleDiag.DebugLine(
-            L"Created stderr-sr-and-child-incl-stdout JSONL running log OK; path=" + logPaths.running.stderrSrAndChildInclStdoutJsonl
-        );
-    }
-
-    if (!config.stdoutDirJsonl.empty()) {
-        DWORD gle = 0;
-        if (!FileHelpers::EnsureDirExists(config.stdoutDirJsonl, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create/open --stdout-dir-jsonl: " + config.stdoutDirJsonl +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        lifecycleDiag.DebugLine(
-            L"Prepared stdout JSONL log directory OK; path=" + config.stdoutDirJsonl
-        );
-
-        gle = 0;
-        if (!writers.stdoutJsonlWriter.CreateNewFile(logPaths.running.stdoutJsonl, &gle)) {
-            lifecycleDiag.FatalErrorLine(
-                L"Failed to create stdout JSONL log file: " + logPaths.running.stdoutJsonl +
-                L" " + ErrorHelpers::FormatGle(gle)
-            );
-            result.earlyExitCode = 255;
-            return;
-        }
-        creationResults.stdoutJsonl = true;
-        lifecycleDiag.DebugLine(
-            L"Created stdout JSONL running log OK; path=" + logPaths.running.stdoutJsonl
-        );
+        result.earlyExitCode = 255;
+        return;
     }
 
     SRChildCmdBuilder childCmdBuilder;
 
     if (!childCmdBuilder.Build(
+            result.comspecPath,
             config.argVector,
             config.childArgsStartIndex,
             config.executionMode,
@@ -962,49 +441,15 @@ void PrepareRuntime(
     result.specialCharactersDebugMessage =
         childCmdBuilder.specialCharactersDebugMessage;
 
-    fileSinkWorker.AttachLogWriters(
-        creationResults.stdoutTxt,
-        &writers.stdoutLogWriter,
-        logPaths.running.stdoutTxt,
-
-        creationResults.stderrSrAndChildTxt,
-        &writers.stderrLogWriter,
-        logPaths.running.stderrSrAndChildTxt,
-
-        creationResults.stderrChildTxt,
-        &writers.stderrChildLogWriter,
-        logPaths.running.stderrChildTxt,
-
-        creationResults.stderrSrTxt,
-        &writers.stderrSrLogWriter,
-        logPaths.running.stderrSrTxt,
-
-        creationResults.stderrSrAndChildInclStdoutTxt,
-        &writers.stderrSrAndChildInclStdoutLogWriter,
-        logPaths.running.stderrSrAndChildInclStdoutTxt
+    SR::JobTargetFilter txtLogFilter;
+    txtLogFilter.format = SR::JobTargetFormat::Txt;
+    SR::JobTargetFilter jsonlLogFilter;
+    jsonlLogFilter.format = SR::JobTargetFormat::Jsonl;
+    fileSinkWorker.AttachTxtLogWriters(
+        logFiles.BuildRunningBindings(txtLogFilter)
     );
-
-    fileSinkWorker.AttachJsonlWriters(
-
-        creationResults.stdoutJsonl,
-        &writers.stdoutJsonlWriter,
-        logPaths.running.stdoutJsonl,
-
-        creationResults.stderrSrAndChildJsonl,
-        &writers.stderrJsonlWriter,
-        logPaths.running.stderrSrAndChildJsonl,
-
-        creationResults.stderrChildJsonl,
-        &writers.stderrChildJsonlWriter,
-        logPaths.running.stderrChildJsonl,
-
-        creationResults.stderrSrJsonl,
-        &writers.stderrSrJsonlWriter,
-        logPaths.running.stderrSrJsonl,
-
-        creationResults.stderrSrAndChildInclStdoutJsonl,
-        &writers.stderrSrAndChildInclStdoutJsonlWriter,
-        logPaths.running.stderrSrAndChildInclStdoutJsonl
+    fileSinkWorker.AttachJsonlLogWriters(
+        logFiles.BuildRunningBindings(jsonlLogFilter)
     );
 
     result.ok = true;

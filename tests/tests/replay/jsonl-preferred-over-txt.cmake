@@ -45,6 +45,7 @@ sr_assert_stderr_contains(
 )
 
 sr_assert_stdout_txt_header(r "CHILDSTDOUT")
+sr_assert_stdout_contains(r "[executionId=${execution_id}]")
 sr_assert_stdout_occurrence_count(
     r
     "${SR_TEST_CHILD_STDOUT_MARKER}"
@@ -61,6 +62,7 @@ sr_assert_file_occurrence_count(
     "${SR_TEST_CHILD_STDOUT_MARKER}"
     1
 )
+sr_assert_file_contains("${expected_txt_log}" "[executionId=${execution_id}]")
 
 sr_assert_file_not_empty("${expected_jsonl_log}")
 sr_assert_jsonl_default_text_payload(
@@ -68,5 +70,22 @@ sr_assert_jsonl_default_text_payload(
     "ChildStdout"
     "${expected_payload}"
 )
+file(STRINGS "${expected_jsonl_log}" jsonl_records ENCODING UTF-8)
+set(checked_jsonl 0)
+foreach(record IN LISTS jsonl_records)
+    if("${record}" STREQUAL "")
+        continue()
+    endif()
+    string(JSON record_execution_id GET "${record}" executionId)
+    string(JSON record_execution_type TYPE "${record}" executionId)
+    if(NOT record_execution_type STREQUAL "STRING"
+        OR NOT record_execution_id STREQUAL execution_id)
+        message(FATAL_ERROR "Unexpected execution ID in JSONL replay source: ${record}")
+    endif()
+    math(EXPR checked_jsonl "${checked_jsonl} + 1")
+endforeach()
+if(checked_jsonl EQUAL 0)
+    message(FATAL_ERROR "Expected JSONL records for replay identity check.")
+endif()
 
 sr_assert_directory_file_count("${log_dir}" 2)

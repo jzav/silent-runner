@@ -22,29 +22,41 @@ DWORD GetParentPid(DWORD pid) {
     return 0;
 }
 
-std::wstring GetProcessImagePath(DWORD pid) {
-    CoreHelpers::UniqueHandle h(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
-    if (!h.valid()) return L"";
+std::wstring GetProcessImagePath(DWORD pid, HANDLE processHandle) {
+    CoreHelpers::UniqueHandle openedHandle;
+    if (!processHandle) {
+        openedHandle.reset(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+        processHandle = openedHandle.get();
+    }
+    if (!processHandle || processHandle == INVALID_HANDLE_VALUE) return L"";
 
     wchar_t buf[32768];
     DWORD sz = (DWORD)(sizeof(buf) / sizeof(buf[0]));
-    if (!QueryFullProcessImageNameW(h.get(), 0, buf, &sz)) return L"";
+    if (!QueryFullProcessImageNameW(processHandle, 0, buf, &sz)) return L"";
     return std::wstring(buf, sz);
 }
 
 // Returns best-effort debug info about process and its parent.
 // Never throws. Missing pieces are replaced with "?".
-std::wstring GetProcessDebugInfo(DWORD pid) {
+std::wstring GetProcessDebugInfo(DWORD pid, HANDLE processHandle) {
     std::wstring result;
 
     // --- PID ---
     result += L"PID=" + std::to_wstring(pid);
 
     // --- PID image ---
-    std::wstring image = GetProcessImagePath(pid);
+    std::wstring image = GetProcessImagePath(pid, processHandle);
     result += L" PIDIMAGE=";
     result += (!image.empty() ? image : L"?");
 
+    // --- PID name ---
+    result += L" PIDNAME=";
+    if (!image.empty()) {
+        const size_t separator = image.find_last_of(L"\\/");
+        result += image.substr(separator == std::wstring::npos ? 0 : separator + 1);
+    } else {
+        result += L"?";
+    }
     // --- Parent PID ---
     DWORD parentPid = GetParentPid(pid);
     const bool isSelfParent = (parentPid == pid && parentPid != 0);

@@ -13,13 +13,15 @@
 #include <thread>
 #include <vector>
 
-#include "LogWriter.h"
 #include "SRPendingJobTypes.h"
+#include "SRWorkerTypes.h"
+namespace LogWriter { class FileWriter; }
+struct TargetLogBinding;
 
 class ExecutionTimeline;
 class SRLifecycleDiagnostics;
 class SRWorkerCommonPolicy;
-namespace SR { class SRWorkerSupervisor; struct SRFileSinkWorkerConfig; }
+namespace SR { class SRWorkerSupervisor; }
 
 
 class SRFileSinkWorker {
@@ -44,44 +46,16 @@ public:
     bool Init(
         SRLifecycleDiagnostics* diagnostics,
         const SR::FileSinkWorkerTargetLayout& targetLayout,
-        const SR::SRFileSinkWorkerConfig& config,
+        SR::JsonlPayloadRepresentation jsonlPayloadRepresentation,
         const SRWorkerCommonPolicy& workerCommonPolicy
     );
 
 
-    void AttachLogWriters(
-        bool stdoutTxtEnabled,
-        LogWriter::FileWriter* stdoutTxtWriter,
-        const std::wstring& stdoutTxtRunningPath,
-        bool stderrSrAndChildTxtEnabled,
-        LogWriter::FileWriter* stderrSrAndChildTxtWriter,
-        const std::wstring& stderrSrAndChildTxtRunningPath,
-        bool stderrChildTxtEnabled,
-        LogWriter::FileWriter* stderrChildTxtWriter,
-        const std::wstring& stderrChildTxtRunningPath,
-        bool stderrSrTxtEnabled,
-        LogWriter::FileWriter* stderrSrTxtWriter,
-        const std::wstring& stderrSrTxtRunningPath,
-        bool stderrSrAndChildInclStdoutTxtEnabled,
-        LogWriter::FileWriter* stderrSrAndChildInclStdoutTxtWriter,
-        const std::wstring& stderrSrAndChildInclStdoutTxtRunningPath
+    void AttachTxtLogWriters(
+        const std::vector<TargetLogBinding>& bindings
     );
-    void AttachJsonlWriters(
-        bool stdoutJsonlEnabled,
-        LogWriter::FileWriter* stdoutJsonlWriter,
-        const std::wstring& stdoutJsonlRunningPath,
-        bool stderrSrAndChildJsonlEnabled,
-        LogWriter::FileWriter* stderrSrAndChildJsonlWriter,
-        const std::wstring& stderrSrAndChildJsonlRunningPath,
-        bool stderrChildJsonlEnabled,
-        LogWriter::FileWriter* stderrChildJsonlWriter,
-        const std::wstring& stderrChildJsonlRunningPath,
-        bool stderrSrJsonlEnabled,
-        LogWriter::FileWriter* stderrSrJsonlWriter,
-        const std::wstring& stderrSrJsonlRunningPath,
-        bool stderrSrAndChildInclStdoutJsonlEnabled,
-        LogWriter::FileWriter* stderrSrAndChildInclStdoutJsonlWriter,
-        const std::wstring& stderrSrAndChildInclStdoutJsonlRunningPath
+    void AttachJsonlLogWriters(
+        const std::vector<TargetLogBinding>& bindings
     );
 
     bool EnqueuePendingJobs(const SR::PendingJobs& jobs);
@@ -98,26 +72,20 @@ private:
         SR::JobTargetFormat format = SR::JobTargetFormat::Txt;
 
         bool enabled = false;
-        bool headerParsingTokenEnabled = false;
+        bool headerEnabled = false;
 
         LogWriter::FileWriter* writer = nullptr;
-        std::wstring runningPath;
     };
 
-
-    struct WorkerFailureState {
-        bool suppressedAfterWriteFailure = false;
-        DWORD firstWriteFailureGle = 0;
-        std::wstring firstWriteFailureText;
-    };
 
     struct WorkerConfig {
-        WorkerFailureState failure;
+        SR::FileSinkWorkerFailureState failure;
         std::string parsingToken;
-        SR::ChildOutputPresentation stdoutPresentation =
-            SR::ChildOutputPresentation::Block;
-        SR::ChildOutputPresentation stderrChildPresentation =
-            SR::ChildOutputPresentation::Block;
+        std::wstring executionId;
+        SR::ChildTxtHeaderGranularity stdoutTxtHeaderGranularity =
+            SR::ChildTxtHeaderGranularity::Block;
+        SR::ChildTxtHeaderGranularity stderrChildTxtHeaderGranularity =
+            SR::ChildTxtHeaderGranularity::Block;
         SR::JsonlPayloadRepresentation jsonlPayloadRepresentation =
             SR::JsonlPayloadRepresentation::Text;
 
@@ -127,10 +95,12 @@ private:
     struct WriteConfigSnapshot {
         FileTargetConfig targetConfig;
         std::string parsingToken;
-        SR::ChildOutputPresentation stdoutPresentation =
-            SR::ChildOutputPresentation::Block;
-        SR::ChildOutputPresentation stderrChildPresentation =
-            SR::ChildOutputPresentation::Block;
+        std::wstring executionId;
+        SR::ChildTxtHeaderGranularity stdoutTxtHeaderGranularity =
+            SR::ChildTxtHeaderGranularity::Block;
+        SR::ChildTxtHeaderGranularity stderrChildTxtHeaderGranularity =
+
+            SR::ChildTxtHeaderGranularity::Block;
         SR::JsonlPayloadRepresentation jsonlPayloadRepresentation =
             SR::JsonlPayloadRepresentation::Text;
 
@@ -140,7 +110,6 @@ private:
 
 
     struct WorkerDomain {
-        SR::FileSinkWorkerTargetLayout targetLayout;
         std::array<
             FileTargetConfig,
             SR::kFileSinkTargetConfigCount
@@ -150,38 +119,8 @@ private:
 
 
     void AttachLogWritersLocked_(
-        bool stdoutTxtEnabled,
-        LogWriter::FileWriter* stdoutTxtWriter,
-        const std::wstring& stdoutTxtRunningPath,
-        bool stderrSrAndChildTxtEnabled,
-        LogWriter::FileWriter* stderrSrAndChildTxtWriter,
-        const std::wstring& stderrSrAndChildTxtRunningPath,
-        bool stderrChildTxtEnabled,
-        LogWriter::FileWriter* stderrChildTxtWriter,
-        const std::wstring& stderrChildTxtRunningPath,
-        bool stderrSrTxtEnabled,
-        LogWriter::FileWriter* stderrSrTxtWriter,
-        const std::wstring& stderrSrTxtRunningPath,
-        bool stderrSrAndChildInclStdoutTxtEnabled,
-        LogWriter::FileWriter* stderrSrAndChildInclStdoutTxtWriter,
-        const std::wstring& stderrSrAndChildInclStdoutTxtRunningPath
-    );
-    void AttachJsonlWritersLocked_(
-        bool stdoutJsonlEnabled,
-        LogWriter::FileWriter* stdoutJsonlWriter,
-        const std::wstring& stdoutJsonlRunningPath,
-        bool stderrSrAndChildJsonlEnabled,
-        LogWriter::FileWriter* stderrSrAndChildJsonlWriter,
-        const std::wstring& stderrSrAndChildJsonlRunningPath,
-        bool stderrChildJsonlEnabled,
-        LogWriter::FileWriter* stderrChildJsonlWriter,
-        const std::wstring& stderrChildJsonlRunningPath,
-        bool stderrSrJsonlEnabled,
-        LogWriter::FileWriter* stderrSrJsonlWriter,
-        const std::wstring& stderrSrJsonlRunningPath,
-        bool stderrSrAndChildInclStdoutJsonlEnabled,
-        LogWriter::FileWriter* stderrSrAndChildInclStdoutJsonlWriter,
-        const std::wstring& stderrSrAndChildInclStdoutJsonlRunningPath
+        const std::vector<TargetLogBinding>& bindings,
+        SR::JobTargetFormat expectedFormat
     );
     
     void ThreadMain_();

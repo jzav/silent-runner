@@ -1,11 +1,10 @@
 #include "SRChildCmdBuilder.h"
 #include "HelpGenerator.h"
-#include "FileHelpers.h"
-
 constexpr const wchar_t* kUnsupportedScriptOrExeMetacharacters =
     L"&|><()^%!";
 
 bool SRChildCmdBuilder::Build(
+    const std::wstring& comspecPath,
     const std::vector<std::wstring>& argVector,
     int childArgsStartIndex,
     SR::ExecutionMode executionMode,
@@ -46,9 +45,7 @@ bool SRChildCmdBuilder::Build(
     }
 
     fullCmdLineForCreateProcess =
-        FileHelpers::GetComSpec() +
-
-        L" /d /s /c \"" +
+        L"\"" + comspecPath + L"\" /d /s /c \"" +
         commandForCmdExe +
         L"\"";
 
@@ -60,11 +57,11 @@ void SRChildCmdBuilder::ParseChildCommand(
     int childArgsStartIndex
 ) {
     childArgsStartIndexValid_ = false;
-    parsedRawCommand_ = ParsedRawCommand{};
+    parsedCommandString_ = ParsedCommandString{};
     parsedScriptOrExeCommand_ = ParsedScriptOrExeCommand{};
 
-    if (executionMode_ == SR::ExecutionMode::RawCommand) {
-        ParseRawCommand(
+    if (executionMode_ == SR::ExecutionMode::CommandString) {
+        ParseCommandString(
             argVector,
             childArgsStartIndex
         );
@@ -76,7 +73,7 @@ void SRChildCmdBuilder::ParseChildCommand(
     }
 }
 
-void SRChildCmdBuilder::ParseRawCommand(
+void SRChildCmdBuilder::ParseCommandString(
     const std::vector<std::wstring>& argVector,
     int childArgsStartIndex
 ) {
@@ -89,9 +86,9 @@ void SRChildCmdBuilder::ParseRawCommand(
         static_cast<std::size_t>(childArgsStartIndex);
 
     childArgsStartIndexValid_ = true;
-    parsedRawCommand_.command =
+    parsedCommandString_.command =
         argVector[startIndex];
-    parsedRawCommand_.childArgCount =
+    parsedCommandString_.childArgCount =
         argVector.size() - startIndex;
 }
 
@@ -120,26 +117,26 @@ void SRChildCmdBuilder::ParseScriptOrExeCommand(
 }
 
 bool SRChildCmdBuilder::ValidateParsedChildCommand() {
-    if (executionMode_ == SR::ExecutionMode::RawCommand) {
-        return ValidateParsedRawCommand();
+    if (executionMode_ == SR::ExecutionMode::CommandString) {
+        return ValidateParsedCommandString();
     }
 
     return ValidateParsedScriptOrExeCommand();
 }
 
-bool SRChildCmdBuilder::ValidateParsedRawCommand() {
+bool SRChildCmdBuilder::ValidateParsedCommandString() {
     if (!childArgsStartIndexValid_) {
         err = L"Missing value for -c";
         return false;
     }
 
-    if (parsedRawCommand_.childArgCount != 1) {
+    if (parsedCommandString_.childArgCount != 1) {
         err =
             L"-c expects a single command string argument (use quotes if needed)";
         return false;
     }
 
-    if (parsedRawCommand_.command.empty()) {
+    if (parsedCommandString_.command.empty()) {
         err = L"-c command string must not be empty";
         return false;
     }
@@ -163,8 +160,8 @@ bool SRChildCmdBuilder::ValidateParsedScriptOrExeCommand() {
 std::wstring SRChildCmdBuilder::BuildCommandForCmdExe(
     SpecialCharsDebugItems& specialCharsDebugItems
 ) const {
-    if (executionMode_ == SR::ExecutionMode::RawCommand) {
-        return BuildRawCommand();
+    if (executionMode_ == SR::ExecutionMode::CommandString) {
+        return BuildCommandString();
     }
 
     return BuildScriptOrExeCommand(
@@ -172,8 +169,8 @@ std::wstring SRChildCmdBuilder::BuildCommandForCmdExe(
     );
 }
 
-std::wstring SRChildCmdBuilder::BuildRawCommand() const {
-    return parsedRawCommand_.command;
+std::wstring SRChildCmdBuilder::BuildCommandString() const {
+    return parsedCommandString_.command;
 }
 
 std::wstring SRChildCmdBuilder::BuildScriptOrExeCommand(
@@ -181,11 +178,8 @@ std::wstring SRChildCmdBuilder::BuildScriptOrExeCommand(
 ) const {
     std::wstring commandForCmdExe;
 
-    auto appendToken =
-        [&](
-            const std::wstring& token,
-            bool prependSpace
-        ) {
+    auto recordSpecialChars =
+        [&](const std::wstring& token) {
             SpecialCharsDebugItem item;
             item.detected =
                 DetectSpecialScriptOrExeCmdChars(token);
@@ -194,27 +188,17 @@ std::wstring SRChildCmdBuilder::BuildScriptOrExeCommand(
                 item.rawArg = token;
                 specialCharsDebugItems.items.push_back(item);
             }
-
-            if (prependSpace) {
-                commandForCmdExe.push_back(L' ');
-            }
-
-            commandForCmdExe.append(
-                QuoteIfNeeded(token)
-            );
         };
 
-    appendToken(
-        parsedScriptOrExeCommand_.command,
-        false
-    );
+    const auto& scriptOrExe = parsedScriptOrExeCommand_.command;
+    recordSpecialChars(scriptOrExe);
+    commandForCmdExe = L"\"" + scriptOrExe + L"\"";
 
     for (const auto& argument :
         parsedScriptOrExeCommand_.commandArguments) {
-        appendToken(
-            argument,
-            true
-        );
+        recordSpecialChars(argument);
+        commandForCmdExe.push_back(L' ');
+        commandForCmdExe.append(QuoteIfNeeded(argument));
     }
 
     return commandForCmdExe;
@@ -239,7 +223,7 @@ std::wstring SRChildCmdBuilder::BuildSpecialCharactersDebugMessage(
     message +=
         L"  EFFECTS=chaining (&, &&, ||), output piping (|), redirection (>, <), grouping ( ), escaping (^), variable expansion (%...%, !...!)\n\n"
         L"For complex command logic, use a .cmd or other script file (multi-line supported).\n"
-        L"For raw command strings, use -c \"<command>\".\n"
+        L"To use Command-string mode, pass -c \"<command>\".\n"
         L"For examples and detailed usage, see documentation.";
 
     return message;
@@ -272,7 +256,7 @@ std::wstring SRChildCmdBuilder::DetectSpecialScriptOrExeCmdChars(
 // - Script-or-exe mode records suspicious metacharacters as diagnostics, but
 //   does not reject them.
 // - Complex command logic should be placed in a .cmd/script file or passed via
-//   raw command mode (-c).
+//   Command-string mode (-c).
 std::wstring SRChildCmdBuilder::QuoteIfNeeded(const std::wstring& s) {
     if (s.empty()) {
         return L"\"\"";

@@ -43,7 +43,7 @@ sr_assert_stderr_contains(
 )
 sr_assert_stderr_not_contains(
     r
-    "Fatal runtime stop: Buffer limit exceeded"
+    "Runtime stop: Buffer limit exceeded"
 )
 
 sr_assert_stdout_txt_header(r "CHILDSTDOUT")
@@ -61,3 +61,31 @@ sr_assert_jsonl_default_text_payload(
 )
 
 sr_assert_directory_file_count("${log_dir}" 1)
+# A compatible Raw TXT source must also bypass the replay RAM limits.
+set(raw_log_dir "${SR_TEST_ROOT}/raw-logs")
+set(raw_execution_id "ctest-buffer-raw-persistent-replay-bypass")
+set(raw_final_log "${raw_log_dir}/${raw_execution_id}_stdout_raw_success.log")
+set(raw_running_log "${raw_log_dir}/${raw_execution_id}_stdout_raw_running.log")
+set(raw_output "${SR_TEST_ROOT}/raw-replay-bypass.bin")
+set(raw_expected "${SR_TEST_ROOT}/raw-replay-bypass-expected.bin")
+sr_write_crlf_terminated_fixture("${raw_expected}" "${SR_TEST_CHILD_STDOUT_MARKER}")
+cmake_path(NATIVE_PATH raw_running_log NORMALIZE raw_running_log_native)
+
+sr_run(raw OUTPUT_FILE "${raw_output}" ARGS
+    --debug
+    --id-base "${raw_execution_id}"
+    --stdout-dir-raw "${raw_log_dir}"
+    --stdout-emit-raw end
+    --stdout-max-buffer-bytes 1
+    --std-total-max-buffer-bytes 1
+    --stderr-emit-sr stream
+    "${SR_STDOUT_CMD}"
+)
+sr_assert_exit(raw 0)
+sr_assert_stderr_contains(raw
+    "stdout={target=StdoutParentRaw source=Txt path=${raw_running_log_native}}"
+)
+sr_assert_stderr_not_contains(raw "Runtime stop: Buffer limit exceeded")
+sr_assert_files_equal_bytes("${raw_output}" "${raw_expected}")
+sr_assert_files_equal_bytes("${raw_final_log}" "${raw_expected}")
+sr_assert_directory_file_count("${raw_log_dir}" 1)

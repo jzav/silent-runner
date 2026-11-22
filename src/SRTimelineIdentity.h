@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "SRTypes.h"
@@ -35,16 +36,6 @@ struct TimelineEntryKeyLocationPair {
 
 using TimelineEntryKeyLocationPairs =
     std::vector<TimelineEntryKeyLocationPair>;
-
-struct GetAllDelayedFilter {
-    bool stdoutParent = false;
-    bool stderrSrAndChildParent = false;
-    bool stderrChildParent = false;
-    bool stderrSrParent = false;
-    bool stderrSrAndChildInclStdoutParent = false;
-
-};
-
 
 using JobQueueItem = TimelineEntryKeyLocationPair;
 using JobQueueItems = std::vector<JobQueueItem>;

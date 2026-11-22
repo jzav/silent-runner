@@ -4,7 +4,7 @@
 #include <mutex>
 #include <vector>
 
-#include "SRPendingJobTypes.h"
+#include "SRJobTypes.h"
 #include "SRTimelineIdentity.h"
 
 namespace SR {

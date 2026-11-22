@@ -1,8 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <deque>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -10,15 +12,13 @@
 #include "SRTypes.h"
 #include "SRPendingJobTypes.h"
 #include "SRJobsExchange.h"
-#include "SRParentEmitPolicy.h"
-#include "SRParentReplayTypes.h"
+#include "SRTimelineLocationResolveBatch.h"
 
 #include "SRExecutionTimelineDiagnostics.h"
 
 class SRLifecycleDiagnostics;
-namespace SR {
-struct ExecutionTimelineConfig;
-}
+class SRParentEmitPolicy;
+namespace SR { struct ParentReplayParameters; }
 
 // Opaque phase handle used by execution-level APIs.
 //
@@ -52,7 +52,7 @@ public:
     ExecutionTimeline(const ExecutionTimeline&) = delete;
     ExecutionTimeline& operator=(const ExecutionTimeline&) = delete;
 
-    bool Init(const SR::ExecutionTimelineConfig& config);
+    bool Init(bool verbose);
 
 
     PhaseContext PrepareContext() noexcept;
@@ -63,6 +63,11 @@ public:
 
     bool StartPhase(PhaseContext context);
     bool EndPhase(PhaseContext context);
+    bool SetPhaseExitCode(PhaseContext context, int exitCode);
+    bool SetRuntimeChildExitCode(DWORD exitCode);
+    std::optional<int> GetPhaseExitCode(PhaseContext context) const;
+    std::wstring GetPhaseStartUtc(PhaseContext context) const;
+    std::wstring GetPhaseEndUtc(PhaseContext context) const;
     void EndCurrentPhase();
     void StopRouting();
     bool HarvestCompletedJobs();

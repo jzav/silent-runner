@@ -10,11 +10,35 @@
 
 namespace FileHelpers {
 
-std::wstring GetComSpec();
+bool TryResolveComSpecPath(
+    std::wstring& resolvedPath,
+    std::wstring& err
+);
+// Expand environment variables once, independently for each path component.
+// Components are separated by '\' or '/', so percent signs cannot pair
+// across path separators. Undefined references are rejected.
+// References introduced by expansion are not processed again.
+bool TryExpandEnvironmentVariables(
+    const std::wstring& input,
+    std::wstring& expanded,
+    std::wstring& missingVariable,
+    DWORD* outGle = nullptr
+);
+
+// Resolve a path against the current directory of the SilentRunner process.
+// Does not require the path or its parent directories to exist.
+bool TryResolveFullPath(
+    const std::wstring& path,
+    std::wstring& resolvedPath,
+    DWORD* outGle = nullptr
+);
 
 // Returns true if a regular file exists at the given path.
 // Returns false if the file does not exist or the path points to a directory.
 bool FileExists(const std::wstring& path) noexcept;
+
+// Returns true if the path points to an existing directory.
+bool DirectoryExists(const std::wstring& path) noexcept;
 
 // Ensure directory path recursively (mkdir -p style).
 bool EnsureDirExists(std::wstring dir, DWORD* outGle);
@@ -26,8 +50,11 @@ std::wstring JoinPath(std::wstring dir, const std::wstring& name);
 // "2026-02-21_11-34-07Z_pid1234" (UTC)
 std::wstring BuildDefaultExecutionIdUtcPid();
 
-// "2026-02-21_11-34-07Z" (UTC)
+// For Execution IDs and log filenames: "2026-02-21_11-34-07Z" (UTC).
 std::wstring MakeRunUtcTimestamp();
+
+// For event, phase, and diagnostic timestamps: "2026-02-21T11:34:07.123Z" (UTC).
+std::wstring MakeEventUtcTimestamp();
 
 // "pid1234"
 std::wstring MakeRunPidToken();

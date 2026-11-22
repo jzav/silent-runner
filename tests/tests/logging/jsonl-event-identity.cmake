@@ -6,6 +6,8 @@ set(execution_id "ctest-jsonl-event-identity")
 set(expected_log
     "${log_dir}/${execution_id}_stdout_success.jsonl"
 )
+set(expected_txt_log "${log_dir}/${execution_id}_stdout_success.log")
+set(expected_sr_jsonl "${log_dir}/${execution_id}_stderr_sr_success.jsonl")
 
 set(payload_file "${SR_TEST_ROOT}/jsonl-identity-events.bin")
 set(first_part "${SR_TEST_ROOT}/jsonl-identity-first.bin")
@@ -40,8 +42,11 @@ sr_write_type_emitter_cmd(
 )
 
 sr_run(r ARGS
+    --debug
     --id-base "${execution_id}"
+    --stdout-dir "${log_dir}"
     --stdout-dir-jsonl "${log_dir}"
+    --stderr-dir-sr-jsonl "${log_dir}"
     --stdout-event-framing lf
     --stdout-event-newline-max-bytes 64
     --stdout-emit never
@@ -52,6 +57,13 @@ sr_run(r ARGS
 sr_assert_exit(r 0)
 
 sr_assert_file_not_empty("${expected_log}")
+sr_assert_file_not_empty("${expected_txt_log}")
+sr_assert_file_not_empty("${expected_sr_jsonl}")
+sr_assert_file_occurrence_count(
+    "${expected_txt_log}"
+    "[executionId=${execution_id}]"
+    3
+)
 
 sr_assert_jsonl_text_event_sequence(
     "${expected_log}"
@@ -76,6 +88,16 @@ foreach(record IN LISTS records)
     endif()
 
     string(JSON payload_type GET "${record}" payloadType)
+    string(JSON record_execution_id GET "${record}" executionId)
+    string(JSON execution_id_type TYPE "${record}" executionId)
+    if(NOT execution_id_type STREQUAL "STRING"
+        OR NOT record_execution_id STREQUAL execution_id)
+        message(FATAL_ERROR
+            "Unexpected JSONL executionId in child event.\n"
+            "Expected: ${execution_id}\n"
+            "Record: ${record}"
+        )
+    endif()
 
     if(NOT payload_type STREQUAL "ChildStdout")
         continue()
@@ -101,9 +123,11 @@ foreach(record IN LISTS records)
         )
     endif()
 
-    if("${timestamp_utc}" STREQUAL "")
+    if(NOT "${timestamp_utc}" MATCHES
+            "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9][.][0-9][0-9][0-9]Z$")
         message(FATAL_ERROR
-            "Expected non-empty tsUtc in JSONL child event.\n"
+            "Expected ISO 8601 UTC tsUtc with milliseconds in JSONL child event.\n"
+            "Timestamp: ${timestamp_utc}\n"
             "Record: ${record}"
         )
     endif()
@@ -142,4 +166,65 @@ if(NOT matched_count EQUAL 3)
     )
 endif()
 
-sr_assert_directory_file_count("${log_dir}" 1)
+# SR diagnostics must carry the same execution ID in both lifecycle phases.
+file(STRINGS "${expected_sr_jsonl}" sr_records ENCODING UTF-8)
+set(saw_prepare FALSE)
+set(saw_runtime FALSE)
+foreach(record IN LISTS sr_records)
+    if("${record}" STREQUAL "")
+        continue()
+    endif()
+    string(JSON record_execution_id GET "${record}" executionId)
+    string(JSON record_execution_type TYPE "${record}" executionId)
+    string(JSON phase GET "${record}" phase)
+    if(NOT record_execution_type STREQUAL "STRING"
+        OR NOT record_execution_id STREQUAL execution_id)
+        message(FATAL_ERROR "SR JSONL record has wrong execution ID: ${record}")
+    endif()
+    if(phase STREQUAL "prepare")
+        set(saw_prepare TRUE)
+    elseif(phase STREQUAL "runtime")
+        set(saw_runtime TRUE)
+    endif()
+endforeach()
+if(NOT saw_prepare OR NOT saw_runtime)
+    message(FATAL_ERROR
+        "Expected Prepare and Runtime SR diagnostics with one execution ID."
+    )
+endif()
+
+# A separate SilentRunner run must use its own identifier.
+set(other_execution_id "ctest-jsonl-event-identity-other")
+set(other_log "${log_dir}/${other_execution_id}_stdout_success.jsonl")
+sr_run(other ARGS
+    --id-base "${other_execution_id}"
+    --stdout-dir-jsonl "${log_dir}"
+    --stdout-event-framing lf
+    --stdout-emit never
+    --stderr-emit-sr stream
+    "${child_cmd}"
+)
+sr_assert_exit(other 0)
+sr_assert_file_not_empty("${other_log}")
+file(STRINGS "${other_log}" other_records ENCODING UTF-8)
+set(other_record_count 0)
+foreach(record IN LISTS other_records)
+    if("${record}" STREQUAL "")
+        continue()
+    endif()
+    string(JSON record_execution_id GET "${record}" executionId)
+    string(JSON record_execution_type TYPE "${record}" executionId)
+    if(NOT record_execution_type STREQUAL "STRING"
+        OR NOT record_execution_id STREQUAL other_execution_id
+        OR record_execution_id STREQUAL execution_id)
+        message(FATAL_ERROR "Second run has wrong execution ID: ${record}")
+    endif()
+    math(EXPR other_record_count "${other_record_count} + 1")
+endforeach()
+if(NOT other_record_count EQUAL 3)
+    message(FATAL_ERROR
+        "Expected exactly three child events from second execution, got ${other_record_count}."
+    )
+endif()
+
+sr_assert_directory_file_count("${log_dir}" 4)

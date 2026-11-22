@@ -3,18 +3,17 @@
 #include <string>
 
 #include "SRTypes.h"
-#include "SRExecutionTimeline.h"
-
-namespace SR {
-struct SRLifecycleDiagnosticsConfig;
-}
 
 class SRBufferLimiter;
 class SRParentEmitPolicy;
+class ExecutionTimeline;
 
 
 
 
+// Routes lifecycle diagnostic events through ExecutionTimeline and supports
+// separate best-effort probe logging. It does not decide Runtime stop actions
+// or process-tree termination.
 class SRLifecycleDiagnostics {
 public:
     SRLifecycleDiagnostics() = default;
@@ -26,6 +25,8 @@ public:
         const SRParentEmitPolicy& parentEmitPolicy,
         ExecutionTimeline* executionTimelineOrNull
     ) noexcept;
+
+
 
 
 
@@ -51,14 +52,7 @@ public:
         SR::DiagnosticSeverity severity,
         SR::LifecyclePhase phase,
         const std::wstring& msg
-    ) noexcept;
-
-    static void LastResortEmitFormattedToParentStderr(
-        const std::wstring& timestampUtc,
-        SR::DiagnosticSeverity severity,
-        SR::LifecyclePhase phase,
-        const std::wstring& msg
-    ) noexcept;
+    );
 
     bool IsDebugEnabled() const noexcept { return debugEnabled_; }
 

@@ -1,0 +1,186 @@
+# Execution
+
+SilentRunner's managed execution lifecycle consists of two phases:
+
+- **Prepare phase** -- Validates and resolves execution configuration and prepares
+  the output infrastructure and log files.
+  The child process has not started yet.
+- **Runtime phase** -- Starts and supervises the child process, captures its output,
+  and determines the runtime result, including timeout or buffer-limit failures.
+
+Normal completion requires the main child, managed process tree, and both
+readers to finish. The reported child exit code comes from the main child;
+descendant exit codes are not combined.
+Runtime phase is entered only if Prepare phase succeeds. Once the required
+infrastructure is available, the finalization procedure concludes either
+a failed Prepare phase or the Runtime phase. It handles delayed parent replay,
+log finalization and retention, worker shutdown, and post-execution hook launch.
+Finalization continues after individual recoverable failures where possible.
+Some failures may change the final exit code.
+
+During the Runtime phase, SilentRunner uses a
+[Windows Job Object](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+to manage the child process tree, monitor its completion, and terminate it when
+necessary. When SilentRunner itself runs inside an existing Job Object, Windows
+may form a nested Job Object hierarchy. Restrictions imposed by the outer job may
+affect or prevent assigning the child process to SilentRunner's own Job Object.
+See Microsoft documentation on
+[Nested Jobs](https://learn.microsoft.com/en-us/windows/win32/procthread/nested-jobs)
+and
+[Assigning Processes to a Job Object](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects#assigning-processes-to-a-job-object).
+
+## Execution Modes
+
+SilentRunner supports two execution modes:
+
+### Script/Executable Mode
+
+```text
+SilentRunner.exe [SilentRunner options...] <script-or-exe> [child args...]
+```
+
+In Script/Executable mode, SilentRunner parses its own options first.
+The first non-option argument marks the beginning of the child command.
+That argument is treated as the script or executable path, and all
+remaining arguments are treated as child arguments.
+
+SilentRunner expands environment variable references (`%VAR%`) in its own
+path options (`--cwd`, run hooks, log directories, and `--probe-dir`) during
+the Prepare phase. Expansion is performed only once; references introduced
+by expansion are not expanded again. References to undefined variables are
+rejected. SilentRunner option values (including paths, execution ID
+components, and the command string passed through `-c`) containing spaces
+must be enclosed in quotes when invoking SilentRunner.
+
+By contrast, the child script or executable command is passed to `cmd.exe`
+for resolution and is not pre-resolved by SilentRunner. Environment variable
+references in child paths and arguments are also left for `cmd.exe` to
+interpret. Its ordinary `%VAR%` substitution is likewise performed only
+once per parsing pass. Relative child commands are resolved in the child
+working directory, which can be specified with `--cwd`. As with SilentRunner
+options, child paths and arguments containing spaces must be enclosed
+in quotes.
+
+### Command-string Mode
+
+```text
+SilentRunner.exe [SilentRunner options...] -c "<command>"
+```
+
+In Command-string mode, `-c` must be immediately followed by the complete command
+string as a single argument. Enclose the command in quotes when necessary to
+preserve it as one argument.
+
+In both modes, SilentRunner locates the command interpreter using the inherited
+`ComSpec` environment variable. During the Prepare phase, its value is expanded
+once, resolved to an absolute path, and checked for an existing file. Missing or
+empty `ComSpec` uses `C:\Windows\System32\cmd.exe` as a fallback, which is also
+validated. An explicitly set invalid or undefined `ComSpec` causes a fail-fast
+exit code of `255` before child or hook execution; it never triggers the
+fallback. The resolved interpreter is reused for child and hook launches.
+
+## Execution ID
+
+Each managed execution has an identifier used to track the run and as the base
+name for its log files. By default, it combines a UTC timestamp with the
+SilentRunner process ID (`timestamp+pid`). Optional prefix, base, and suffix
+components can be configured independently; see
+[Execution ID Configuration](parameters.md#execution-id-configuration).
+
+## Exit Codes
+
+On normal completion of the child command, SilentRunner adopts its exit code.
+A final exit code of `0` means success; any nonzero value means failure. The
+child command runs through `cmd.exe /d /s /c`, so its reported exit code can
+also reflect the command interpreter's result.
+
+SilentRunner can produce its own error codes, described below. These are
+**SilentRunner-defined codes**: `2`, `124`, `125`, `253`, or `255`.
+
+Code `254` is reserved for a potential no-diagnostics-output failure mode.
+
+Since the child command can also return these codes, the exit code alone
+does not always identify whether a failure originated in the child command
+or in SilentRunner.
+
+**Phase results and final result:** The Prepare and Runtime phases record
+separate exit codes before finalization. The finalization procedure
+receives the result of the phase being finalized and can change the overall
+exit code if further failures occur. For example, Prepare and Runtime may
+both report `0` while a subsequent log finalization failure changes the
+final result to `255`.
+
+These results are available in SilentRunner diagnostics under keys:
+- `SILENTRUNNER_PREPARE_EXIT_CODE` -- Prepare phase result, when available.
+- `SILENTRUNNER_RUNTIME_EXIT_CODE` -- Runtime phase result, when available.
+- `SILENTRUNNER_EXIT_CODE` -- Overall exit code, as known when reported in diagnostics or passed to a hook.
+
+The phase-result keys are emitted at DEBUG level, while the overall exit-code key
+is emitted at INFO level. The same keys are used as environment variable names
+for post-execution hooks.
+
+If the Prepare phase fails, the Runtime phase is skipped and has no phase
+exit code. Post-execution hooks may also be skipped if the required
+infrastructure has not been prepared.
+
+The `--help` option returns `0` without starting a child command or
+invoking post-execution hooks.
+
+During finalization, SilentRunner determines whether to replay delayed parent
+output in `success` or `failure` mode. Later errors do not cause this
+decision to be reevaluated.
+
+SilentRunner also decides which log files to retain and whether their filenames
+indicate `success` or `failure`. If a subsequent error changes the final exit
+code, these earlier decisions remain unchanged.
+
+Similarly, diagnostic messages report the exit code known at the time
+they are emitted. For example, the `SilentRunner ends` message may report
+a different exit code from the one ultimately returned if a later failure
+occurs.
+
+### Exit Code 2
+
+**Invalid arguments or configuration.** This includes CLI parsing and
+validation errors, as well as an invalid working directory or run-hook
+path detected during Prepare. The child command is not started.
+
+### Exit Code 124
+
+**Runtime timeout.** `--timeout-ms` limits process-tree execution and
+stdout/stderr draining.
+If Runtime has not completed when the timeout expires, SilentRunner aborts
+the process tree and stops pending readers with exit code `124`.
+After successful process-tree termination, both readers receive one shared
+grace period of up to two additional seconds to finish naturally. Remaining
+reads are then cancelled.
+The grace period is not a strict shutdown deadline. Cancellation of pending
+reads may require additional time.
+The captured output may be incomplete. A subsequent internal failure,
+including an unsuccessful forced-stop operation, may change the final result.
+
+### Exit Code 125
+
+**Replay buffer limit exceeded.** A configured stdout, stderr, or combined
+in-memory replay-buffer limit has been reached; execution is aborted. These
+limits apply to buffered execution timeline replay rather than compatible persistent
+file-based replay. See [Buffering](parameters.md#buffering).
+
+### Exit Code 253
+
+**Post-execution hook launch failure.** SilentRunner could not prepare or
+create the process for the selected `--run-on-success` or `--run-on-failure`
+hook.
+
+Hooks are launched as detached processes. SilentRunner does not wait for
+their initialization or completion and does not monitor their exit codes.
+
+A hook launch failure overrides the previous execution result, including
+an internal failure reported as `255`. The success/failure hook selection
+is not reevaluated.
+
+### Exit Code 255
+
+Internal SilentRunner failure. Examples include failures in runtime initialization,
+process management, output workers, replay, or log finalization. Internal failures
+can override the child process's exit code.

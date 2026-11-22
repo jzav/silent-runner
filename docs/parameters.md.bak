@@ -1,0 +1,467 @@
+# Parameter Categories
+
+SilentRunner options are organized into logical groups. Most execution
+scenarios require configuring only a small subset of these categories.
+
+## Process Environment
+
+Controls the execution environment and runtime behavior of the child
+process and run hooks.
+
+By default, the child process inherits SilentRunner's current working
+directory, receives `NUL` as its standard input, uses the system's
+default console code page, and runs without a time limit.
+
+These options allow the working directory, standard input handling,
+console code page, execution timeout, and runtime-failure abort behavior
+to be customized.
+
+### Working Directory
+
+The configured working directory controls the working directory in which the
+child process and run hooks execute. It does not change the base directory used
+to resolve relative paths in SilentRunner path options; those paths are resolved
+relative to SilentRunner's inherited working directory.
+
+The directory specified by `--cwd` must already exist. SilentRunner does not
+create it.
+
+### Termination on Runtime Supervision Failure
+
+A runtime supervision failure occurs when the infrastructure SilentRunner relies on to
+supervise child execution through completion and obtain the main child's
+exit code fails. It is distinct from an unsuccessful child execution or
+an output-processing failure.
+
+If runtime supervision fails, SilentRunner does not terminate the child
+process or its managed process tree unless `--abort-on-runtime-failure`
+is enabled. With that option, SilentRunner requests termination of the
+managed process tree. Without it, completion may remain pending if
+supervision is unavailable. A reported runtime supervision failure
+produces runtime exit code `255`.
+
+Runtime supervision failures are expected to be rare under normal operating
+conditions, so `--abort-on-runtime-failure` is generally unnecessary. Enable
+it only when terminating the managed process tree is preferable to leaving
+it running after a supervision failure.
+
+After successful process-tree termination, readers receive one shared
+grace period of up to two seconds to finish naturally before cancellation.
+
+Options:
+
+-   `--cwd <dir>`
+-   `--inherit-stdin`
+-   `--utf8` or `--utf-8`
+-   `--timeout-ms <ms>`
+-   `--abort-on-runtime-failure`
+
+------------------------------------------------------------------------
+
+## Execution ID Configuration
+
+Controls the identifier assigned to each execution.
+
+The execution ID identifies an execution and forms the
+base name of all log files created during that run.
+
+The execution ID is composed as:
+
+`id-prefix + id-base + id-suffix`
+
+All three components are optional and may be used independently.
+
+If none is specified, the execution ID defaults to `timestamp+pid` (UTC).
+
+Options:
+
+-   `--id-prefix <value>`
+-   `--id-base <value>`
+-   `--id-suffix <timestamp|pid|timestamp+pid|pid+timestamp>`
+
+------------------------------------------------------------------------
+
+## Child Event Framing
+
+Controls how child stdout and stderr byte streams are divided into individual
+events before they enter the execution timeline.
+
+Stdout and stderr framing are configured independently.
+
+Supported framing modes:
+
+-   `chunk` -- Create events from the underlying read chunks. This is the
+    default.
+-   `lf` or `newline` -- End an event when LF is encountered.
+-   `crlf` -- End an event when an exact CRLF sequence is encountered.
+
+For newline-based framing (`lf`, `newline`, or `crlf`), a maximum event size
+may also be configured. If the configured newline sequence is not encountered
+before this threshold is reached, the current event is completed and
+a new event begins.
+
+If a newline maximum is not specified, newline-based framing uses a default
+threshold of 524288 bytes (512 KiB).
+
+With `crlf` framing, the configured threshold is not a strict byte limit.
+If the threshold is reached with a trailing CR, SilentRunner may consume one
+additional byte to determine whether it completes a CRLF sequence.
+
+The `*-event-newline-max-bytes` options must be greater than zero and are
+valid only when the corresponding event framing is `lf`, `newline`, or `crlf`.
+
+With newline-based framing, when the child stream ends, any remaining
+bytes form the final event.
+
+Options:
+
+-   `--stdout-event-framing <chunk|lf|newline|crlf>`
+-   `--stdout-event-newline-max-bytes <bytes>`
+-   `--stderr-child-event-framing <chunk|lf|newline|crlf>`
+-   `--stderr-child-event-newline-max-bytes <bytes>`
+
+------------------------------------------------------------------------
+
+## Parent Emission
+
+Parent emission determines which events are emitted to the parent process,
+how they are presented, and when or whether they are emitted.
+
+The option name specifies the event sources, output destination, event
+filter, and presentation. The `<mode>` argument determines the emission
+timing and condition.
+
+For example, `--stderr-emit-child-raw <mode>` consists of:
+
+~~~text
+--stderr-emit-child-raw <mode>
+
+stderr   → Event sources: child stderr and SilentRunner diagnostics
+emit     → Output destination: parent stderr (corresponds to source channel)
+child    → Event filter: pass only child stderr events
+raw      → Presentation: Raw
+<mode>   → Emission mode
+~~~
+
+The `child`, `sr`, and `incl-stdout` suffixes determine which events pass
+the filter. Without the `-raw` suffix, Headered presentation is used.
+
+In Headered presentation, child event framing determines how headers
+are applied to child stdout/stderr events. Raw presentation preserves
+the original child bytes without headers or event separators, regardless
+of child event framing.
+
+For details, see [Raw and Headered Presentation](architecture.md#raw-and-headered-presentation).
+
+Emission modes:
+
+-   `stream` -- Emit the selected events to the parent as they are produced (default).
+-   `end` -- Emit the selected events during finalization.
+-   `success` -- Emit the selected events only if execution succeeds.
+-   `failure` -- Emit the selected events only if execution fails.
+
+-   `never` -- Never emit the selected output to the parent.
+    With `--stderr-emit never`, this disables the default SR diagnostic channel.
+
+For details on delayed emission (`end`, `success`, and `failure`) and replay sources, see [Buffering](#buffering).
+
+Options:
+
+-   `--stdout-emit <mode>` -- Child stdout (Headered).
+-   `--stdout-emit-raw <mode>` -- Child stdout (Raw).
+-   `--stderr-emit <mode>` -- Child stderr and SilentRunner diagnostics (Headered).
+-   `--stderr-emit-child <mode>` -- Child stderr (Headered).
+-   `--stderr-emit-child-raw <mode>` -- Child stderr (Raw).
+-   `--stderr-emit-sr <mode>` -- SilentRunner diagnostics (Headered).
+-   `--stderr-emit-incl-stdout <mode>` -- Child stdout, child stderr,
+    and SilentRunner diagnostics (Headered).
+
+`--stdout-emit` and `--stdout-emit-raw` are mutually exclusive.
+The five stderr emit options are mutually exclusive.
+
+Raw child-stderr parent emission contains only child stderr bytes, not
+SilentRunner diagnostics.
+
+------------------------------------------------------------------------
+
+## Persistent Logging
+
+Persistent logging determines which events are written to per-execution
+log files, how they are presented, and where those files are stored.
+
+The option name specifies the event sources, output destination, event
+filter, and presentation. The `<dir>` argument specifies the output directory.
+
+For example, `--stderr-dir-child-raw <dir>` consists of:
+
+~~~text
+--stderr-dir-child-raw <dir>
+
+stderr   → Event sources: child stderr and SilentRunner diagnostics
+dir      → Output destination: directory containing per-execution log files
+child    → Event filter: pass only child stderr events
+raw      → Presentation: Raw (TXT format)
+<dir>    → Output directory path
+
+Alternative presentation suffix:
+jsonl    → Presentation: JSON record (JSONL format)
+~~~
+
+The `child`, `sr`, and `incl-stdout` suffixes determine which events pass
+the filter. Without `-raw` or `-jsonl`, Headered presentation (TXT format)
+is used.
+
+Headered TXT logs apply headers according to child event framing,
+as described in [Raw and Headered Presentation](architecture.md#raw-and-headered-presentation).
+Raw TXT logs preserve the original child bytes without headers or event
+separators, regardless of child event framing. JSONL logs use JSON record
+presentation, with one JSON record containing metadata per event.
+
+The `--jsonl-payload-representation` option controls how event payloads are
+represented in JSONL logs. The default is text.
+
+-   `text` -- Write the payload as text.
+-   `base64` -- Write the payload as Base64.
+-   `text+base64` or `base64+text` -- Write both text and Base64
+    representations. The two values are equivalent.
+
+When a child stdout or stderr payload is not valid UTF-8, a requested text
+representation automatically falls back to Base64 so that the original payload
+bytes can be preserved without producing invalid JSON text.
+
+Persistent logging is independent of parent stdout/stderr emission.
+All log destinations may be enabled simultaneously. For example,
+child stdout may be streamed to the parent while also being recorded
+in Raw TXT, Headered TXT, and JSONL log files. Child stderr and
+SilentRunner diagnostics can be logged separately, together, or as
+part of a combined chronological output including child stdout.
+
+When persistent logging is enabled, each execution creates its own set of log
+files. Log files are not reused across executions, and existing target
+filenames cause an error.
+
+Log filenames are derived from the execution ID, as described in
+[Execution ID](execution.md#execution-id).
+
+Log files initially use the `running` suffix. During log finalization,
+retained files are renamed with a `success` or `failure` suffix based on
+the execution result determined at that point. See [Exit Codes](execution.md#exit-codes)
+for finalization behavior.
+For example: `my-execution_stdout_running.log` →
+`my-execution_stdout_success.log` or `my-execution_stdout_failure.log`.
+
+Options:
+
+-   `--stdout-dir <dir>`
+-   `--stdout-dir-jsonl <dir>`
+-   `--stdout-dir-raw <dir>`
+-   `--stderr-dir <dir>`
+-   `--stderr-dir-jsonl <dir>`
+-   `--stderr-dir-child <dir>`
+-   `--stderr-dir-child-jsonl <dir>`
+-   `--stderr-dir-child-raw <dir>`
+-   `--stderr-dir-sr <dir>`
+-   `--stderr-dir-sr-jsonl <dir>`
+-   `--stderr-dir-incl-stdout <dir>`
+-   `--stderr-dir-incl-stdout-jsonl <dir>`
+-   `--jsonl-payload-representation <text|base64|text+base64|base64+text>`
+
+------------------------------------------------------------------------
+
+## Log Retention
+
+Controls whether persistent log files are retained during finalization.
+
+Log retention is configured independently for each event filter,
+regardless of presentation.
+
+For example, `--stderr-dir-child-keep-log` applies to all enabled
+child stderr logs (Raw TXT, Headered TXT, and JSONL).
+
+Logs removed by a retention policy are deleted permanently and are not
+moved to the Windows Recycle Bin.
+
+Supported modes:
+
+-   `always` -- Always keep the log file (default).
+-   `success` -- Keep the log file only if execution succeeds.
+-   `failure` -- Keep the log file only if execution fails.
+
+Options:
+
+-   `--stdout-dir-keep-log <mode>`
+-   `--stderr-dir-keep-log <mode>`
+-   `--stderr-dir-child-keep-log <mode>`
+-   `--stderr-dir-sr-keep-log <mode>`
+-   `--stderr-dir-incl-stdout-keep-log <mode>`
+
+------------------------------------------------------------------------
+
+## Buffering
+
+The execution timeline retains event entries, including their metadata,
+payloads, and per-target job results, as long as they are needed.
+Completed entries are pruned when their processing results allow it
+and they are no longer required for processing or replay.
+
+Delayed parent emission (`end`, `success`, or `failure` modes) requires
+output to remain available until the configured replay condition is met.
+SilentRunner supports two replay sources: persistent log files and the
+in-memory execution timeline.
+
+When compatible persistent log files are available, SilentRunner can
+replay output from those files instead of retaining the corresponding
+payloads in memory. The following table lists compatible log sources
+in order of preference:
+
+| Parent emission | Preferred log source | Alternative log source |
+| --- | --- | --- |
+| `--stdout-emit` | `--stdout-dir-jsonl` | `--stdout-dir` |
+| `--stderr-emit` | `--stderr-dir-jsonl` | `--stderr-dir` |
+| `--stderr-emit-child` | `--stderr-dir-child-jsonl` | `--stderr-dir-child` |
+| `--stderr-emit-sr` | `--stderr-dir-sr-jsonl` | `--stderr-dir-sr` |
+| `--stderr-emit-incl-stdout` | `--stderr-dir-incl-stdout-jsonl` | `--stderr-dir-incl-stdout` |
+| `--stdout-emit-raw` | `--stdout-dir-raw` | — |
+| `--stderr-emit-child-raw` | `--stderr-dir-child-raw` | — |
+
+Delayed Raw parent emission uses the corresponding Raw TXT log file
+when available; otherwise, it falls back to in-memory timeline replay,
+subject to replay buffer limits. Headered TXT and JSONL logs cannot
+serve as Raw replay sources.
+
+Persistent replay reads log files incrementally, but the amount of data
+temporarily retained in memory depends on the replay source and the original
+child event framing.
+
+| Replay source | Child event framing | Event reconstruction | Memory behavior |
+| --- | --- | --- | --- |
+| Raw TXT | Any | Original child bytes are replayed without reconstructing events or metadata. | Read and replayed incrementally. |
+| Headered TXT | `chunk` | Consecutive child events of the same type (stdout or stderr) may share one block; their original event boundaries cannot be reconstructed. | Large blocks are processed incrementally and split into smaller replay payloads. |
+| Headered TXT | `lf` / `crlf` | Reconstructs individual child events and their metadata. | The whole event must be loaded into memory before replay. |
+| JSONL | Any | Each JSON record preserves an individual event and its metadata. | The whole JSON record must be loaded into memory before replay. |
+| Execution timeline | Any | Reuses retained timeline events without file-based reconstruction. | Events are already retained in memory when required for replay. |
+
+**Large line events:** With `lf` or `crlf` framing, very long lines
+can produce large events. To limit their size, use the following options
+to split long lines into multiple events:
+- `--stdout-event-newline-max-bytes`
+- `--stderr-child-event-newline-max-bytes`
+
+When replay uses the execution timeline instead, the necessary event
+payloads are retained until they can be replayed to the parent process.
+Replay buffer limits control their memory usage. Exceeding any configured
+limit aborts execution with exit code 125. By default, all limits are
+0 (unlimited).
+Options:
+
+- `--stdout-max-buffer-bytes <bytes>`
+- `--stderr-max-buffer-bytes <bytes>`
+- `--std-total-max-buffer-bytes <bytes>`
+
+------------------------------------------------------------------------
+
+## Post-Execution Hooks
+
+Runs an external program during finalization without arguments.
+
+Hooks execute in the same process environment as the child process,
+including the configured working directory and environment variables.
+The hook path is resolved during Prepare relative to SilentRunner's inherited
+working directory, not relative to the directory specified by `--cwd`.
+
+SilentRunner also provides additional execution-specific environment
+variables, allowing hooks to access execution metadata such as the
+execution ID, execution result, and log file locations.
+
+`SILENTRUNNER_ABORTED_ON_RUNTIME_FAILURE` is `true` when a runtime failure
+triggered the optional abort action, otherwise `false`. The value indicates
+that an abort was initiated, not that process-tree termination succeeded.
+
+`SILENTRUNNER_OUTPUT_WRITE_FAILURES` reports worker output-write failures as
+`outputWriteFailures_N=[Target_GLE=number,...]`, or
+`outputWriteFailures_0=[]` when none were recorded. The hook value omits
+textual reasons and system error messages, which remain in diagnostics.
+
+The complete list of currently available environment variables can be displayed
+using `SilentRunner.exe --help`. Requests for additional environment variables are
+welcome.
+
+Post-execution hooks are started as detached processes without inherited
+standard handles. The hook and programs started by it therefore cannot
+rely on the original SilentRunner parent stdout or stderr handles.
+
+If SilentRunner cannot prepare or launch the selected hook, it returns
+exit code `253`. A successfully created hook process is not monitored;
+subsequent hook failures do not change SilentRunner's exit code.
+
+Final log-path environment variables contain paths only for logs that were
+successfully finalized and retained. If a log was removed by its retention
+policy or could not be renamed to its final filename, the corresponding
+variable is empty.
+
+When a hook starts another SilentRunner instance, a persistent diagnostic
+log (for example, `--stderr-dir`) is recommended because parent stderr
+is not inherited.
+
+Options:
+
+-   `--run-on-success <path>`
+-   `--run-on-failure <path>`
+
+------------------------------------------------------------------------
+
+## Diagnostics
+
+Controls the level of SilentRunner diagnostics.
+
+Informational, error, and fatal diagnostics are enabled by default.
+
+During startup, SilentRunner first parses its command-line arguments to
+determine the requested output destinations, then initializes the diagnostic
+output infrastructure. Until this infrastructure is ready, startup errors
+are reported directly to parent stderr on a best-effort basis. These messages
+are not written to persistent logs; if parent stderr is unavailable, the
+exit code may be the only indication of failure.
+
+Once initialized, SilentRunner diagnostics follow the configured parent
+emission and persistent logging options. They may be routed independently,
+together with child stderr, or as part of the combined chronological output
+including child stdout.
+
+SilentRunner can run without an available diagnostic output destination.
+In that case, diagnostic messages may not be observable.
+
+The `--debug` option enables additional diagnostic messages describing
+internal execution flow, child (sub)process lifecycle, and output
+routing decisions.
+
+When available, IOCP process lifecycle diagnostics include exit codes for
+individual tracked processes. These codes are provided for diagnostic
+purposes and do not change SilentRunner's overall exit code, which normally
+comes from the main child process.
+
+With `--debug` or `--verbose`, Job Object process notifications (IOCP) must
+initialize successfully; otherwise Runtime returns `255` before the child
+starts. Without debug diagnostics, execution can continue without these
+notifications.
+The `--verbose` option implies `--debug` and adds detailed execution
+summaries, including event processing, worker activity, and final
+processing results.
+
+The `--probe-dir` option enables additional development-oriented diagnostics.
+Its output format may change between versions.
+Options:
+
+-   `--debug`
+-   `--verbose`
+-   `--probe-dir <dir>`
+
+------------------------------------------------------------------------
+
+## Help
+
+Displays the built-in CLI reference.
+
+Options:
+
+-   `--help`

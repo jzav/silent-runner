@@ -27,10 +27,6 @@ StdHandleWriteProbeResult ProbeStdHandleForWrite(HANDLE h) {
     return result;
 }
 
-bool IsStdHandleProbablyWritable(HANDLE h) {
-    return ProbeStdHandleForWrite(h).probablyWritable;
-}
-
 bool WriteAllToHandleOrGetGle(HANDLE h, const char* p, size_t n, DWORD* outGle) {
     if (outGle) *outGle = 0;
     if (!h || h == INVALID_HANDLE_VALUE || !p || n == 0) return true;

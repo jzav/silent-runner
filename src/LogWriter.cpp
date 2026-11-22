@@ -91,16 +91,21 @@ bool FileWriter::Flush(DWORD* outGle) {
     return true;
 }
 
-void FileWriter::Close() { h_.reset(); }
-
-bool ShouldKeepLogFile(SR::KeepLogMode mode, bool isSuccess) {
-    switch (mode) {
-        case SR::KeepLogMode::Always:  return true;
-        case SR::KeepLogMode::Success: return isSuccess;
-        case SR::KeepLogMode::Failure: return !isSuccess;
+bool FileWriter::Close(DWORD* outGle) {
+    if (outGle) *outGle = 0;
+    HANDLE handle = h_.get();
+    if (!handle || handle == INVALID_HANDLE_VALUE) {
+        h_.release();
+        return true;
     }
+    if (!CloseHandle(handle)) {
+        if (outGle) *outGle = GetLastError();
+        return false;
+    }
+    h_.release();
     return true;
 }
+
 
 bool TryDeleteLogFile(
     const std::wstring& path,

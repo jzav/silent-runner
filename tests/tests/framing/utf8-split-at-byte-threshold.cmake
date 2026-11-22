@@ -86,3 +86,34 @@ foreach(index RANGE 0 1)
         )
     endif()
 endforeach()
+
+# Raw persistent replay must reassemble a multibyte UTF-8 code point split
+# across LF-framed events instead of exposing the two invalid event fragments.
+set(raw_log_dir "${SR_TEST_ROOT}/raw-logs")
+set(raw_execution_id "ctest-raw-utf8-byte-threshold")
+set(raw_running_log
+    "${raw_log_dir}/${raw_execution_id}_stdout_raw_running.log"
+)
+set(raw_final_log
+    "${raw_log_dir}/${raw_execution_id}_stdout_raw_success.log"
+)
+set(raw_parent_file "${SR_TEST_ROOT}/raw-utf8-parent.bin")
+cmake_path(NATIVE_PATH raw_running_log NORMALIZE raw_running_log_native)
+
+sr_run(raw OUTPUT_FILE "${raw_parent_file}" ARGS
+    --debug
+    --id-base "${raw_execution_id}"
+    --stdout-emit-raw end
+    --stdout-dir-raw "${raw_log_dir}"
+    --stdout-event-framing lf
+    --stdout-event-newline-max-bytes 2
+    --stderr-emit-sr stream
+    "${child_cmd}"
+)
+sr_assert_exit(raw 0)
+sr_assert_stderr_contains(raw
+    "stdout={target=StdoutParentRaw source=Txt path=${raw_running_log_native}}"
+)
+sr_assert_files_equal_bytes("${raw_parent_file}" "${payload_file}")
+sr_assert_files_equal_bytes("${raw_final_log}" "${payload_file}")
+sr_assert_directory_file_count("${raw_log_dir}" 1)

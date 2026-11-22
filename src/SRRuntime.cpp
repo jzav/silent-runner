@@ -3,24 +3,24 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <bcrypt.h>
 
 #include <string>
-#include <thread>
 #include <vector>
 #include <exception>
 #include <new>
 #include <memory>
 
 #include "SRRuntime.h"
-#include "SRConfigsBuilderTypes.h"
+#include "SRExecutionTimeline.h"
 
 
 #include "CoreHelpers.h"
 #include "ErrorHelpers.h"
 #include "FileHelpers.h"
 #include "HandleHelpers.h"
+#include "ProcessHelpers.h"
 
-#include "SRLogGatewayDiagnostics.h"
 #include "SRLogGatewayStdout.h"
 #include "SRLogGatewayStderr.h"
 #include "SRBufferLimiter.h"
@@ -30,63 +30,144 @@
 #include "SRLifecycleDiagnostics.h"
 #include "SRParentEmitPolicy.h"
 #include "SRWorkerCommonPolicy.h"
+#include "SRTargetLogFiles.h"
 
-#include "ChildStdReader.h"
-#include "JobController.h"
+#include "SRChildStdReader.h"
+#include "SRChildProcessWatcher.h"
+#include "SRRuntimeCoordinator.h"
+#include "SRTimeLimiter.h"
+#include "SRWindowsJobObjectController.h"
 
 using CoreHelpers::UniqueHandle;
 
-static void StopAndUnblockReaders(
-    SRLogGatewayDiagnostics& diag,
-    UniqueHandle& job,
-    UniqueHandle& childProc,
-    UniqueHandle& stdoutReadPipe,
-    UniqueHandle& stderrReadPipe,
-    DWORD graceMs,
-    DWORD terminateCode
+namespace {
+
+void DebugProcessChain_(
+    SRLifecycleDiagnostics& diag,
+    const wchar_t* tag,
+    DWORD pid
 ) {
-    if (!childProc.valid()) {
-        diag.DebugLine(L"StopAndUnblock: child process handle missing");
-        stdoutReadPipe.reset();
-        stderrReadPipe.reset();
-        return;
-    }
+    if (!diag.IsDebugEnabled()) return;
 
-    if (job.valid()) {
-        if (!TerminateJobObject(job.get(), terminateCode)) {
-            DWORD gle = GetLastError();
-            diag.ErrorLine(L"StopAndUnblock: TerminateJobObject failed; " + ErrorHelpers::FormatGle(gle));
-        }
-    } else {
-        if (!TerminateProcess(childProc.get(), terminateCode)) {
-            DWORD gle = GetLastError();
-            diag.ErrorLine(L"StopAndUnblock: TerminateProcess failed; " + ErrorHelpers::FormatGle(gle));
-        } else if (terminateCode == 124) {
-            diag.DebugLine(L"StopAndUnblock: TerminateProcess(child, 124) fallback from missing job handle");
-        }
+    std::wstring line;
+    if (tag && *tag) {
+        line += tag;
+        line += L": ";
     }
-
-    DWORD w = WaitForSingleObject(childProc.get(), graceMs);
-    if (w == WAIT_OBJECT_0) {
-        diag.DebugLine(L"StopAndUnblock: process exited during grace");
-        return;
-    }
-    if (w == WAIT_FAILED) {
-        DWORD gle = GetLastError();
-        diag.ErrorLine(L"StopAndUnblock: WaitForSingleObject(grace) failed; " + ErrorHelpers::FormatGle(gle));
-        stdoutReadPipe.reset();
-        stderrReadPipe.reset();
-        return;
-    }
-
-    diag.DebugLine(L"StopAndUnblock: grace expired -> force-unblock readers");
-    stdoutReadPipe.reset();
-    stderrReadPipe.reset();
+    line += ProcessHelpers::GetProcessDebugInfo(pid);
+    diag.DebugLine(line);
 }
 
-SRRuntimeResult RunHiddenWithRouting(
-    const SR::RunHiddenWithRoutingConfig& config,
-    const SR::LogPaths& logPaths,
+void DebugStdHandleProbe_(
+    SRLifecycleDiagnostics& diag,
+    const wchar_t* tag,
+    const HandleHelpers::StdHandleWriteProbeResult& probe
+) {
+    if (!diag.IsDebugEnabled()) return;
+
+    std::wstring line;
+    if (tag && *tag) {
+        line += tag;
+        line += L" ";
+    }
+    line += L"HANDLE=";
+    if (probe.isNull) {
+        line += L"NULL";
+    } else if (probe.isInvalid) {
+        line += L"INVALID_HANDLE_VALUE";
+    } else {
+        line += L"OK";
+    }
+    line += L" FILETYPE=";
+    line += std::to_wstring(probe.fileType);
+    if (probe.fileTypeGle != 0) {
+        line += L" FILETYPE_GLE=";
+        line += std::to_wstring(probe.fileTypeGle);
+    }
+    line += L" PROBABLY_WRITABLE=";
+    line += probe.probablyWritable ? L"yes" : L"no";
+    diag.DebugLine(line);
+}
+
+} // namespace
+
+// Inspired by .NET 11 SafeFileHandle.CreateAnonymousPipe (Windows):
+// https://github.com/dotnet/runtime/blob/main/src/libraries/System.Private.CoreLib/src/Microsoft/Win32/SafeHandles/SafeFileHandle.Windows.cs
+//
+// Use a unique named pipe to provide overlapped reads to SilentRunner while
+// keeping the child's write handle synchronous and inheritable.
+// FIRST_PIPE_INSTANCE and a single server instance prevent name reuse.
+// Both ends must be opened successfully before the handles are exposed.
+static bool CreateOverlappedChildOutputPipe(
+    UniqueHandle& readPipe,
+    UniqueHandle& writePipe,
+    DWORD& outGle
+) {
+    outGle = ERROR_SUCCESS;
+
+    BYTE randomBytes[16]{};
+    const NTSTATUS status = BCryptGenRandom(
+        nullptr,
+        randomBytes,
+        static_cast<ULONG>(sizeof(randomBytes)),
+        BCRYPT_USE_SYSTEM_PREFERRED_RNG
+    );
+    if (status < 0) {
+        outGle = ERROR_GEN_FAILURE;
+        return false;
+    }
+
+    static constexpr wchar_t hexDigits[] = L"0123456789abcdef";
+    std::wstring pipeName = L"\\\\.\\pipe\\LOCAL\\SilentRunner_";
+    pipeName.reserve(pipeName.size() + sizeof(randomBytes) * 2);
+
+    for (BYTE value : randomBytes) {
+        pipeName.push_back(hexDigits[value >> 4]);
+        pipeName.push_back(hexDigits[value & 0x0f]);
+    }
+
+    UniqueHandle server(CreateNamedPipeW(
+        pipeName.c_str(),
+        PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+        1,
+        0,
+        16 * 1024,
+        120000,
+        nullptr
+    ));
+    if (!server.valid()) {
+        outGle = GetLastError();
+        return false;
+    }
+
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+
+    UniqueHandle client(CreateFileW(
+        pipeName.c_str(),
+        GENERIC_WRITE,
+        FILE_SHARE_READ,
+        &sa,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
+        nullptr
+    ));
+    if (!client.valid()) {
+        outGle = GetLastError();
+        return false;
+    }
+
+    readPipe = std::move(server);
+    writePipe = std::move(client);
+    return true;
+}
+void ExecuteChildProcess(
+    const SR::ExecuteChildProcessConfig& config,
+    const SR::FileSinkWorkerTargetLayout& fileSinkWorkerTargetLayout,
+    const std::vector<TargetLogPathBinding>& runningLogPaths,
+    const std::wstring& comspecPath,
     const std::wstring& fullCmdLineForCreateProcess,
     const HandleHelpers::StdHandleWriteProbeResult& stdoutStdHandleProbe,
     const HandleHelpers::StdHandleWriteProbeResult& stderrStdHandleProbe,
@@ -96,23 +177,27 @@ SRRuntimeResult RunHiddenWithRouting(
     std::shared_ptr<ExecutionTimeline> executionTimeline,
     const SRParentEmitPolicy& parentEmitPolicy,
     const SRWorkerCommonPolicy& workerCommonPolicy,
-    SRBufferLimiter* bufferLimitPtr
+    SRBufferLimiter* bufferLimitPtr,
+    SRRuntimeCoordinator& coordinator,
+    SRTimeLimiter& timeLimiter,
+    SRRuntimeResult& result
 ) {
 
     // -------------------------------------------------------
-    // Gateway setup (must happen before any INFO/DEBUG is logged)
+    // Child output gateway setup (diagnostics already use lifecycleDiag)
     // -------------------------------------------------------
 
 
-    SRRuntimeResult result;
+    // SRMain owns the Runtime result; SRRuntime updates it directly.
 
 
 
-    SRLogGatewayDiagnostics diag;
+    SRLifecycleDiagnostics& diag = lifecycleDiag;
     SRLogGatewayStdout stdoutRouter;
     SRLogGatewayStderr stderrRouter;
 
-    // File output is owned by ExecutionTimeline -> JobsExchange -> SRFileSinkWorker.
+    // SRTargetLogFiles owns log paths and file writers.
+    // ExecutionTimeline -> JobsExchange -> SRFileSinkWorker delivers events to file targets.
     // Gateways are lightweight entry points into ExecutionTimeline.
     // ExecutionTimeline owns event ordering, replay metadata and job creation;
     // JobsExchange dispatches pending jobs to dedicated workers.
@@ -132,25 +217,24 @@ SRRuntimeResult RunHiddenWithRouting(
     );
 
 
-    // Runtime diagnostics enter the same stderr gateway as child stderr.
-    //
-    // Important:
-    // - Runtime diagnostics are formatted as stderr-view text events.
-    // - ExecutionTimeline owns their canonical ordering and replay metadata.
-    // - File and parent delivery are performed later through JobsExchange
-    //   and dedicated workers, not directly from SRRuntime.
+    // SR diagnostics and child stderr are routed independently into
+    // ExecutionTimeline, which owns their ordering and replay metadata.
+    SRWindowsJobObjectController jobController(lifecycleDiag);
+    SRChildProcessWatcher childWatcher;
+    childWatcher.Init(coordinator, jobController, lifecycleDiag);
+    UniqueHandle childProc;
+    UniqueHandle childThread;
+    std::unique_ptr<SRChildStreamReader> stdoutReader;
+    std::unique_ptr<SRChildStreamReader> stderrReader;
 
-    diag.Init(
-        config.debug,
-        &stderrRouter
-    );
 
 
     // Severity policy in SRRuntime:
     // - diag.ErrorLine(...) is for recoverable runtime errors or best-effort cleanup
     //   failures where SR can continue the current shutdown/finalization path.
-    // - ReportRuntimeFatal(...) is for errors that prevent runtime from fulfilling
-    //   its purpose, or for forced runtime stops where the child must be aborted.
+    // - ReportRuntimeFatal(...) records a fatal Runtime outcome.
+    //   Emitting FATAL diagnostics does not itself request termination.
+    //   Termination follows coordinator policy or an explicit Runtime stop path.
     //
     // Runtime fatal handling has two distinct paths:
     //
@@ -172,44 +256,118 @@ SRRuntimeResult RunHiddenWithRouting(
 
 
 
-    auto BuildRuntimeResult = [&](int exitCode) -> SRRuntimeResult {
+    auto FinalizeChildProcess = [&](int exitCode) -> void {
+        // All started readers have finished: either the coordinator reported
+        // Completed, or AbortProcessTreeAndReaders() completed their shutdown.
+        if (stdoutReader) stdoutReader->Join();
+        if (stderrReader) stderrReader->Join();
+
+        bool readerFailed = false;
+        auto ReaderFailed = [](const SRChildStreamReader& reader) noexcept {
+            return reader.ReadError() != ERROR_SUCCESS ||
+                   reader.CancelError() != ERROR_SUCCESS ||
+                   reader.ExceptionCaught() || reader.RoutingFailed();
+        };
+        if (stdoutReader && ReaderFailed(*stdoutReader)) readerFailed = true;
+        if (stderrReader && ReaderFailed(*stderrReader)) readerFailed = true;
+        if (stdoutReader || stderrReader) diag.VerboseLine(L"Reader threads joined");
+
+        // Explicit lifecycle; destructors are the exception fallbacks.
+        timeLimiter.Stop();
+        childWatcher.Stop();
+        jobController.Shutdown();
+
+        if (result.stopReason == SRRuntimeStopReason::StopReason::NormalExit) {
+            if (!childWatcher.childExitCode.has_value()) {
+                // A reported supervision failure is summarized below.
+                if (childWatcher.childExitCodeError == ERROR_SUCCESS &&
+                    !coordinator.RuntimeFailureDetected()) {
+                    ReportRuntimeFatal(L"Main child exit code unavailable");
+                }
+                exitCode = 255;
+            } else {
+                exitCode = static_cast<int>(*childWatcher.childExitCode);
+            }
+        }
+        if (childWatcher.childExitCode.has_value()) {
+            if (!executionTimeline->SetRuntimeChildExitCode(*childWatcher.childExitCode)) {
+                lifecycleDiag.FatalErrorLine(L"Failed to record child exit code");
+                exitCode = 255;
+                result.fatal = true;
+            }
+        } else if (childWatcher.childExitCodeError != ERROR_SUCCESS) {
+            // The watcher has already logged the failure at its source.
+            exitCode = 255;
+            result.fatal = true;
+        }
+        if (coordinator.RuntimeFailureDetected()) {
+            if (result.stopReason != SRRuntimeStopReason::StopReason::RuntimeFailure) {
+                const std::wstring failureMessage =
+                    L"Runtime supervision failure; cause=" +
+                    std::wstring(SRRuntimeCoordinator::RuntimeFailureCauseToString(
+                        coordinator.FirstRuntimeFailureCause()));
+                if (result.stopReason == SRRuntimeStopReason::StopReason::NormalExit) {
+                    ReportRuntimeFatal(
+                        failureMessage + L"; action=completed_without_abort; exit_code=255"
+                    );
+                } else {
+                    lifecycleDiag.ErrorLine(failureMessage + L"; exit_code=255");
+                }
+            }
+            exitCode = 255;
+        }
+        if (readerFailed) exitCode = 255;
         result.exitCode = exitCode;
-        return result;
+        return;
     };
 
 
-    if (bufferLimitPtr && bufferLimitPtr->EventFailureDetected()) {
-        result.stopReason = SRRuntimeStopReason::StopReason::WaitFailed;
-        ReportRuntimeFatal(
-            L"Fatal runtime setup: buffer-limit event operation failed; operation=" +
-            std::wstring(bufferLimitPtr->FirstEventFailureOperationName()) +
-            L" " +
-            ErrorHelpers::FormatGle(bufferLimitPtr->FirstEventFailureGle())
-        );
-        return BuildRuntimeResult(255);
-    }
 
-    diag.InfoLine(L"ID_PREFIX=" + (config.idPrefix.empty() ? std::wstring(L"none") : config.idPrefix));
-    diag.InfoLine(L"ID_BASE=" + (config.idBase.empty() ? std::wstring(L"none") : config.idBase));
+    diag.DebugLine(L"ID_PREFIX=" + (workerCommonPolicy.IdPrefix().empty() ? std::wstring(L"none") : workerCommonPolicy.IdPrefix()));
+    diag.DebugLine(L"ID_BASE=" + (workerCommonPolicy.IdBase().empty() ? std::wstring(L"none") : workerCommonPolicy.IdBase()));
 
-    std::wstring suffixMode = SR::IdSuffixModeToString(config.effectiveIdSuffixMode);
+    std::wstring suffixMode = SR::IdSuffixModeToString(workerCommonPolicy.EffectiveIdSuffixMode());
 
-    if (config.useDefaultSuffixMode) {
+    if (workerCommonPolicy.UseDefaultSuffixMode()) {
 
         suffixMode += L" (default)";
     }
-    diag.InfoLine(L"ID_SUFFIX_MODE=" + suffixMode);
-    diag.InfoLine(L"ID_SUFFIX=" + (config.generatedSuffix.empty() ? std::wstring(L"none") : config.generatedSuffix));
+    diag.DebugLine(L"ID_SUFFIX_MODE=" + suffixMode);
+    diag.DebugLine(L"ID_SUFFIX=" + (workerCommonPolicy.GeneratedSuffix().empty() ? std::wstring(L"none") : workerCommonPolicy.GeneratedSuffix()));
 
-    diag.InfoLine(L"EXECUTION_ID=" + config.executionId);
+    diag.InfoLine(L"EXECUTION_ID=" + workerCommonPolicy.ExecutionId());
 
     if (!workerCommonPolicy.ParsingToken().empty()) {
-        diag.InfoLine(
+        diag.DebugLine(
             L"PARSINGTOKEN=" +
             FileHelpers::Utf8ToWide(workerCommonPolicy.ParsingToken())
         );
     }
     diag.InfoLine(L"EXECUTION_MODE=" + std::wstring(SR::ExecutionModeToString(config.executionMode)));
+    diag.InfoLine(
+        L"CHILD_CWD=" +
+        (config.cwd.empty() ? std::wstring(L"(inherited)") : config.cwd) +
+        L" CHILD_UTF8=" + (config.utf8 ? L"TRUE" : L"FALSE") +
+        L" CHILD_INHERIT_STDIN=" + (config.inheritStdin ? L"TRUE" : L"FALSE")
+    );
+    diag.DebugLine(
+        L"JSONL_PAYLOAD_REPRESENTATION=" +
+        FileHelpers::Utf8ToWide(
+            SR::JsonlPayloadRepresentationToToken(config.jsonlPayloadRepresentation)
+        )
+    );
+    diag.DebugLine(
+        std::wstring(L"DEBUG=") + (config.debug ? L"TRUE" : L"FALSE") +
+        L" VERBOSE=" + (config.verbose ? L"TRUE" : L"FALSE")
+    );
+    diag.InfoLine(
+        L"RUN_ON_SUCCESS=" +
+        (config.runOnSuccessPath.empty() ? std::wstring(L"none") : config.runOnSuccessPath)
+    );
+    diag.InfoLine(
+        L"RUN_ON_FAILURE=" +
+        (config.runOnFailurePath.empty() ? std::wstring(L"none") : config.runOnFailurePath)
+    );
 
     if (!specialCharactersDebugMessage.empty()) {
         diag.DebugLine(specialCharactersDebugMessage);
@@ -220,89 +378,118 @@ SRRuntimeResult RunHiddenWithRouting(
     }
 
 
-    diag.DebugStdHandleProbe(L"STDOUT", stdoutStdHandleProbe);
+    DebugStdHandleProbe_(diag, L"STDOUT", stdoutStdHandleProbe);
 
-    diag.InfoLine(L"STDOUT_EMIT=" + std::wstring(SR::EmitModeToString(parentEmitPolicy.StdoutEmitMode())));
+    diag.InfoLine(
+        L"STDOUT_EMIT_TARGET=" +
+        std::wstring(SR::JobTargetNameToString(parentEmitPolicy.StdoutParentTarget())) +
+        L" EMIT_MODE=" +
+        std::wstring(SR::EmitModeToString(parentEmitPolicy.StdoutEmitMode()))
+    );
     
-    diag.DebugStdHandleProbe(L"STDERR", stderrStdHandleProbe);
+    DebugStdHandleProbe_(diag, L"STDERR", stderrStdHandleProbe);
 
-    diag.InfoLine(L"STDERR_EMIT=" + std::wstring(SR::EmitModeToString(parentEmitPolicy.StderrEmitMode())));
-    diag.InfoLine(L"STDERR_EMIT_SOURCE=" + std::wstring(SR::StderrEmitSourceToString(parentEmitPolicy.StderrEmitSource())));
+    diag.InfoLine(
+        L"STDERR_EMIT_TARGET=" +
+        std::wstring(SR::JobTargetNameToString(parentEmitPolicy.StderrParentTarget())) +
+        L" EMIT_MODE=" +
+        std::wstring(SR::EmitModeToString(parentEmitPolicy.StderrEmitMode()))
+    );
     diag.DebugLine(
         L"STDOUT_EVENT_FRAMING=" +
         std::wstring(SR::ChildEventFramingToString(config.stdoutEventFraming)) +
-        L" STDOUT_EVENT_NEWLINE_MAX_BYTES=" +
+        L" NEWLINE_MAX_BYTES=" +
         std::to_wstring(config.stdoutEventNewlineMaxBytes)
     );
     diag.DebugLine(
         L"STDERR_CHILD_EVENT_FRAMING=" +
         std::wstring(SR::ChildEventFramingToString(config.stderrChildEventFraming)) +
-        L" STDERR_CHILD_EVENT_NEWLINE_MAX_BYTES=" +
+        L" NEWLINE_MAX_BYTES=" +
         std::to_wstring(config.stderrChildEventNewlineMaxBytes)
     );
 
-    if (!logPaths.running.stdoutTxt.empty()) {
-        diag.InfoLine(L"STDOUT_LOG_FILE=" + logPaths.running.stdoutTxt);
-    }
-    if (!logPaths.running.stderrSrAndChildTxt.empty()) {
-        diag.InfoLine(L"STDERR_LOG_FILE=" + logPaths.running.stderrSrAndChildTxt);
-    }
-    if (!logPaths.running.stderrChildTxt.empty()) {
-        diag.InfoLine(L"STDERR_CHILD_LOG_FILE=" + logPaths.running.stderrChildTxt);
-    }
-    if (!logPaths.running.stderrSrTxt.empty()) {
-        diag.InfoLine(L"STDERR_SR_LOG_FILE=" + logPaths.running.stderrSrTxt);
+    for (const auto& binding : runningLogPaths) {
+        if (!binding.created) {
+            continue;
+        }
+        const std::size_t configIndex =
+            fileSinkWorkerTargetLayout.ConfigIndexOf(binding.target);
+        if (configIndex == SR::kInvalidJobTargetWorkerConfigIndex) {
+            continue;
+        }
+        const auto& targetEntry =
+            fileSinkWorkerTargetLayout.targets[configIndex];
+        if (!targetEntry.logFileKey) {
+            continue;
+        }
+        diag.InfoLine(
+            std::wstring(targetEntry.logFileKey) +
+            L"=" +
+            *binding.path +
+            L" KEEP_LOG_MODE=" +
+            std::wstring(
+                SR::KeepLogModeToView(
+                    binding.keepLogMode
+                )
+            )
+        );
     }
 
 
     diag.DebugLine(L"fullCmdLine=" + fullCmdLineForCreateProcess);
 
-    diag.InfoLine(L"timeoutMs=" + std::to_wstring(config.timeoutMs));
-    diag.DebugProcessChain(L"Self", GetCurrentProcessId());
+    diag.InfoLine(L"timeoutMs=" + std::to_wstring(timeLimiter.TimeoutMs()));
+    diag.InfoLine(
+        L"STDOUT_MAX_BUFFER_BYTES=" + std::to_wstring(config.stdoutMaxBufferBytes) +
+        L" STDERR_MAX_BUFFER_BYTES=" + std::to_wstring(config.stderrMaxBufferBytes) +
+        L" STD_TOTAL_MAX_BUFFER_BYTES=" + std::to_wstring(config.stdTotalMaxBufferBytes)
+    );
+    DebugProcessChain_(diag, L"Self", GetCurrentProcessId());
 
-    SECURITY_ATTRIBUTES sa{};
-    sa.nLength = sizeof(sa);
-    sa.bInheritHandle = TRUE;
-
+    // Child output pipes use overlapped reads and synchronous child writes.
     UniqueHandle stdoutReadPipe, stdoutWritePipe;
     UniqueHandle stderrReadPipe, stderrWritePipe;
 
-    // Job object: kill-tree on close.
-    UniqueHandle job(CreateJobObjectW(nullptr, nullptr));
-    if (!job.valid()) {
-        DWORD gle = GetLastError();
-        ReportRuntimeFatal(L"CreateJobObjectW failed; " + ErrorHelpers::FormatGle(gle));
-        return BuildRuntimeResult(255);
-    }
-    diag.DebugLine(L"[JOB] job object created OK");
+    // The Job Object monitor is required; IOCP is required for DEBUG diagnostics, optional otherwise.
+    SRWindowsJobObjectController::InitFailure jobInitFailure;
+    if (!jobController.Init(coordinator, jobInitFailure)) {
+        if (jobInitFailure.reason == SRWindowsJobObjectController::InitFailureReason::CreateJobObject) {
+            ReportRuntimeFatal(L"CreateJobObjectW failed; " + ErrorHelpers::FormatGle(jobInitFailure.gle));
+        } else if (jobInitFailure.reason == SRWindowsJobObjectController::InitFailureReason::SetKillOnJobClose) {
+            ReportRuntimeFatal(L"[JOB] SetInformationJobObject(KILL_ON_JOB_CLOSE) failed; " + ErrorHelpers::FormatGle(jobInitFailure.gle));
+        } else if (jobInitFailure.reason == SRWindowsJobObjectController::InitFailureReason::CreateIocp) {
+            ReportRuntimeFatal(L"[JOB] CreateIoCompletionPort failed; " + ErrorHelpers::FormatGle(jobInitFailure.gle));
+        } else if (jobInitFailure.reason == SRWindowsJobObjectController::InitFailureReason::AssociateIocp) {
+            ReportRuntimeFatal(L"[JOB] Job Object IOCP association failed; " + ErrorHelpers::FormatGle(jobInitFailure.gle));
+        } else if (jobInitFailure.reason == SRWindowsJobObjectController::InitFailureReason::StartMonitorThread) {
+            ReportRuntimeFatal(L"[JOB] Process-tree monitoring thread failed to start");
 
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli{};
-    jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    if (!SetInformationJobObject(job.get(), JobObjectExtendedLimitInformation, &jeli, sizeof(jeli))) {
-        DWORD gle = GetLastError();
-        ReportRuntimeFatal(L"[JOB] SetInformationJobObject(KILL_ON_JOB_CLOSE) failed; " + ErrorHelpers::FormatGle(gle));
-        return BuildRuntimeResult(255);
+        } else {
+            ReportRuntimeFatal(L"[JOB] Job Object controller already initialized");
+        }
+        return FinalizeChildProcess(255);
     }
-    diag.DebugLine(L"[JOB] job limit KILL_ON_JOB_CLOSE set OK");
 
-    // Job notification monitor (debug only).
-    JobController::JobIocpMonitor jobMon;
-    JobController::JobMonGuard jobMonGuard(&jobMon);
-    jobMon.start(diag, job.get());
-
-    if (!CreatePipe(stdoutReadPipe.put(), stdoutWritePipe.put(), &sa, 0)) {
-        DWORD gle = GetLastError();
-        ReportRuntimeFatal(L"CreatePipe(stdoutReadPipe + stdoutWritePipe) failed; " + ErrorHelpers::FormatGle(gle));
-        return BuildRuntimeResult(255);
+    DWORD pipeGle = ERROR_SUCCESS;
+    if (!CreateOverlappedChildOutputPipe(
+            stdoutReadPipe, stdoutWritePipe, pipeGle)) {
+        ReportRuntimeFatal(
+            L"CreateOverlappedChildOutputPipe(stdout) failed; " +
+            ErrorHelpers::FormatGle(pipeGle)
+        );
+        return FinalizeChildProcess(255);
     }
-    diag.DebugLine(L"CreatePipe(stdoutReadPipe + stdoutWritePipe) OK");
+    diag.VerboseLine(L"Overlapped stdout read pipe created");
 
-    if (!CreatePipe(stderrReadPipe.put(), stderrWritePipe.put(), &sa, 0)) {
-        DWORD gle = GetLastError();
-        ReportRuntimeFatal(L"CreatePipe(stderrReadPipe + stderrWritePipe) failed; " + ErrorHelpers::FormatGle(gle));
-        return BuildRuntimeResult(255);
+    if (!CreateOverlappedChildOutputPipe(
+            stderrReadPipe, stderrWritePipe, pipeGle)) {
+        ReportRuntimeFatal(
+            L"CreateOverlappedChildOutputPipe(stderr) failed; " +
+            ErrorHelpers::FormatGle(pipeGle)
+        );
+        return FinalizeChildProcess(255);
     }
-    diag.DebugLine(L"CreatePipe(stderrReadPipe + stderrWritePipe) OK");
+    diag.VerboseLine(L"Overlapped stderr read pipe created");
 
     // stdin handling:
     // - default: bind child stdin to NUL (EOF) -- but MUST be inheritable
@@ -357,12 +544,12 @@ SRRuntimeResult RunHiddenWithRouting(
                 msg += ErrorHelpers::FormatGle(stdinDupGle);
             }
             ReportRuntimeFatal(msg);
-            return BuildRuntimeResult(255);
+            return FinalizeChildProcess(255);
         } else {
             diag.DebugLine(L"WARNING: could not create inheritable stdin handle (falling back to no stdin)");
         }
     } else {
-        diag.DebugLine(L"stdin handle prepared (inheritable dup)");
+        diag.VerboseLine(L"stdin handle prepared (inheritable dup)");
     }
 
     PROCESS_INFORMATION pi{};
@@ -393,7 +580,7 @@ SRRuntimeResult RunHiddenWithRouting(
         if (attrSize == 0) {
             DWORD gle = GetLastError();
             ReportRuntimeFatal(L"InitializeProcThreadAttributeList(size query) failed; " + ErrorHelpers::FormatGle(gle));
-            return BuildRuntimeResult(255);
+            return FinalizeChildProcess(255);
         }
 
         std::vector<unsigned char> attrBuf(attrSize);
@@ -402,9 +589,9 @@ SRRuntimeResult RunHiddenWithRouting(
         if (!InitializeProcThreadAttributeList(siex.lpAttributeList, 1, 0, &attrSize)) {
             DWORD gle = GetLastError();
             ReportRuntimeFatal(L"InitializeProcThreadAttributeList(init) failed; " + ErrorHelpers::FormatGle(gle));
-            return BuildRuntimeResult(255);
+            return FinalizeChildProcess(255);
         }
-        diag.DebugLine(L"InitializeProcThreadAttributeList(init) OK");
+        diag.VerboseLine(L"InitializeProcThreadAttributeList(init) OK");
 
         ProcThreadAttrListGuard attrGuard;
         attrGuard.list = siex.lpAttributeList;
@@ -419,9 +606,9 @@ SRRuntimeResult RunHiddenWithRouting(
                 nullptr)) {
             DWORD gle = GetLastError();
             ReportRuntimeFatal(L"UpdateProcThreadAttribute(HANDLE_LIST) failed; " + ErrorHelpers::FormatGle(gle));
-            return BuildRuntimeResult(255);
+            return FinalizeChildProcess(255);
         }
-        diag.DebugLine(L"UpdateProcThreadAttribute(HANDLE_LIST) OK");
+        diag.VerboseLine(L"UpdateProcThreadAttribute(HANDLE_LIST) OK");
 
         // CreateProcessW mutates the command-line buffer and receives --cwd only as
         // lpCurrentDirectory.
@@ -434,7 +621,7 @@ SRRuntimeResult RunHiddenWithRouting(
         std::wstring cmd = fullCmdLineForCreateProcess; // CreateProcessW requires mutable buffer
 
         BOOL ok = CreateProcessW(
-            nullptr,
+            comspecPath.c_str(), // Explicit executable path
             cmd.data(),
             nullptr,
             nullptr,
@@ -448,318 +635,223 @@ SRRuntimeResult RunHiddenWithRouting(
         if (!ok) {
             DWORD gle = GetLastError();
             ReportRuntimeFatal(L"CreateProcessW failed; " + ErrorHelpers::FormatGle(gle));
-            return BuildRuntimeResult(255);
+            return FinalizeChildProcess(255);
         }
 
         diag.DebugLine(L"CreateProcessW OK; CHILD_PID=" + std::to_wstring(pi.dwProcessId));
-        diag.DebugProcessChain(L"Child", pi.dwProcessId);
+        DebugProcessChain_(diag, L"Child", pi.dwProcessId);
     }
 
-    UniqueHandle childProc(pi.hProcess);
-    UniqueHandle childThread(pi.hThread);
+    childProc.reset(pi.hProcess);
+    childThread.reset(pi.hThread);
 
-    if (!AssignProcessToJobObject(job.get(), childProc.get())) {
-        DWORD gle = GetLastError();
+    DWORD assignGle = 0;
+    if (!jobController.AssignProcess(childProc.get(), assignGle)) {
+        DWORD gle = assignGle;
         diag.ErrorLine(L"[JOB] AssignProcessToJobObject failed; " + ErrorHelpers::FormatGle(gle));
-        JobController::KillJobBestEffort(job, childProc, diag);
-        return BuildRuntimeResult(255);
+        if (childProc.valid() && !TerminateProcess(childProc.get(), 1)) {
+            const DWORD terminateGle = GetLastError();
+            diag.ErrorLine(L"TerminateUnassignedProcess: TerminateProcess failed; " + ErrorHelpers::FormatGle(terminateGle));
+        }
+        return FinalizeChildProcess(255);
     }
 
-    diag.DebugLine(L"[JOB] AssignProcessToJobObject OK");
+    diag.VerboseLine(L"[JOB] AssignProcessToJobObject OK");
 
     // Parent no longer needs these.
     stdoutWritePipe.reset();
     stderrWritePipe.reset();
     childIn.reset();
 
-    DWORD stdoutReadGle = 0;
-    bool stdoutReaderExceptionCaught = false;
-    std::wstring stdoutReaderExceptionText;
-
-    DWORD stderrReadGle = 0;
-    bool stderrReaderExceptionCaught = false;
-    std::wstring stderrReaderExceptionText;
-
-    std::thread stdoutReaderThread;
-    std::thread stderrReaderThread;
-
-    // Join reader threads and convert reader failures into runtime diagnostics.
-    //
-    // Important:
-    // - Reader thread exceptions are caught inside the reader lambdas so unwinding
-    //   cannot destroy a still-joinable std::thread and trigger std::terminate.
-    // - This helper must be called on every path that starts reader threads before
-    //   returning from RunHiddenWithRouting.
-    // - Reader failures are reported through runtime diagnostics, which means they
-    //   may appear in the stderr-sr-and-child timeline.
-    auto JoinReadersAndFailIfNeeded = [&](const wchar_t* context) -> bool {
-        if (stdoutReaderThread.joinable()) stdoutReaderThread.join();
-        if (stderrReaderThread.joinable()) stderrReaderThread.join();
-
-        if (stdoutReadGle != 0) {
-            std::wstring msg;
-            if (context && *context) {
-                msg += L"[";
-                msg += context;
-                msg += L"] ";
+    // Stop the process tree. On timeout or requested runtime failure, allow
+    // a shared grace period for reader completion before cancelling reads.
+    // Joining and evaluating reader errors belong to FinalizeChildProcess().
+    auto AbortProcessTreeAndReaders = [&](SRRuntimeStopReason::StopReason reason) -> bool {
+        DWORD gle = 0;
+        bool stopFailed = false;
+        if (!jobController.Abort(
+                SRRuntimeStopReason::ToChildAbortExitCode(reason), gle)) {
+            diag.ErrorLine(L"TerminateJobObject failed; " + ErrorHelpers::FormatGle(gle));
+            stopFailed = true;
+            if (childProc.valid()) {
+                TerminateProcess(childProc.get(),
+                    SRRuntimeStopReason::ToChildAbortExitCode(reason));
             }
-            msg += L"stdout reader failed; ";
-            msg += ErrorHelpers::FormatGle(stdoutReadGle);
-            diag.ErrorLine(msg);
         }
-
-        if (stderrReadGle != 0) {
-            std::wstring msg;
-            if (context && *context) {
-                msg += L"[";
-                msg += context;
-                msg += L"] ";
-            }
-            msg += L"stderr reader failed; ";
-            msg += ErrorHelpers::FormatGle(stderrReadGle);
-            diag.ErrorLine(msg);
+        const bool allowReaderDrainGrace =
+            (reason == SRRuntimeStopReason::StopReason::Timeout ||
+             reason == SRRuntimeStopReason::StopReason::RuntimeFailure) &&
+            !stopFailed && stdoutReader && stderrReader;
+        if (allowReaderDrainGrace) {
+            coordinator.WaitForReadersAfterAbort();
         }
-
-        if (stdoutReaderExceptionCaught) {
-            std::wstring msg;
-            if (context && *context) {
-                msg += L"[";
-                msg += context;
-                msg += L"] ";
-            }
-            msg += L"stdout reader failed; exception=" + stdoutReaderExceptionText;
-            diag.ErrorLine(msg);
+        if (stdoutReader && (!allowReaderDrainGrace || !stdoutReader->Finished())) {
+            stdoutReader->Abort();
         }
-
-        if (stderrReaderExceptionCaught) {
-            std::wstring msg;
-            if (context && *context) {
-                msg += L"[";
-                msg += context;
-                msg += L"] ";
-            }
-            msg += L"stderr reader failed; exception=" + stderrReaderExceptionText;
-            diag.ErrorLine(msg);
+        if (stderrReader && (!allowReaderDrainGrace || !stderrReader->Finished())) {
+            stderrReader->Abort();
         }
-
-        return
-            (stdoutReadGle != 0) ||
-            (stderrReadGle != 0) ||
-            stdoutReaderExceptionCaught ||
-            stderrReaderExceptionCaught;
-    };
-
-    auto ExecuteForcedStopAndJoin = [&](SRRuntimeStopReason::StopReason reason) -> bool {
-        StopAndUnblockReaders(
-            diag,
-            job,
-            childProc,
-            stdoutReadPipe,
-            stderrReadPipe,
-            2000,
-            SRRuntimeStopReason::ToChildTerminateExitCode(reason)
-        );
-
-        return JoinReadersAndFailIfNeeded(
-            SRRuntimeStopReason::ToReaderJoinDiagnosticLabel(reason)
-        );
+        return !stopFailed;
     };
 
     try {
-        stdoutReaderThread = std::thread([&] {
-            SRThreading::RunGuardedThreadEntry(
-                [&] {
-                    if (stdoutReadPipe.valid()) {
-                        stdoutReadGle = ChildStdReader::ReadAndRouteStdoutPipe(
-                            stdoutReadPipe.get(),
-                            stdoutRouter,
-                            config.stdoutEventFraming,
-                            config.stdoutEventNewlineMaxBytes
-                        );
-                    }
-                },
-                [&](const SRThreading::ThreadExceptionInfo& ex) {
-                    stdoutReaderExceptionText = ex.text;
-                    stdoutReaderExceptionCaught = true;
-                }
-            );
-        });
+        stdoutReader = std::make_unique<SRChildStreamReader>(
+            std::move(stdoutReadPipe), stdoutRouter, coordinator, lifecycleDiag,
+            config.stdoutEventFraming, config.stdoutEventNewlineMaxBytes
+        );
+        stderrReader = std::make_unique<SRChildStreamReader>(
+            std::move(stderrReadPipe), stderrRouter, coordinator, lifecycleDiag,
+            config.stderrChildEventFraming, config.stderrChildEventNewlineMaxBytes
+        );
+        stdoutReader->Start();
+        stderrReader->Start();
 
-        stderrReaderThread = std::thread([&] {
-            SRThreading::RunGuardedThreadEntry(
-                [&] {
-                    if (stderrReadPipe.valid()) {
-                        stderrReadGle = ChildStdReader::ReadAndRouteStderrPipe(
-                            stderrReadPipe.get(),
-                            stderrRouter,
-                            config.stderrChildEventFraming,
-                            config.stderrChildEventNewlineMaxBytes
-                        );
-                    }
-                },
-                [&](const SRThreading::ThreadExceptionInfo& ex) {
-                    stderrReaderExceptionCaught = true;
-                    stderrReaderExceptionText = ex.text;
-                }
-            );
-        });
+        DWORD watcherGle = 0;
+        if (!childWatcher.WaitForExitAsync(childProc.get(), watcherGle)) {
+            ReportRuntimeFatal(L"SRChildProcessWatcher::WaitForExitAsync failed; " +
+                ErrorHelpers::FormatGle(watcherGle));
+            result.stopReason = SRRuntimeStopReason::StopReason::RuntimeSetupFailed;
+            AbortProcessTreeAndReaders(result.stopReason);
+            return FinalizeChildProcess(255);
+        }
+
+        DWORD timerGle = ERROR_SUCCESS;
+        if (!timeLimiter.Start(timerGle)) {
+            ReportRuntimeFatal(L"SRTimeLimiter::Start failed; " + ErrorHelpers::FormatGle(timerGle));
+            result.stopReason = SRRuntimeStopReason::StopReason::RuntimeSetupFailed;
+            AbortProcessTreeAndReaders(result.stopReason);
+            return FinalizeChildProcess(255);
+        }
 
         {
             DWORD rr = ResumeThread(childThread.get());
             if (rr == (DWORD)-1) {
                 DWORD gle = GetLastError();
                 ReportRuntimeFatal(L"[JOB] ResumeThread failed; " + ErrorHelpers::FormatGle(gle));
-                ExecuteForcedStopAndJoin(SRRuntimeStopReason::StopReason::ResumeThreadFailed);
                 result.stopReason = SRRuntimeStopReason::StopReason::ResumeThreadFailed;
-                return BuildRuntimeResult(255);
+                AbortProcessTreeAndReaders(result.stopReason);
+                return FinalizeChildProcess(255);
             }
             diag.DebugLine(
                 L"[TIMELINE] Event numbers shown in an output may not form a continuous sequence; "
                 L"this does not necessarily indicate lost events. "
-                L"See https://github.com/jzav/silent-runner#timeline-and-views"
+                L"See https://github.com/jzav/silent-runner/blob/main/docs/architecture.md#timeline-and-event-filtering"
             );
             diag.DebugLine(L"[JOB] ResumeThread OK; Child process started.");
             result.childStarted = true;
         }
 
-        DWORD wait = WAIT_FAILED;
-        HANDLE limitEvent = bufferLimitPtr ? bufferLimitPtr->LimitEventHandle() : nullptr;
+        // Job zero does not guarantee stdout/stderr EOF. A process outside our
+        // Job Object may still hold a duplicated pipe write handle, preventing
+        // EOF even after all managed processes have exited. Windows cannot
+        // determine whether that process will produce more output.
+        //
+        // Normal completion waits for both readers to reach EOF rather than
+        // cancelling pending reads. --timeout-ms also covers this wait:
+        // if Runtime is not complete when the timer fires, it returns 124
+        // and terminates the process tree. Readers receive a short grace
+        // period to finish naturally before pending reads are cancelled.
+        // The existing reader Abort()/CancelIoEx() path still waits for
+        // pending I/O completion before releasing its resources.
+        for (;;) {
+            DWORD timeoutJobQueryGle = ERROR_SUCCESS;
+            const SRRuntimeCoordinator::Action action =
+                coordinator.WaitForActionSync(jobController, timeoutJobQueryGle);
+            const SRRuntimeStopReason::StopReason stopReason = coordinator.StopReason();
+            result.stopReason = stopReason;
 
-        if (limitEvent) {
-            HANDLE waitHandles[2] = { childProc.get(), limitEvent };
-            wait = (config.timeoutMs == 0)
-                ? WaitForMultipleObjects(2, waitHandles, FALSE, INFINITE)
-                : WaitForMultipleObjects(2, waitHandles, FALSE, config.timeoutMs);
-        } else {
-            wait = (config.timeoutMs == 0)
-                ? WaitForSingleObject(childProc.get(), INFINITE)
-                : WaitForSingleObject(childProc.get(), config.timeoutMs);
-        }
-
-        if (bufferLimitPtr && bufferLimitPtr->EventFailureDetected()) {
-            diag.ErrorLine(
-                L"Buffer-limit event failure detected; operation=" +
-                std::wstring(bufferLimitPtr->FirstEventFailureOperationName()) +
-                L" " +
-                ErrorHelpers::FormatGle(bufferLimitPtr->FirstEventFailureGle())
-            );
-        }
-
-        const SRRuntimeStopReason::StopReason stopReason =
-            SRRuntimeStopReason::FromWaitResult(wait);
-
-        executionTimeline->ProbeLine(
-            L"[RUNTIME][WAIT] wait=" + std::to_wstring(wait) +
-            L" stopReason=" +
-            std::wstring(SRRuntimeStopReason::ToReaderJoinDiagnosticLabel(stopReason)) +
-            L" limitHit=" +
-            std::wstring(
-                bufferLimitPtr && bufferLimitPtr->LimitHit()
-                    ? L"TRUE"
-                    : L"FALSE"
-            )
-        );
-
-        result.stopReason = stopReason;
-
-        if (stopReason == SRRuntimeStopReason::StopReason::WaitFailed) {
-            DWORD gle = GetLastError();
-
-            const bool joinFailed = ExecuteForcedStopAndJoin(stopReason);
-
-
-            ReportRuntimeFatal(
-                L"Fatal runtime stop reason: WaitForSingleObject/WaitForMultipleObjects failed; " +
-                ErrorHelpers::FormatGle(gle)
+            executionTimeline->ProbeLine(
+                L"[RUNTIME][WAIT] action=" +
+                std::wstring(action == SRRuntimeCoordinator::Action::Completed
+                    ? L"COMPLETED" : L"ABORT") +
+                L" stopReason=" +
+                std::wstring(SRRuntimeStopReason::ToDiagnosticLabel(stopReason))
             );
 
-            return BuildRuntimeResult(joinFailed ? 255 : SRRuntimeStopReason::ToSRExitCode(stopReason));
+            if (action == SRRuntimeCoordinator::Action::Completed) break;
+
+            if (stopReason == SRRuntimeStopReason::StopReason::Timeout) {
+                if (timeoutJobQueryGle != ERROR_SUCCESS) {
+                    try {
+                        diag.ErrorLine(
+                            L"[JOB] Timeout Job zero verification failed; " +
+                            ErrorHelpers::FormatGle(timeoutJobQueryGle)
+                        );
+                    } catch (...) {
+                        // Diagnostic failure must not change the timeout decision.
+                    }
+                }
+                ReportRuntimeFatal(
+                    L"Runtime stop: Timeout exceeded; timeout_ms=" +
+                    std::to_wstring(timeLimiter.TimeoutMs()) +
+                    L" exit_code=124"
+                );
+            } else if (stopReason == SRRuntimeStopReason::StopReason::BufferLimit) {
+                std::wstring which = L"?";
+                SRBufferLimiter::StreamType first =
+                    bufferLimitPtr ? bufferLimitPtr->FirstHitStream()
+                                   : SRBufferLimiter::StreamType::None;
+                if (first == SRBufferLimiter::StreamType::Stdout) which = L"stdout";
+                else if (first == SRBufferLimiter::StreamType::Stderr) which = L"stderr";
+
+                std::wstring bufferLimitFatalMessage =
+                    L"Runtime stop: Buffer limit exceeded; first_hit=" + which +
+                    L" stdout_max=" + std::to_wstring(bufferLimitPtr ? bufferLimitPtr->StdoutMaxBytes() : 0) +
+                    L" stderr_max=" + std::to_wstring(bufferLimitPtr ? bufferLimitPtr->StderrMaxBytes() : 0) +
+                    L" total_max=" + std::to_wstring(bufferLimitPtr ? bufferLimitPtr->TotalMaxBytes() : 0) +
+                    L" action=abort";
+                ReportRuntimeFatal(bufferLimitFatalMessage);
+            }
+
+            if (stopReason == SRRuntimeStopReason::StopReason::RuntimeFailure) {
+                // This flag records the policy action, not the result of TerminateJobObject.
+                result.abortedOnRuntimeFailure = true;
+                ReportRuntimeFatal(
+                    L"Runtime abort requested: --abort-on-runtime-failure triggered; cause=" +
+                    std::wstring(SRRuntimeCoordinator::RuntimeFailureCauseToString(
+                        coordinator.FirstRuntimeFailureCause())) +
+                    L"; exit_code=255"
+                );
+            }
+
+            // Abort() confirms reader completion. Other abort reasons still wait
+            // for coordinator confirmation before finalization.
+            if (!AbortProcessTreeAndReaders(stopReason)) {
+                return FinalizeChildProcess(255);
+            }
+            if (stopReason == SRRuntimeStopReason::StopReason::RuntimeFailure) {
+                // Monitoring may be unavailable; do not wait for Job zero.
+                return FinalizeChildProcess(255);
+            }
         }
 
-        if (stopReason == SRRuntimeStopReason::StopReason::Timeout) {
-            const bool joinFailed = ExecuteForcedStopAndJoin(stopReason);
-
-
-            ReportRuntimeFatal(
-                L"Fatal runtime stop: Timeout exceeded; timeout_ms=" +
-                std::to_wstring(config.timeoutMs) +
-                L" exit_code=124"
-            );
-
-            return BuildRuntimeResult(joinFailed ? 255 : SRRuntimeStopReason::ToSRExitCode(stopReason));
-        }
-
-        if (stopReason == SRRuntimeStopReason::StopReason::BufferLimit) {
-            std::wstring which = L"?";
-            SRBufferLimiter::StreamType first =
-                bufferLimitPtr ? bufferLimitPtr->FirstHitStream()
-                            : SRBufferLimiter::StreamType::None;
-
-            if (first == SRBufferLimiter::StreamType::Stdout) which = L"stdout";
-            else if (first == SRBufferLimiter::StreamType::Stderr) which = L"stderr";
-
-            const bool joinFailed = ExecuteForcedStopAndJoin(stopReason);
-
-
-            std::wstring bufferLimitFatalMessage =
-                L"Fatal runtime stop: Buffer limit exceeded; first_hit=" + which +
-                L" stdout_max=" + std::to_wstring(bufferLimitPtr ? bufferLimitPtr->StdoutMaxBytes() : 0) +
-                L" stderr_max=" + std::to_wstring(bufferLimitPtr ? bufferLimitPtr->StderrMaxBytes() : 0) +
-                L" total_max=" + std::to_wstring(bufferLimitPtr ? bufferLimitPtr->TotalMaxBytes() : 0) +
-                L" action=abort";
-
-            ReportRuntimeFatal(bufferLimitFatalMessage);
-            
-            return BuildRuntimeResult(joinFailed ? 255 : SRRuntimeStopReason::ToSRExitCode(stopReason));
-        }
-
-        int exitCode = 0;
-        diag.DebugLine(L"Child exited");
-        if (JoinReadersAndFailIfNeeded(SRRuntimeStopReason::ToReaderJoinDiagnosticLabel(stopReason))) return BuildRuntimeResult(255);
-        diag.DebugLine(L"Reader threads joined");
-
-
-
-        DWORD childExitCode = 0;
-        if (!GetExitCodeProcess(childProc.get(), &childExitCode)) {
-            DWORD gle = GetLastError();
-            diag.ErrorLine(L"GetExitCodeProcess failed; " + ErrorHelpers::FormatGle(gle));
-            exitCode = 255;
-        } else {
-            exitCode = static_cast<int>(childExitCode);
-            diag.DebugLine(L"GetExitCodeProcess OK; exitCode=" + std::to_wstring(exitCode));
-        }
-
-        return BuildRuntimeResult(exitCode);
+        return FinalizeChildProcess(SRRuntimeStopReason::ToSRExitCode(result.stopReason));
+    // Unhandled exceptions indicate a potentially catastrophic or inconsistent
+    // Runtime state. Unlike reported supervision failures, they intentionally
+    // trigger best-effort process-tree termination regardless of
+    // --abort-on-runtime-failure. Continuing execution is not considered safe.
     } catch (const std::bad_alloc&) {
-        ExecuteForcedStopAndJoin(SRRuntimeStopReason::StopReason::UnhandledException);
-
-        ReportRuntimeFatal(L"Unhandled std::bad_alloc in RunHiddenWithRouting");
-
         result.stopReason = SRRuntimeStopReason::StopReason::UnhandledException;
-        return BuildRuntimeResult(255);
-
+        AbortProcessTreeAndReaders(result.stopReason);
+        ReportRuntimeFatal(L"Unhandled std::bad_alloc in ExecuteChildProcess");
+        return FinalizeChildProcess(255);
     } catch (const std::exception& ex) {
-        ExecuteForcedStopAndJoin(SRRuntimeStopReason::StopReason::UnhandledException);
-
+        result.stopReason = SRRuntimeStopReason::StopReason::UnhandledException;
+        AbortProcessTreeAndReaders(result.stopReason);
         const std::wstring detail = FileHelpers::Utf8ToWide(ex.what());
         if (!detail.empty()) {
             ReportRuntimeFatal(
-                L"Unhandled std::exception in RunHiddenWithRouting; " + detail
+                L"Unhandled std::exception in ExecuteChildProcess; " + detail
             );
         } else {
-            ReportRuntimeFatal(L"Unhandled std::exception in RunHiddenWithRouting");
+            ReportRuntimeFatal(L"Unhandled std::exception in ExecuteChildProcess");
         }
-
-        result.stopReason = SRRuntimeStopReason::StopReason::UnhandledException;
-        return BuildRuntimeResult(255);
-
+        return FinalizeChildProcess(255);
     } catch (...) {
-        ExecuteForcedStopAndJoin(SRRuntimeStopReason::StopReason::UnhandledException);
-
-        ReportRuntimeFatal(L"Unhandled unknown exception in RunHiddenWithRouting");
-
         result.stopReason = SRRuntimeStopReason::StopReason::UnhandledException;
-        return BuildRuntimeResult(255);
+        AbortProcessTreeAndReaders(result.stopReason);
+        ReportRuntimeFatal(L"Unhandled unknown exception in ExecuteChildProcess");
+        return FinalizeChildProcess(255);
     }
+
 }

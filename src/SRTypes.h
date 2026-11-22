@@ -175,39 +175,6 @@ inline void AppendEmitModeHelpForBoth(std::wstring& out) {
 }
 
 // =====================================================================================
-// StderrEmitSource
-// =====================================================================================
-//
-// Selects which logical stderr view is emitted to the parent and replayed.
-// File logs can fan out to multiple stderr views, but parent stderr emit is
-// intentionally exclusive.
-
-#define SR_STDERR_EMIT_SOURCE_TABLE(X) \
-    X(SrAndChild, L"stderr-sr-and-child", L"SilentRunner diagnostics plus child stderr", StderrSrAndChildParent) \
-    X(Child, L"stderr-child", L"child stderr only", StderrChildParent) \
-    X(Sr, L"stderr-sr", L"SilentRunner diagnostics only", StderrSrParent) \
-    X(SrAndChildInclStdout, L"stderr-sr-and-child-incl-stdout", L"SilentRunner diagnostics plus child stderr and stdout", StderrSrAndChildInclStdoutParent)
-
-
-enum class StderrEmitSource {
-#define SR_X_ENUM_STDERR_SOURCE(name, wptr, help, target) name,
-    SR_STDERR_EMIT_SOURCE_TABLE(SR_X_ENUM_STDERR_SOURCE)
-#undef SR_X_ENUM_STDERR_SOURCE
-};
-
-inline constexpr const wchar_t* StderrEmitSourceToString(
-    StderrEmitSource source
-) noexcept {
-    switch (source) {
-#define SR_X_CASE_STDERR_SOURCE(name, wptr, help, target) case StderrEmitSource::name: return wptr;
-        SR_STDERR_EMIT_SOURCE_TABLE(SR_X_CASE_STDERR_SOURCE)
-#undef SR_X_CASE_STDERR_SOURCE
-    default:
-        return L"<invalid>";
-    }
-}
-
-// =====================================================================================
 // KeepLogMode (single source of truth)
 // =====================================================================================
 
@@ -316,8 +283,7 @@ inline bool TryParseJsonlPayloadRepresentationIgnoreCase(
 // ChildEventFraming
 // =====================================================================================
 
-enum class ChildOutputPresentation {
-    Raw,
+enum class ChildTxtHeaderGranularity {
     Block,
     Event
 };
@@ -328,26 +294,26 @@ enum class ChildOutputPresentation {
     X(Crlf,  2, L"crlf",  L"",        Event)
 
 enum class ChildEventFraming {
-#define SR_X_ENUM_CHILD_EVENT_FRAMING(name, value, text, alias, presentation) name = value,
+#define SR_X_ENUM_CHILD_EVENT_FRAMING(name, value, text, alias, headerGranularity) name = value,
     SR_CHILD_EVENT_FRAMING_TABLE(SR_X_ENUM_CHILD_EVENT_FRAMING)
 #undef SR_X_ENUM_CHILD_EVENT_FRAMING
 };
 
-inline constexpr ChildOutputPresentation
-ChildEventFramingPresentationOf(
+inline constexpr ChildTxtHeaderGranularity
+ChildTxtHeaderGranularityOf(
     ChildEventFraming framing
 ) noexcept {
     switch (framing) {
-#define SR_X_CASE_CHILD_EVENT_FRAMING_PRESENTATION(name, value, text, alias, presentation) \
+#define SR_X_CASE_CHILD_EVENT_FRAMING_HEADER_GRANULARITY(name, value, text, alias, headerGranularity) \
         case ChildEventFraming::name: \
-            return ChildOutputPresentation::presentation;
+            return ChildTxtHeaderGranularity::headerGranularity;
 
         SR_CHILD_EVENT_FRAMING_TABLE(
-            SR_X_CASE_CHILD_EVENT_FRAMING_PRESENTATION
+            SR_X_CASE_CHILD_EVENT_FRAMING_HEADER_GRANULARITY
         )
-#undef SR_X_CASE_CHILD_EVENT_FRAMING_PRESENTATION
+#undef SR_X_CASE_CHILD_EVENT_FRAMING_HEADER_GRANULARITY
         default:
-            return ChildOutputPresentation::Block;
+            return ChildTxtHeaderGranularity::Block;
     }
 }
 
@@ -358,7 +324,7 @@ inline constexpr const wchar_t* ChildEventFramingToString(
     ChildEventFraming framing
 ) noexcept {
     switch (framing) {
-#define SR_X_CASE_CHILD_EVENT_FRAMING(name, value, text, alias, presentation) \
+#define SR_X_CASE_CHILD_EVENT_FRAMING(name, value, text, alias, headerGranularity) \
         case ChildEventFraming::name: return text;
         SR_CHILD_EVENT_FRAMING_TABLE(SR_X_CASE_CHILD_EVENT_FRAMING)
 #undef SR_X_CASE_CHILD_EVENT_FRAMING
@@ -371,7 +337,7 @@ inline bool TryParseChildEventFramingIgnoreCase(
     std::wstring_view s,
     ChildEventFraming& out
 ) noexcept {
-#define SR_X_IF_CHILD_EVENT_FRAMING(name, value, text, alias, presentation) \
+#define SR_X_IF_CHILD_EVENT_FRAMING(name, value, text, alias, headerGranularity) \
     if (TextHelpers::EqualsOrdinalIgnoreCase(s, text) || \
         (alias[0] != L'\0' && \
          TextHelpers::EqualsOrdinalIgnoreCase(s, alias))) { \
@@ -467,7 +433,7 @@ inline bool TryParseIdSuffixModeIgnoreCase(
 
 #define SR_EXECUTION_MODE_TABLE(X) \
     X(ScriptOrExe, 0, L"script-or-exe") \
-    X(RawCommand,  1, L"raw-command (-c)")
+    X(CommandString, 1, L"command-string (-c)")
 
 enum class ExecutionMode {
 #define SR_X_ENUM_EXECUTION_MODE(name, value, text) name = value,
@@ -599,6 +565,29 @@ inline constexpr const wchar_t* LifecyclePhaseToString(
     }
 }
 
+inline constexpr const wchar_t* LifecyclePhaseToUppercaseString(
+    LifecyclePhase phase
+) noexcept {
+    switch (phase) {
+#define SR_X_CASE_LIFECYCLE_PHASE_UPPERCASE(name, value, text, textView, uppercaseText, shortText) \
+        case LifecyclePhase::name: return uppercaseText;
+        SR_LIFECYCLE_PHASE_TABLE(SR_X_CASE_LIFECYCLE_PHASE_UPPERCASE)
+#undef SR_X_CASE_LIFECYCLE_PHASE_UPPERCASE
+        default:
+            return L"<INVALID>";
+    }
+}
+
+inline std::wstring ExecutionExitCodeKey() {
+    return L"SILENTRUNNER_EXIT_CODE";
+}
+
+inline std::wstring ExecutionExitCodeKey(LifecyclePhase phase) {
+    return L"SILENTRUNNER_" +
+        std::wstring(LifecyclePhaseToUppercaseString(phase)) +
+        L"_EXIT_CODE";
+}
+
 inline constexpr const wchar_t* LifecyclePhaseShortNameToString(
     LifecyclePhase phase
 ) noexcept {
@@ -704,52 +693,106 @@ struct AtomicBufferUsageCache {
 #undef SR_X_BUFFER_USAGE_ATOMIC_FIELD
 };
 
-
 // =====================================================================================
-// LogPaths
+// Shared component configuration types
 // =====================================================================================
 
-
-struct LogPathSet {
-    std::wstring stdoutTxt;
-    std::wstring stdoutJsonl;
-
-    std::wstring stderrSrAndChildTxt;
-    std::wstring stderrSrAndChildJsonl;
-
-    std::wstring stderrChildTxt;
-    std::wstring stderrChildJsonl;
-
-    std::wstring stderrSrTxt;
-    std::wstring stderrSrJsonl;
-    std::wstring stderrSrAndChildInclStdoutTxt;
-    std::wstring stderrSrAndChildInclStdoutJsonl;
+struct SRFileSinkWorkerConfig {
+    JsonlPayloadRepresentation jsonlPayloadRepresentation{};
 };
 
-struct LogFileCreationResults {
-    bool probe = false;
-    bool stdoutTxt = false;
-    bool stdoutJsonl = false;
-
-    bool stderrSrAndChildTxt = false;
-    bool stderrSrAndChildJsonl = false;
-
-    bool stderrChildTxt = false;
-    bool stderrChildJsonl = false;
-
-    bool stderrSrTxt = false;
-    bool stderrSrJsonl = false;
-    bool stderrSrAndChildInclStdoutTxt = false;
-    bool stderrSrAndChildInclStdoutJsonl = false;
+struct ExecutionTimelineConfig {
+    bool verbose{};
+};
+struct SRWorkerCommonPolicyConfig {
+    std::wstring idPrefix{};
+    std::wstring idBase{};
+    IdSuffixMode idSuffix{};
+    bool needsParsingToken = false;
+    ChildTxtHeaderGranularity stdoutTxtHeaderGranularity =
+        ChildTxtHeaderGranularity::Block;
+    ChildTxtHeaderGranularity stderrChildTxtHeaderGranularity =
+        ChildTxtHeaderGranularity::Block;
 };
 
-struct LogPaths {
-    LogPathSet running;
-    LogPathSet success;
-    LogPathSet failure;
-    std::wstring probe;
+struct SRLifecycleDiagnosticsConfig {
+    bool debug = false;
+    bool verbose = false;
 };
 
+
+struct SRBufferLimiterConfig {
+    uint64_t stdoutMaxBufferBytes = 0;
+    uint64_t stderrMaxBufferBytes = 0;
+    uint64_t stdTotalMaxBufferBytes = 0;
+};
+
+struct SRTimeLimiterConfig {
+    uint32_t timeoutMs{};
+};
+
+struct SRRuntimeCoordinatorConfig {
+    bool abortOnRuntimeFailure = false;
+};
+
+struct PrepareRuntimeConfig {
+    std::wstring probeDir{};
+    std::wstring cwd{};
+    bool utf8{};
+    std::wstring stdoutDir{};
+    std::wstring stdoutDirJsonl{};
+    std::wstring stderrDir{};
+    std::wstring stderrDirJsonl{};
+    std::wstring stderrDirChild{};
+    std::wstring stderrDirChildJsonl{};
+    std::wstring stderrDirSr{};
+    std::wstring stderrDirSrJsonl{};
+    std::wstring stderrDirInclStdout{};
+    std::wstring stderrDirInclStdoutJsonl{};
+
+    uint64_t stdoutMaxBufferBytes{};
+    uint64_t stderrMaxBufferBytes{};
+    uint64_t stdTotalMaxBufferBytes{};
+
+    std::wstring runOnSuccessPath{};
+    std::wstring runOnFailurePath{};
+    ExecutionMode executionMode{};
+
+    std::vector<std::wstring> argVector{};
+    int childArgsStartIndex{};
+};
+
+struct ExecuteChildProcessConfig {
+    bool debug{};
+    bool verbose{};
+    bool utf8{};
+    JsonlPayloadRepresentation jsonlPayloadRepresentation{};
+    std::wstring runOnSuccessPath{};
+    std::wstring runOnFailurePath{};
+    std::wstring cwd{};
+    bool inheritStdin{};
+    uint64_t stdoutMaxBufferBytes{};
+
+    uint64_t stderrMaxBufferBytes{};
+    uint64_t stdTotalMaxBufferBytes{};
+    ChildEventFraming stdoutEventFraming{};
+    uint64_t stdoutEventNewlineMaxBytes{};
+    ChildEventFraming stderrChildEventFraming{};
+    uint64_t stderrChildEventNewlineMaxBytes{};
+
+    ExecutionMode executionMode{};
+};
+
+struct FinalizeExecutionConfig {
+    bool verbose{};
+    std::wstring comspecPath{};
+    std::wstring cwd{};
+    std::wstring runOnSuccessPath{};
+    std::wstring runOnFailurePath{};
+    std::wstring executionId{};
+    ChildTxtHeaderGranularity stdoutTxtHeaderGranularity{};
+    ChildTxtHeaderGranularity stderrChildTxtHeaderGranularity{};
+};
 #undef SR_EXECUTION_MODE_TABLE
 #undef SR_ID_SUFFIX_MODE_TABLE
 #undef SR_DIAGNOSTIC_SEVERITY_LIST

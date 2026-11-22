@@ -68,5 +68,14 @@ sr_assert_single_txt_output_payload_equals_file(
     "${payload_file}"
     "CHILDSTDOUT"
 )
+foreach(path IN ITEMS "${expected_log}" "${parent_stdout_file}")
+    file(READ "${path}" content)
+    if(NOT content MATCHES
+            "tsUtc=[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9][.][0-9][0-9][0-9]Z")
+        message(FATAL_ERROR
+            "Expected ISO 8601 UTC tsUtc with milliseconds in Headered TXT output: ${path}"
+        )
+    endif()
+endforeach()
 
 sr_assert_directory_file_count("${log_dir}" 1)

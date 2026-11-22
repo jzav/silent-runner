@@ -300,70 +300,79 @@ std::string FormatChildStderrTxtHeader_(
 
 std::string SRPhaseTimelineEntryFormatter::FormatSrDiagTxtHeader(
     const SrDiagEntry& entry,
-    const std::string& parsingToken
+    const std::string& parsingToken,
+    const std::wstring& executionId
 ) {
     SRPhaseTimelineEntrySchemaData::SrDiagData data(entry);
     data.parsingToken = parsingToken;
+    data.executionId = executionId;
     return FormatSrDiagTxtHeader_(data);
 }
 
 
 std::string SRPhaseTimelineEntryFormatter::FormatChildStdoutTxtHeader(
     const ChildStdoutEntry& entry,
-    const std::string& parsingToken
+    const std::string& parsingToken,
+    const std::wstring& executionId
 ) {
     SRPhaseTimelineEntrySchemaData::ChildStdoutData data(entry);
     data.parsingToken = parsingToken;
+    data.executionId = executionId;
     return FormatChildStdoutTxtHeader_(data);
 }
 
 
 std::string SRPhaseTimelineEntryFormatter::FormatChildStderrTxtHeader(
     const ChildStderrEntry& entry,
-    const std::string& parsingToken
+    const std::string& parsingToken,
+    const std::wstring& executionId
 ) {
     SRPhaseTimelineEntrySchemaData::ChildStderrData data(entry);
     data.parsingToken = parsingToken;
+    data.executionId = executionId;
     return FormatChildStderrTxtHeader_(data);
 }
 
 
 std::string SRPhaseTimelineEntryFormatter::FormatJsonLine(
     const SrDiagEntry& entry,
-    JsonlPayloadRepresentation payloadRepresentationMode
+    JsonlPayloadRepresentation payloadRepresentationMode,
+    const std::wstring& executionId
 ) {
-    return FormatSrDiagJsonLine_(
-        SRPhaseTimelineEntrySchemaData::SrDiagData(
-            entry,
-            payloadRepresentationMode
-        )
+    SRPhaseTimelineEntrySchemaData::SrDiagData data(
+        entry,
+        payloadRepresentationMode
     );
+    data.executionId = executionId;
+    return FormatSrDiagJsonLine_(data);
 }
 
 
 std::string SRPhaseTimelineEntryFormatter::FormatJsonLine(
     const ChildStdoutEntry& entry,
-    JsonlPayloadRepresentation payloadRepresentationMode
+    JsonlPayloadRepresentation payloadRepresentationMode,
+    const std::wstring& executionId
 ) {
-    return FormatChildStdoutJsonLine_(
-        SRPhaseTimelineEntrySchemaData::ChildStdoutData(
-            entry,
-            payloadRepresentationMode
-        )
+    SRPhaseTimelineEntrySchemaData::ChildStdoutData data(
+        entry,
+        payloadRepresentationMode
     );
+    data.executionId = executionId;
+    return FormatChildStdoutJsonLine_(data);
 }
 
 
 std::string SRPhaseTimelineEntryFormatter::FormatJsonLine(
     const ChildStderrEntry& entry,
-    JsonlPayloadRepresentation payloadRepresentationMode
+    JsonlPayloadRepresentation payloadRepresentationMode,
+    const std::wstring& executionId
 ) {
-    return FormatChildStderrJsonLine_(
-        SRPhaseTimelineEntrySchemaData::ChildStderrData(
-            entry,
-            payloadRepresentationMode
-        )
+    SRPhaseTimelineEntrySchemaData::ChildStderrData data(
+        entry,
+        payloadRepresentationMode
     );
+    data.executionId = executionId;
+    return FormatChildStderrJsonLine_(data);
 }
 
 

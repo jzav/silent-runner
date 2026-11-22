@@ -13,7 +13,7 @@ function(assert_stdout_newline_max_accepted value)
     sr_assert_exit(r 0)
     sr_assert_stderr_contains(
         r
-        "STDOUT_EVENT_FRAMING=lf STDOUT_EVENT_NEWLINE_MAX_BYTES=${value}"
+        "STDOUT_EVENT_FRAMING=lf NEWLINE_MAX_BYTES=${value}"
     )
 endfunction()
 

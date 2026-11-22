@@ -27,8 +27,8 @@ public:
     bool Init(
         SRLifecycleDiagnostics* diagnostics,
         const std::string& parsingToken,
-        SR::ChildOutputPresentation stdoutPresentation,
-        SR::ChildOutputPresentation stderrChildPresentation,
+        SR::ChildTxtHeaderGranularity stdoutTxtHeaderGranularity,
+        SR::ChildTxtHeaderGranularity stderrChildTxtHeaderGranularity,
         std::size_t pendingJobPayloadSize
     ) noexcept;
 
@@ -72,7 +72,7 @@ private:
         std::size_t position = 0;
     };
 
-    struct SegmentReplayContext;
+    struct BlockReplayContext;
     struct ReplayBatchContext;
 
     static TxtReplayMode DetermineTxtReplayMode_(
@@ -101,19 +101,19 @@ private:
     void SwapBuffers_() noexcept;
 
     bool TryBuildPendingJob_(
-        SegmentReplayContext& segmentContext,
+        BlockReplayContext& blockContext,
         std::vector<char>& pendingPayloadBuffer,
         SR::PendingJob& job
     );
 
     bool FlushPendingPayload_(
-        SegmentReplayContext& segmentContext,
+        BlockReplayContext& blockContext,
         ReplayBatchContext& batchContext,
         std::vector<char>& pendingPayloadBuffer
     );
 
     ChunkResult ChunkUntilSeparator_(
-        SegmentReplayContext& segmentContext,
+        BlockReplayContext& blockContext,
         ReplayBatchContext& batchContext,
         std::vector<char>& pendingPayloadBuffer,
         HeaderResult& nextHeaderResult
@@ -129,7 +129,8 @@ private:
 
     bool TryParseCandidateHeader_(
         SR::JobTarget target,
-        SegmentReplayContext& context
+        BlockReplayContext& context
+
     );
 
     SRJobsExchange* jobsExchange_ = nullptr; // non-owning
@@ -140,10 +141,11 @@ private:
     std::string candidateHeader_;
     std::string parsingToken_;
     std::string parsingTokenSuffix_;
-    SR::ChildOutputPresentation stdoutPresentation_ =
-        SR::ChildOutputPresentation::Block;
-    SR::ChildOutputPresentation stderrChildPresentation_ =
-        SR::ChildOutputPresentation::Block;
+    SR::ChildTxtHeaderGranularity stdoutTxtHeaderGranularity_ =
+        SR::ChildTxtHeaderGranularity::Block;
+    SR::ChildTxtHeaderGranularity stderrChildTxtHeaderGranularity_ =
+
+        SR::ChildTxtHeaderGranularity::Block;
     std::size_t pendingJobPayloadSize_ = 0;
 
 };

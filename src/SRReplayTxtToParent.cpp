@@ -120,7 +120,7 @@ SR::ReplayPayloadStorage ReplayPayloadStorageFromSchemaData_(
 } // namespace
 
 
-struct SRReplayTxtToParent::SegmentReplayContext {
+struct SRReplayTxtToParent::BlockReplayContext {
     SR::SRPhaseTimelineEntrySchemaData::SchemaDataVariant schemaData;
     uint64_t nextEventOrderNo = 0;
     bool headerParsingSucceeded = true;
@@ -135,8 +135,8 @@ struct SRReplayTxtToParent::ReplayBatchContext {
 bool SRReplayTxtToParent::Init(
     SRLifecycleDiagnostics* diagnostics,
     const std::string& parsingToken,
-    SR::ChildOutputPresentation stdoutPresentation,
-    SR::ChildOutputPresentation stderrChildPresentation,
+    SR::ChildTxtHeaderGranularity stdoutTxtHeaderGranularity,
+    SR::ChildTxtHeaderGranularity stderrChildTxtHeaderGranularity,
     std::size_t pendingJobPayloadSize
 ) noexcept {
     jobsExchange_ = nullptr;
@@ -151,13 +151,11 @@ bool SRReplayTxtToParent::Init(
         parsingToken_ +
         "]";
 
-    stdoutPresentation_ = stdoutPresentation;
-    stderrChildPresentation_ = stderrChildPresentation;
+    stdoutTxtHeaderGranularity_ = stdoutTxtHeaderGranularity;
+    stderrChildTxtHeaderGranularity_ = stderrChildTxtHeaderGranularity;
     pendingJobPayloadSize_ = pendingJobPayloadSize;
 
-    return
-        !parsingToken_.empty() &&
-        pendingJobPayloadSize_ != 0;
+    return pendingJobPayloadSize_ != 0;
 }
 
 void SRReplayTxtToParent::SetJobsExchange(
@@ -172,7 +170,7 @@ SRReplayTxtToParent::DetermineTxtReplayMode_(
 ) {
     SR::JobTargetFilter filter;
     filter.format = SR::JobTargetFormat::Parent;
-    filter.headerParsingTokenEnabled = true;
+    filter.headerEnabled = true;
 
     for (const SR::JobTarget headeredTarget :
          SR::RetrieveJobTargets(filter)) {
@@ -190,6 +188,14 @@ bool SRReplayTxtToParent::ReplayByParameterSet_(
 ) {
     if (DetermineTxtReplayMode_(parameters.target) ==
         TxtReplayMode::Headered) {
+        if (parsingToken_.empty()) {
+            if (diagnostics_) {
+                diagnostics_->ErrorLine(
+                    L"TXT headered parent replay requires a parsing token"
+                );
+            }
+            return false;
+        }
         return ReplayHeaderedTxt_(parameters);
     }
 
@@ -437,7 +443,7 @@ SRReplayTxtToParent::CheckHeader_(
 
 bool SRReplayTxtToParent::TryParseCandidateHeader_(
     SR::JobTarget target,
-    SegmentReplayContext& context
+    BlockReplayContext& context
 ) {
     SR::SRPhaseTimelineEntrySchemaData::SchemaDataVariant schemaData;
     if (diagnostics_) {
@@ -574,7 +580,7 @@ bool SRReplayTxtToParent::TryParseCandidateHeader_(
 }
 
 bool SRReplayTxtToParent::TryBuildPendingJob_(
-    SegmentReplayContext& segmentContext,
+    BlockReplayContext& blockContext,
     std::vector<char>& pendingPayloadBuffer,
     SR::PendingJob& job
 ) {
@@ -586,7 +592,7 @@ bool SRReplayTxtToParent::TryBuildPendingJob_(
             if (!TryBuildPendingJobKey_(
                     data.phase,
                     data.phaseOrderNo,
-                    segmentContext.nextEventOrderNo++,
+                    blockContext.nextEventOrderNo++,
                     key
                 )) {
                 return false;
@@ -672,13 +678,13 @@ bool SRReplayTxtToParent::TryBuildPendingJob_(
             return true;
 
         },
-        segmentContext.schemaData
+        blockContext.schemaData
     );
 }
 
 
 bool SRReplayTxtToParent::FlushPendingPayload_(
-    SegmentReplayContext& segmentContext,
+    BlockReplayContext& blockContext,
     ReplayBatchContext& batchContext,
     std::vector<char>& pendingPayloadBuffer
 ) {
@@ -690,7 +696,7 @@ bool SRReplayTxtToParent::FlushPendingPayload_(
             return
                 payloadEmpty && !data.payloadDropped;
         },
-        segmentContext.schemaData
+        blockContext.schemaData
     );
 
     if (skipEmptyPayload) {
@@ -699,7 +705,7 @@ bool SRReplayTxtToParent::FlushPendingPayload_(
 
     SR::PendingJob job;
     if (!TryBuildPendingJob_(
-            segmentContext,
+            blockContext,
             pendingPayloadBuffer,
             job
         )) {
@@ -715,7 +721,7 @@ bool SRReplayTxtToParent::FlushPendingPayload_(
 
 SRReplayTxtToParent::ChunkResult
 SRReplayTxtToParent::ChunkUntilSeparator_(
-    SegmentReplayContext& segmentContext,
+    BlockReplayContext& blockContext,
     ReplayBatchContext& batchContext,
     std::vector<char>& pendingPayloadBuffer,
     HeaderResult& nextHeaderResult
@@ -739,8 +745,8 @@ SRReplayTxtToParent::ChunkUntilSeparator_(
                 >
             ) {
                 eventPresentedChild =
-                    stdoutPresentation_ ==
-                        SR::ChildOutputPresentation::Event;
+                    stdoutTxtHeaderGranularity_ ==
+                        SR::ChildTxtHeaderGranularity::Event;
                 payloadDropped = data.payloadDropped;
                 payloadByteCount = data.payloadByteCount;
             } else if constexpr (
@@ -750,13 +756,14 @@ SRReplayTxtToParent::ChunkUntilSeparator_(
                 >
             ) {
                 eventPresentedChild =
-                    stderrChildPresentation_ ==
-                        SR::ChildOutputPresentation::Event;
+                    stderrChildTxtHeaderGranularity_ ==
+
+                        SR::ChildTxtHeaderGranularity::Event;
                 payloadDropped = data.payloadDropped;
                 payloadByteCount = data.payloadByteCount;
             }
         },
-        segmentContext.schemaData
+        blockContext.schemaData
     );
 
     if (eventPresentedChild) {
@@ -882,16 +889,16 @@ SRReplayTxtToParent::ChunkUntilSeparator_(
         };
     }
 
-    const bool chunkedSegment =
+    const bool chunkedBlock =
         std::holds_alternative<
             SR::SRPhaseTimelineEntrySchemaData::ChildStdoutData
-        >(segmentContext.schemaData) ||
+        >(blockContext.schemaData) ||
         std::holds_alternative<
             SR::SRPhaseTimelineEntrySchemaData::ChildStderrData
-        >(segmentContext.schemaData) ||
+        >(blockContext.schemaData) ||
         std::holds_alternative<
             SR::SRPhaseTimelineEntrySchemaData::SrDiagData
-        >(segmentContext.schemaData);
+        >(blockContext.schemaData);
 
     // CheckHeader_() starts at the LF which terminated the previous payload
     // line. If that candidate was rejected, the LF belongs to the current
@@ -900,13 +907,13 @@ SRReplayTxtToParent::ChunkUntilSeparator_(
             HeaderResultState::NotHeader &&
         payloadPosition < currentBuffer_.size() &&
         currentBuffer_[payloadPosition] == kLf) {
-        const bool srDiagSegment =
+        const bool srDiagBlock =
             std::holds_alternative<
                 SR::SRPhaseTimelineEntrySchemaData::SrDiagData
-            >(segmentContext.schemaData);
+            >(blockContext.schemaData);
 
         const bool terminatingSrDiagLf =
-            srDiagSegment &&
+            srDiagBlock &&
             payloadPosition + 1 == currentBuffer_.size() &&
             nextBuffer_.empty();
 
@@ -917,11 +924,11 @@ SRReplayTxtToParent::ChunkUntilSeparator_(
         ++payloadPosition;
 
 
-        if (chunkedSegment &&
+        if (chunkedBlock &&
             pendingPayloadBuffer.size() ==
                 pendingJobPayloadSize_ &&
             !FlushPendingPayload_(
-                segmentContext,
+                blockContext,
                 batchContext,
                 pendingPayloadBuffer
             )) {
@@ -960,7 +967,7 @@ SRReplayTxtToParent::ChunkUntilSeparator_(
     std::size_t startPosition = payloadPosition;
 
     while (startPosition < endPosition) {
-        if (chunkedSegment) {
+        if (chunkedBlock) {
             const std::size_t remainingCapacity =
                 pendingJobPayloadSize_ -
                 pendingPayloadBuffer.size();
@@ -985,7 +992,7 @@ SRReplayTxtToParent::ChunkUntilSeparator_(
             if (pendingPayloadBuffer.size() ==
                 pendingJobPayloadSize_) {
                 if (!FlushPendingPayload_(
-                        segmentContext,
+                        blockContext,
                         batchContext,
                         pendingPayloadBuffer
                     )) {
@@ -1031,7 +1038,7 @@ bool SRReplayTxtToParent::ReplayHeaderedTxt_(
         return false;
     }
 
-    SegmentReplayContext segmentContext;
+    BlockReplayContext blockContext;
     ReplayBatchContext batchContext;
     std::vector<char> pendingPayloadBuffer;
 
@@ -1103,7 +1110,7 @@ bool SRReplayTxtToParent::ReplayHeaderedTxt_(
     if (nextHeaderResult.state != HeaderResultState::Header ||
         !TryParseCandidateHeader_(
             parameters.target,
-            segmentContext
+            blockContext
         )) {
         reader.Close();
         if (diagnostics_) {
@@ -1135,7 +1142,7 @@ bool SRReplayTxtToParent::ReplayHeaderedTxt_(
 
     while (true) {
         const ChunkResult chunkResult = ChunkUntilSeparator_(
-            segmentContext,
+            blockContext,
             batchContext,
             pendingPayloadBuffer,
             nextHeaderResult
@@ -1224,7 +1231,7 @@ bool SRReplayTxtToParent::ReplayHeaderedTxt_(
             HeaderResultState::NotHeader) {
             if (chunkResult.state ==
                 ChunkResultState::EventBoundaryFound) {
-                segmentContext.headerParsingSucceeded = false;
+                blockContext.headerParsingSucceeded = false;
                 break;
             }
 
@@ -1234,19 +1241,19 @@ bool SRReplayTxtToParent::ReplayHeaderedTxt_(
             continue;
         }
 
-        SegmentReplayContext nextSegmentContext;
+        BlockReplayContext nextBlockContext;
 
         if (!TryParseCandidateHeader_(
                 parameters.target,
-                nextSegmentContext
+                nextBlockContext
             )) {
-            segmentContext.headerParsingSucceeded = false;
+            blockContext.headerParsingSucceeded = false;
             break;
         }
 
 
         if (!FlushPendingPayload_(
-                segmentContext,
+                blockContext,
                 batchContext,
                 pendingPayloadBuffer
             )) {
@@ -1276,11 +1283,11 @@ bool SRReplayTxtToParent::ReplayHeaderedTxt_(
             }
         }
 
-        segmentContext = std::move(nextSegmentContext);
+        blockContext = std::move(nextBlockContext);
     }
 
     if (!FlushPendingPayload_(
-        segmentContext,
+        blockContext,
         batchContext,
         pendingPayloadBuffer
     )) {
@@ -1296,14 +1303,15 @@ bool SRReplayTxtToParent::ReplayHeaderedTxt_(
 
     reader.Close();
 
-    if (!segmentContext.headerParsingSucceeded) {
+    if (!blockContext.headerParsingSucceeded) {
         if (diagnostics_) {
             diagnostics_->ErrorLine(
                 L"Failed to parse TXT replay source: " +
                 parameters.path +
-                L"; reason=segment-header" +
+                L"; reason=block-header" +
                 L"; nextEventOrderNo=" +
-                std::to_wstring(segmentContext.nextEventOrderNo) +
+                std::to_wstring(blockContext.nextEventOrderNo) +
+
                 L"; candidateHeaderBytes=" +
                 std::to_wstring(candidateHeader_.size()) +
                 L"; currentBufferBytes=" +

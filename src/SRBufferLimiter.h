@@ -4,15 +4,15 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "CoreHelpers.h"
 #include "SRTypes.h"
 
-namespace SR {
-struct SRBufferLimiterConfig;
-}
 
 class SRLifecycleDiagnostics;
+class SRRuntimeCoordinator;
 
+// Tracks in-memory replay-buffer reservations and reports limit violations
+// to SRRuntimeCoordinator. It neither decides stop actions nor terminates
+// child processes.
 class SRBufferLimiter {
 public:
     enum class StreamType {
@@ -20,15 +20,10 @@ public:
         Stdout = 1,
         Stderr = 2
     };
-    enum class EventOperation {
-        None   = 0,
-        Create = 1,
-        Reset  = 2,
-        Set    = 3
-    };
 
 
-    SRBufferLimiter() = default;
+    explicit SRBufferLimiter(SRRuntimeCoordinator& coordinator) noexcept
+        : coordinator_(coordinator) {}
     SRBufferLimiter(const SRBufferLimiter&) = delete;
     SRBufferLimiter& operator=(const SRBufferLimiter&) = delete;
 
@@ -36,6 +31,8 @@ public:
         const SR::SRBufferLimiterConfig& config,
         SRLifecycleDiagnostics* diagnosticsOrNull
     ) noexcept;
+
+
 
     void ResetRuntimeState() noexcept;
 
@@ -56,11 +53,6 @@ public:
     bool TotalLimitReached() const noexcept;
 
 
-    HANDLE LimitEventHandle() const noexcept;
-    bool EventFailureDetected() const noexcept;
-    EventOperation FirstEventFailureOperation() const noexcept;
-    const wchar_t* FirstEventFailureOperationName() const noexcept;
-    DWORD FirstEventFailureGle() const noexcept;
     uint64_t StdoutMaxBytes() const noexcept { return stdoutMax_; }
     uint64_t StderrMaxBytes() const noexcept { return stderrMax_; }
     uint64_t TotalMaxBytes() const noexcept { return totalMax_; }
@@ -78,13 +70,11 @@ private:
         uint64_t totalBufferedBytes
     ) noexcept;
     void SignalLimitHit_(StreamType stream) noexcept;
-    void RecordEventFailure_(EventOperation operation, DWORD gle) noexcept;
 
 
 private:
     SRLifecycleDiagnostics* diagnostics_ = nullptr;
-
-    CoreHelpers::UniqueHandle limitEvent_;
+    SRRuntimeCoordinator& coordinator_;
 
     std::atomic_bool limitSignaled_{false};
     std::atomic<int> firstHitStream_{static_cast<int>(StreamType::None)};
@@ -93,9 +83,5 @@ private:
     std::atomic_bool stderrLimitReached_{false};
     std::atomic_bool totalLimitReached_{false};
 
-    std::atomic_bool eventFailureDetected_{false};
-
-    std::atomic<int> firstEventFailureOperation_{static_cast<int>(EventOperation::None)};
-    std::atomic<DWORD> firstEventFailureGle_{0};
 
 };

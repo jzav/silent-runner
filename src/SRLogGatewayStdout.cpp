@@ -4,6 +4,7 @@
 
 #include "SRBufferLimiter.h"
 #include "SRParentEmitPolicy.h"
+#include "SRExecutionTimeline.h"
 
 void SRLogGatewayStdout::Init(
     const SRParentEmitPolicy& parentEmitPolicy,

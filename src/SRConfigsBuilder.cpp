@@ -1,8 +1,11 @@
 #include "SRConfigsBuilder.h"
 #include <cwctype>
+#include <vector>
+
 
 
 #include "TextHelpers.h"
+#include "SRJobTypes.h"
 
 namespace SR {
 namespace {
@@ -11,7 +14,7 @@ namespace ParsingHelpers {
 
 bool IsTokenArgumentKey(
     const std::wstring& token,
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments
+    const ConfigArguments& configArguments
 ) {
     std::wstring key = token;
 
@@ -257,14 +260,14 @@ bool ResolveKeepLogMode(
 
 
 bool ResolveExecutionMode(
-    const ConfigArgumentData& rawCommandArgument,
+    const ConfigArgumentData& commandStringArgument,
     SR::ExecutionMode& value,
     std::wstring& err
 ) {
 
 
-    value = rawCommandArgument.optionValueSpecified
-        ? SR::ExecutionMode::RawCommand
+    value = commandStringArgument.optionValueSpecified
+        ? SR::ExecutionMode::CommandString
         : SR::ExecutionMode::ScriptOrExe;
     return true;
 }
@@ -346,15 +349,15 @@ bool ValidatePathArgument(
 
 
 bool ValidateStdoutEmitArgument(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     ConfigArgument argument,
     std::wstring& err
 ) {
     const ConfigArgumentData& configArgument =
-        configArguments[static_cast<std::size_t>(argument)];
+        configArguments.GetData(argument);
 
-    const SR::EmitMode mode =
-        std::get<SR::EmitMode>(configArgument.typedValue);
+    SR::EmitMode mode{};
+    configArguments.CopyValue(argument, mode);
 
     if (!(SR::EmitModeStreamMask(mode) & SR::STDOUT)) {
         err =
@@ -370,15 +373,15 @@ bool ValidateStdoutEmitArgument(
 }
 
 bool ValidateStderrEmitArgument(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     ConfigArgument argument,
     std::wstring& err
 ) {
     const ConfigArgumentData& configArgument =
-        configArguments[static_cast<std::size_t>(argument)];
+        configArguments.GetData(argument);
 
-    const SR::EmitMode mode =
-        std::get<SR::EmitMode>(configArgument.typedValue);
+    SR::EmitMode mode{};
+    configArguments.CopyValue(argument, mode);
 
     if (!(SR::EmitModeStreamMask(mode) & SR::STDERR)) {
         err =
@@ -394,25 +397,22 @@ bool ValidateStderrEmitArgument(
 }
 
 bool ValidateChildEventNewlineMaxBytes(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     ConfigArgument framingArgumentId,
     ConfigArgument newlineMaxBytesArgumentId,
     std::wstring& err
 ) {
     const ConfigArgumentData& framingArgument =
-        configArguments[
-            static_cast<std::size_t>(framingArgumentId)
-        ];
+        configArguments.GetData(framingArgumentId);
 
     const ConfigArgumentData& newlineMaxBytesArgument =
-        configArguments[
-            static_cast<std::size_t>(newlineMaxBytesArgumentId)
-        ];
+        configArguments.GetData(newlineMaxBytesArgumentId);
 
-    if (newlineMaxBytesArgument.optionValueSpecified &&
-        std::get<SR::ChildEventFraming>(
-            framingArgument.typedValue
-        ) == SR::ChildEventFraming::Chunk) {
+    SR::ChildEventFraming framing{};
+    configArguments.CopyValue(framingArgumentId, framing);
+
+    if (configArguments.IsSpecified(newlineMaxBytesArgumentId) &&
+        framing == SR::ChildEventFraming::Chunk) {
         err =
             std::wstring(newlineMaxBytesArgument.spelling) +
             L" requires " +
@@ -421,8 +421,11 @@ bool ValidateChildEventNewlineMaxBytes(
         return false;
     }
 
-    if (newlineMaxBytesArgument.optionValueSpecified &&
-        std::get<uint64_t>(newlineMaxBytesArgument.typedValue) == 0) {
+    uint64_t newlineMaxBytes{};
+    configArguments.CopyValue(newlineMaxBytesArgumentId, newlineMaxBytes);
+
+    if (configArguments.IsSpecified(newlineMaxBytesArgumentId) &&
+        newlineMaxBytes == 0) {
         err =
             std::wstring(L"Invalid value for ") +
             newlineMaxBytesArgument.spelling +
@@ -440,62 +443,60 @@ bool ValidateChildEventNewlineMaxBytes(
 namespace Validation {
 
 bool StderrEmitMutualExclusivity(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     std::wstring& err
 ) {
-    const bool stderrEmitSpecified =
-        configArguments[
-            static_cast<std::size_t>(ConfigArgument::StderrEmit)
-        ].optionValueSpecified;
-    const bool stderrEmitChildSpecified =
-        configArguments[
-            static_cast<std::size_t>(ConfigArgument::StderrEmitChild)
-        ].optionValueSpecified;
-    const bool stderrEmitSrSpecified =
-        configArguments[
-            static_cast<std::size_t>(ConfigArgument::StderrEmitSr)
-        ].optionValueSpecified;
-    const bool stderrEmitInclStdoutSpecified =
-        configArguments[
-            static_cast<std::size_t>(ConfigArgument::StderrEmitInclStdout)
-        ].optionValueSpecified;
+    const ConfigArgument stdoutArguments[] = {
+        ConfigArgument::StdoutEmit,
+        ConfigArgument::StdoutEmitRaw
+    };
 
-    if (stderrEmitSpecified &&
-        (stderrEmitChildSpecified ||
-         stderrEmitSrSpecified ||
-         stderrEmitInclStdoutSpecified)) {
-        err =
-            L"--stderr-emit must not be combined with --stderr-emit-child, --stderr-emit-sr, or --stderr-emit-incl-stdout";
-        return false;
-    }
+    const ConfigArgument stderrArguments[] = {
+        ConfigArgument::StderrEmit,
+        ConfigArgument::StderrEmitChild,
+        ConfigArgument::StderrEmitChildRaw,
+        ConfigArgument::StderrEmitSr,
+        ConfigArgument::StderrEmitInclStdout
+    };
 
-    if (stderrEmitChildSpecified &&
-        (stderrEmitSrSpecified ||
-         stderrEmitInclStdoutSpecified)) {
-        err =
-            L"--stderr-emit-child must not be combined with --stderr-emit, --stderr-emit-sr, or --stderr-emit-incl-stdout";
-        return false;
-    }
+    auto validateExclusive = [&](
+        const auto& arguments
+    ) -> bool {
+        ConfigArgument firstSpecified = ConfigArgument::Count;
 
-    if (stderrEmitSrSpecified &&
-        stderrEmitInclStdoutSpecified) {
-        err =
-            L"--stderr-emit-sr must not be combined with --stderr-emit, --stderr-emit-child, or --stderr-emit-incl-stdout";
-        return false;
-    }
+        for (const ConfigArgument argument : arguments) {
+            if (!configArguments.IsSpecified(argument)) {
+                continue;
+            }
 
-    return true;
+            if (firstSpecified != ConfigArgument::Count) {
+                err =
+                    std::wstring(L"Mutually exclusive options: ") +
+                    configArguments.GetData(firstSpecified).spelling +
+                    L" and " +
+                    configArguments.GetData(argument).spelling;
+                return false;
+            }
+
+            firstSpecified = argument;
+        }
+
+        return true;
+    };
+
+    return validateExclusive(stdoutArguments) &&
+           validateExclusive(stderrArguments);
 }
 
 bool PathArgument(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     ConfigArgument argument,
     std::wstring& err
 ) {
     const ConfigArgumentData& configArgument =
-        configArguments[static_cast<std::size_t>(argument)];
+        configArguments.GetData(argument);
 
-    if (!configArgument.optionValueSpecified) {
+    if (!configArguments.IsSpecified(argument)) {
         return true;
     }
 
@@ -506,15 +507,13 @@ bool PathArgument(
 }
 
 bool IdPrefix(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     std::wstring& err
 ) {
     const ConfigArgumentData& configArgument =
-        configArguments[
-            static_cast<std::size_t>(ConfigArgument::IdPrefix)
-        ];
+        configArguments.GetData(ConfigArgument::IdPrefix);
 
-    if (!configArgument.optionValueSpecified) {
+    if (!configArguments.IsSpecified(ConfigArgument::IdPrefix)) {
         return true;
     }
 
@@ -527,15 +526,13 @@ bool IdPrefix(
 }
 
 bool IdBase(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     std::wstring& err
 ) {
     const ConfigArgumentData& configArgument =
-        configArguments[
-            static_cast<std::size_t>(ConfigArgument::IdBase)
-        ];
+        configArguments.GetData(ConfigArgument::IdBase);
 
-    if (!configArgument.optionValueSpecified) {
+    if (!configArguments.IsSpecified(ConfigArgument::IdBase)) {
         return true;
     }
 
@@ -549,7 +546,7 @@ bool IdBase(
 
 
 bool StdoutEmit(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     std::wstring& err
 ) {
     return ValidationHelpers::ValidateStdoutEmitArgument(
@@ -560,8 +557,19 @@ bool StdoutEmit(
 }
 
 
+bool StdoutEmitRaw(
+    const ConfigArguments& configArguments,
+    std::wstring& err
+) {
+    return ValidationHelpers::ValidateStdoutEmitArgument(
+        configArguments,
+        ConfigArgument::StdoutEmitRaw,
+        err
+    );
+}
+
 bool StderrEmit(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     std::wstring& err
 ) {
     return ValidationHelpers::ValidateStderrEmitArgument(
@@ -572,7 +580,7 @@ bool StderrEmit(
 }
 
 bool StderrEmitChild(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     std::wstring& err
 ) {
     return ValidationHelpers::ValidateStderrEmitArgument(
@@ -582,8 +590,19 @@ bool StderrEmitChild(
     );
 }
 
+bool StderrEmitChildRaw(
+    const ConfigArguments& configArguments,
+    std::wstring& err
+) {
+    return ValidationHelpers::ValidateStderrEmitArgument(
+        configArguments,
+        ConfigArgument::StderrEmitChildRaw,
+        err
+    );
+}
+
 bool StderrEmitSr(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     std::wstring& err
 ) {
     return ValidationHelpers::ValidateStderrEmitArgument(
@@ -594,7 +613,7 @@ bool StderrEmitSr(
 }
 
 bool StderrEmitInclStdout(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     std::wstring& err
 ) {
     return ValidationHelpers::ValidateStderrEmitArgument(
@@ -605,7 +624,7 @@ bool StderrEmitInclStdout(
 }
 
 bool StdoutEventNewlineMaxBytes(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     std::wstring& err
 ) {
     return ValidationHelpers::ValidateChildEventNewlineMaxBytes(
@@ -617,7 +636,7 @@ bool StdoutEventNewlineMaxBytes(
 }
 
 bool StderrChildEventNewlineMaxBytes(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     std::wstring& err
 ) {
     return ValidationHelpers::ValidateChildEventNewlineMaxBytes(
@@ -634,7 +653,33 @@ bool StderrChildEventNewlineMaxBytes(
 
 } // namespace
 
+SRConfigsBuilder::WorkerTargetConfigEntry::WorkerTargetConfigEntry(
+    const WorkerTargetLayoutEntry& entry
+) : source(&entry) {
+    configArgument = ResolveConfigArgument(entry.configArgument);
+    keepLogConfigArgument =
+        ResolveConfigArgument(entry.keepLogConfigArgument);
+}
+
+void SRConfigsBuilder::Init(
+    const FileSinkWorkerTargetLayout& fileSinkTargetLayout,
+    const ParentEmitWorkerTargetLayout& parentEmitTargetLayout
+) {
+    configArguments_.Init();
+
+    fileSinkWorkerTargetConfigs_ =
+        WorkerTargetConfigs<FileSinkWorkerTargetLayout>(
+            fileSinkTargetLayout
+        );
+
+    parentEmitWorkerTargetConfigs_ =
+        WorkerTargetConfigs<ParentEmitWorkerTargetLayout>(
+            parentEmitTargetLayout
+        );
+}
+
 void SRConfigsBuilder::SetErrorIfNone(
+
     const std::wstring& fallbackError
 ) {
     if (this->err.empty()) {
@@ -679,6 +724,7 @@ bool SRConfigsBuilder::Build(
         return false;
     }
 
+    DeriveValues();
     BuildConsumerConfigs();
     AppendDerivedValues();
 
@@ -803,9 +849,7 @@ void SRConfigsBuilder::ParseArguments(
 }
 
 bool SRConfigsBuilder::ValidateParsedArguments() {
-    if (configArguments_[
-            static_cast<std::size_t>(ConfigArgument::Help)
-        ].optionValueSpecified) {
+    if (configArguments_.IsSpecified(ConfigArgument::Help)) {
         this->helpRequested = true;
         return true;
     }
@@ -841,6 +885,10 @@ bool SRConfigsBuilder::ValidateParsedArguments() {
         return false;
     }
 
+    if (!Validation::PathArgument(configArguments_, ConfigArgument::StdoutDirRaw, this->err)) {
+        return false;
+    }
+
     if (!Validation::PathArgument(configArguments_, ConfigArgument::StdoutDirJsonl, this->err)) {
         return false;
     }
@@ -857,6 +905,9 @@ bool SRConfigsBuilder::ValidateParsedArguments() {
         return false;
     }
 
+    if (!Validation::PathArgument(configArguments_, ConfigArgument::StderrDirChildRaw, this->err)) {
+        return false;
+    }
     if (!Validation::PathArgument(configArguments_, ConfigArgument::StderrDirChildJsonl, this->err)) {
         return false;
     }
@@ -908,172 +959,156 @@ bool SRConfigsBuilder::ResolveArguments() {
         }
     }
 
-    auto& stdoutEmitArgument =
-        configArguments_[
-            static_cast<std::size_t>(ConfigArgument::StdoutEmit)
-        ];
 
-    if (!stdoutEmitArgument.optionValueSpecified) {
-        stdoutEmitArgument.typedValue = SR::EmitMode::Stream;
-    }
+    if (!configArguments_.IsSpecified(ConfigArgument::StdoutEmit) &&
+        !configArguments_.IsSpecified(ConfigArgument::StdoutEmitRaw)) {
 
-    const auto& stdoutEventFramingArgument =
-        configArguments_[
-            static_cast<std::size_t>(
-                ConfigArgument::StdoutEventFraming
-            )
-        ];
-
-    auto& stdoutEventNewlineMaxBytesArgument =
-        configArguments_[
-            static_cast<std::size_t>(
-                ConfigArgument::StdoutEventNewlineMaxBytes
-            )
-        ];
-
-    if (std::get<SR::ChildEventFraming>(
-            stdoutEventFramingArgument.typedValue
-        ) != SR::ChildEventFraming::Chunk &&
-        !stdoutEventNewlineMaxBytesArgument.optionValueSpecified) {
-        stdoutEventNewlineMaxBytesArgument.typedValue =
-            SR::kDefaultChildEventNewlineMaxBytes;
-    }
-
-    derivedValues_.stdoutPresentation =
-        SR::ChildEventFramingPresentationOf(
-            std::get<SR::ChildEventFraming>(
-                stdoutEventFramingArgument.typedValue
-            )
+        configArguments_.SetValue(
+            ConfigArgument::StdoutEmit,
+            SR::EmitMode::Stream
         );
-
-    const auto& stderrChildEventFramingArgument =
-        configArguments_[
-            static_cast<std::size_t>(
-                ConfigArgument::StderrChildEventFraming
-            )
-        ];
-
-    auto& stderrChildEventNewlineMaxBytesArgument =
-        configArguments_[
-            static_cast<std::size_t>(
-                ConfigArgument::StderrChildEventNewlineMaxBytes
-            )
-        ];
-
-    if (std::get<SR::ChildEventFraming>(
-            stderrChildEventFramingArgument.typedValue
-        ) != SR::ChildEventFraming::Chunk &&
-        !stderrChildEventNewlineMaxBytesArgument.optionValueSpecified) {
-        stderrChildEventNewlineMaxBytesArgument.typedValue =
-            SR::kDefaultChildEventNewlineMaxBytes;
     }
 
-    derivedValues_.stderrChildPresentation =
-        SR::ChildEventFramingPresentationOf(
-            std::get<SR::ChildEventFraming>(
-                stderrChildEventFramingArgument.typedValue
-            )
+    if (configArguments_.GetValue<ConfigArgument::StdoutEventFraming>() !=
+            SR::ChildEventFraming::Chunk &&
+        !configArguments_.IsSpecified(ConfigArgument::StdoutEventNewlineMaxBytes)) {
+        configArguments_.SetValue(
+            ConfigArgument::StdoutEventNewlineMaxBytes,
+            SR::kDefaultChildEventNewlineMaxBytes
         );
-
-
-    auto& stderrEmitArgument =
-        configArguments_[
-            static_cast<std::size_t>(ConfigArgument::StderrEmit)
-        ];
-
-    const auto& stderrEmitChildArgument =
-        configArguments_[
-            static_cast<std::size_t>(ConfigArgument::StderrEmitChild)
-        ];
-
-    const auto& stderrEmitSrArgument =
-        configArguments_[
-            static_cast<std::size_t>(ConfigArgument::StderrEmitSr)
-        ];
-
-    const auto& stderrEmitInclStdoutArgument =
-        configArguments_[
-            static_cast<std::size_t>(ConfigArgument::StderrEmitInclStdout)
-        ];
-
-    if (!stderrEmitArgument.optionValueSpecified &&
-        !stderrEmitChildArgument.optionValueSpecified &&
-        !stderrEmitSrArgument.optionValueSpecified &&
-        !stderrEmitInclStdoutArgument.optionValueSpecified) {
-        stderrEmitArgument.typedValue = SR::EmitMode::Stream;
-        derivedValues_.stderrEmit =
-            SR::EmitMode::Stream;
-        derivedValues_.stderrEmitSource =
-            SR::StderrEmitSource::SrAndChild;
-    } else if (stderrEmitArgument.optionValueSpecified) {
-        derivedValues_.stderrEmit =
-            std::get<SR::EmitMode>(stderrEmitArgument.typedValue);
-        derivedValues_.stderrEmitSource =
-            SR::StderrEmitSource::SrAndChild;
-    } else if (stderrEmitChildArgument.optionValueSpecified) {
-        derivedValues_.stderrEmit =
-            std::get<SR::EmitMode>(stderrEmitChildArgument.typedValue);
-        derivedValues_.stderrEmitSource =
-            SR::StderrEmitSource::Child;
-    } else if (stderrEmitSrArgument.optionValueSpecified) {
-        derivedValues_.stderrEmit =
-            std::get<SR::EmitMode>(stderrEmitSrArgument.typedValue);
-        derivedValues_.stderrEmitSource =
-            SR::StderrEmitSource::Sr;
-    } else if (stderrEmitInclStdoutArgument.optionValueSpecified) {
-        derivedValues_.stderrEmit =
-            std::get<SR::EmitMode>(stderrEmitInclStdoutArgument.typedValue);
-        derivedValues_.stderrEmitSource =
-            SR::StderrEmitSource::SrAndChildInclStdout;
     }
 
-    const auto hasNonEmptyResolvedWString =
-        [this](ConfigArgument argument) {
-            return !std::get<std::wstring>(
-                configArguments_[
-                    static_cast<std::size_t>(argument)
-                ].typedValue
-            ).empty();
-        };
+    if (configArguments_.GetValue<ConfigArgument::StderrChildEventFraming>() !=
+            SR::ChildEventFraming::Chunk &&
+        !configArguments_.IsSpecified(ConfigArgument::StderrChildEventNewlineMaxBytes)) {
+        configArguments_.SetValue(
+            ConfigArgument::StderrChildEventNewlineMaxBytes,
+            SR::kDefaultChildEventNewlineMaxBytes
+        );
+    }
 
-    const bool fileSinkNeedsParsingToken =
-        hasNonEmptyResolvedWString(ConfigArgument::StdoutDir) ||
-        hasNonEmptyResolvedWString(ConfigArgument::StderrDir) ||
-        hasNonEmptyResolvedWString(ConfigArgument::StderrDirChild) ||
-        hasNonEmptyResolvedWString(ConfigArgument::StderrDirSr) ||
-        hasNonEmptyResolvedWString(ConfigArgument::StderrDirInclStdout);
+    if (!configArguments_.IsSpecified(ConfigArgument::StderrEmit) &&
+        !configArguments_.IsSpecified(ConfigArgument::StderrEmitChild) &&
+        !configArguments_.IsSpecified(ConfigArgument::StderrEmitChildRaw) &&
+        !configArguments_.IsSpecified(ConfigArgument::StderrEmitSr) &&
+        !configArguments_.IsSpecified(ConfigArgument::StderrEmitInclStdout)) {
+        configArguments_.SetValue(
+            ConfigArgument::StderrEmit,
+            SR::EmitMode::Stream
+        );
+    }
 
-    const bool parentEmitNeedsParsingToken =
-        std::get<SR::EmitMode>(
-            stdoutEmitArgument.typedValue
-        ) != SR::EmitMode::Never ||
-        *derivedValues_.stderrEmit != SR::EmitMode::Never;
-
-    derivedValues_.needsParsingToken =
-        fileSinkNeedsParsingToken ||
-        parentEmitNeedsParsingToken;
-
-    auto& debugArgument =
-        configArguments_[
-            static_cast<std::size_t>(ConfigArgument::Debug)
-        ];
-
-    const auto& verboseArgument =
-        configArguments_[
-            static_cast<std::size_t>(ConfigArgument::Verbose)
-        ];
-
-    if (std::get<bool>(verboseArgument.typedValue)) {
-        debugArgument.typedValue = true;
+    if (configArguments_.GetValue<ConfigArgument::Verbose>()) {
+        configArguments_.SetValue(ConfigArgument::Debug, true);
     }
     return true;
 }
 
 
+void SRConfigsBuilder::DeriveValues() {
+    SR::TargetLogConfigs targetLogConfigs;
+    bool fileSinkNeedsParsingToken = false;
+
+    for (const auto& targetConfigEntry : fileSinkWorkerTargetConfigs_.targets) {
+
+        const ConfigArgument configArgument =
+            targetConfigEntry.configArgument;
+
+        const ConfigArgument keepLogConfigArgument =
+            targetConfigEntry.keepLogConfigArgument;
+        auto& targetLogConfig =
+            targetLogConfigs.For(targetConfigEntry.source->target);
+
+        targetLogConfig.directoryRequested =
+            configArguments_.IsSpecified(configArgument);
+        configArguments_.CopyValue(
+            configArgument,
+            targetLogConfig.directory
+        );
+        configArguments_.CopyValue(
+            keepLogConfigArgument,
+            targetLogConfig.keepLogMode
+        );
+
+        if (targetConfigEntry.source->headerEnabled &&
+            targetLogConfig.directoryRequested) {
+            fileSinkNeedsParsingToken = true;
+        }
+    }
+    derivedValues_.targetLogConfigs =
+        targetLogConfigs;
+    derivedValues_.stdoutTxtHeaderGranularity =
+        SR::ChildTxtHeaderGranularityOf(
+            configArguments_.GetValue<ConfigArgument::StdoutEventFraming>()
+        );
+
+    derivedValues_.stderrChildTxtHeaderGranularity =
+        SR::ChildTxtHeaderGranularityOf(
+
+            configArguments_.GetValue<ConfigArgument::StderrChildEventFraming>()
+        );
+
+
+    derivedValues_.stdoutParentTarget =
+        SR::JobTarget::StdoutParent;
+    derivedValues_.stderrParentTarget =
+        SR::JobTarget::StderrSrAndChildParent;
+
+    derivedValues_.stdoutEmitMode =
+        configArguments_.GetValue<ConfigArgument::StdoutEmit>();
+    derivedValues_.stderrEmitMode =
+        configArguments_.GetValue<ConfigArgument::StderrEmit>();
+
+    bool stdoutHeaderEnabled = true;
+    bool stderrHeaderEnabled = true;
+
+    for (const auto& targetConfigEntry : parentEmitWorkerTargetConfigs_.targets) {
+        const ConfigArgument configArgument =
+            targetConfigEntry.configArgument;
+
+        if (!configArguments_.IsSpecified(configArgument)) {
+            continue;
+        }
+
+        SR::EmitMode emitMode{};
+        configArguments_.CopyValue(configArgument, emitMode);
+
+        if (targetConfigEntry.source->stream == SR::JobTargetStream::Stdout) {
+            derivedValues_.stdoutParentTarget =
+                targetConfigEntry.source->target;
+            derivedValues_.stdoutEmitMode = emitMode;
+            stdoutHeaderEnabled =
+                targetConfigEntry.source->headerEnabled;
+        } else {
+            derivedValues_.stderrParentTarget =
+                targetConfigEntry.source->target;
+            derivedValues_.stderrEmitMode = emitMode;
+            stderrHeaderEnabled =
+                targetConfigEntry.source->headerEnabled;
+        }
+    }
+
+    const bool parentEmitNeedsParsingToken =
+        (stdoutHeaderEnabled &&
+         derivedValues_.stdoutEmitMode != SR::EmitMode::Never) ||
+        (stderrHeaderEnabled &&
+         derivedValues_.stderrEmitMode != SR::EmitMode::Never);
+
+    derivedValues_.needsParsingToken =
+        fileSinkNeedsParsingToken ||
+        parentEmitNeedsParsingToken;
+
+}
+
 bool SRConfigsBuilder::ValidateResolvedArguments() {
     if (!Validation::StdoutEmit(configArguments_, this->err)) {
         return false;
     }
+
+    if (!Validation::StdoutEmitRaw(configArguments_, this->err)) {
+        return false;
+    }
+
 
     if (!Validation::StderrEmit(configArguments_, this->err)) {
         return false;
@@ -1083,6 +1118,9 @@ bool SRConfigsBuilder::ValidateResolvedArguments() {
         return false;
     }
 
+    if (!Validation::StderrEmitChildRaw(configArguments_, this->err)) {
+        return false;
+    }
     if (!Validation::StderrEmitSr(configArguments_, this->err)) {
         return false;
     }

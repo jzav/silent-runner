@@ -57,6 +57,27 @@ void SRWorkerSupervisor::ReportWorkerFailure(
     state.failed = true;
     state.failureText = failureText;
 }
+void SRWorkerSupervisor::ReportFileSinkWorkerFailure(
+    const FileSinkWorkerFailureState& failure
+) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    fileSinkWorker_.operationalFailure = failure;
+}
+
+void SRWorkerSupervisor::ReportParentEmitWorkerFailure(
+    const ParentEmitWorkerFailureState& failure
+) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    parentEmitWorker_.operationalFailure = failure;
+}
+
+WorkerOperationalFailureState
+SRWorkerSupervisor::RetrieveWorkerOperationalFailure(
+    JobTargetWorker worker
+) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return WorkerStateOf_(worker).operationalFailure;
+}
 
 bool SRWorkerSupervisor::IsWorkerAvailable(
     JobTargetWorker worker

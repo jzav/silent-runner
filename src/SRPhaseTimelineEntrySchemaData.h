@@ -20,6 +20,7 @@ public:
     struct SrDiagData {
         const SrDiagEntry* source = nullptr;
         std::string payloadType;
+        std::wstring executionId;
         std::wstring phase;
         uint64_t phaseOrderNo = 0;
         uint64_t eventOrderNo = 0;
@@ -45,6 +46,7 @@ public:
     struct ChildStdoutData {
         const ChildStdoutEntry* source = nullptr;
         std::string payloadType;
+        std::wstring executionId;
         std::wstring phase;
         uint64_t phaseOrderNo = 0;
         uint64_t eventOrderNo = 0;
@@ -70,6 +72,7 @@ public:
     struct ChildStderrData {
         const ChildStderrEntry* source = nullptr;
         std::string payloadType;
+        std::wstring executionId;
         std::wstring phase;
         uint64_t phaseOrderNo = 0;
         uint64_t eventOrderNo = 0;

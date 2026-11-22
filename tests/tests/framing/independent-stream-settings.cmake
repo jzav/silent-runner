@@ -107,3 +107,51 @@ sr_assert_jsonl_text_event_sequence(
     "X${lf}Y${cr}${lf}"
     "Z"
 )
+
+# Raw output must reconstruct both original byte streams regardless of framing
+# and regardless of the newline-event split threshold. SR diagnostics stay
+# in a dedicated log so parent stderr contains only child stderr bytes.
+foreach(raw_framing IN ITEMS chunk lf newline crlf)
+    set(raw_log_dir "${SR_TEST_ROOT}/raw-${raw_framing}")
+    set(raw_diag_dir "${SR_TEST_ROOT}/raw-diag-${raw_framing}")
+    set(raw_execution_id "ctest-raw-independent-${raw_framing}")
+    set(raw_parent_stdout "${SR_TEST_ROOT}/raw-stdout-${raw_framing}.bin")
+    set(raw_parent_stderr "${SR_TEST_ROOT}/raw-stderr-${raw_framing}.bin")
+    set(raw_stdout_log
+        "${raw_log_dir}/${raw_execution_id}_stdout_raw_success.log"
+    )
+    set(raw_stderr_log
+        "${raw_log_dir}/${raw_execution_id}_stderr_child_raw_success.log"
+    )
+
+    set(raw_newline_options)
+    if(NOT raw_framing STREQUAL "chunk")
+        list(APPEND raw_newline_options
+            --stdout-event-newline-max-bytes 2
+            --stderr-child-event-newline-max-bytes 2
+        )
+    endif()
+
+    sr_run(raw
+        OUTPUT_FILE "${raw_parent_stdout}"
+        ERROR_FILE "${raw_parent_stderr}"
+        ARGS
+            --id-base "${raw_execution_id}"
+            --stdout-emit-raw stream
+            --stderr-emit-child-raw stream
+            --stdout-dir-raw "${raw_log_dir}"
+            --stderr-dir-child-raw "${raw_log_dir}"
+            --stderr-dir-sr "${raw_diag_dir}"
+            --stdout-event-framing "${raw_framing}"
+            --stderr-child-event-framing "${raw_framing}"
+            ${raw_newline_options}
+            "${child_cmd}"
+    )
+    sr_assert_exit(raw 0)
+    sr_assert_files_equal_bytes("${raw_parent_stdout}" "${stdout_payload_file}")
+    sr_assert_files_equal_bytes("${raw_parent_stderr}" "${stderr_payload_file}")
+    sr_assert_files_equal_bytes("${raw_stdout_log}" "${stdout_payload_file}")
+    sr_assert_files_equal_bytes("${raw_stderr_log}" "${stderr_payload_file}")
+    sr_assert_directory_file_count("${raw_log_dir}" 2)
+    sr_assert_directory_file_count("${raw_diag_dir}" 1)
+endforeach()

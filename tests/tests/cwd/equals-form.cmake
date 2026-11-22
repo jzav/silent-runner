@@ -1,6 +1,7 @@
 include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
 sr_test_init(DESCRIPTION "Accepts the --cwd=value form and applies the requested working directory.")
 set(expected "${SR_TEST_ROOT}/equals-cwd")
+file(MAKE_DIRECTORY "${expected}")
 sr_run(r ARGS --cwd=equals-cwd "${SR_PRINT_CWD}")
 sr_assert_exit(r 0)
 cmake_path(NATIVE_PATH expected NORMALIZE expected_native)

@@ -4,3 +4,49 @@ sr_run(r ARGS --stderr-emit-child success --stderr-dir-sr "${SR_TEST_ROOT}/sr-di
 sr_assert_exit(r 0)
 sr_assert_stderr_contains(r "${SR_TEST_CHILD_STDERR_MARKER}")
 sr_assert_stderr_not_contains(r "${SR_TEST_SRDIAG_TXT_PREFIX}")
+# Verify Raw child-stderr condition gating with timeline and Raw TXT replay.
+# A separate SR diagnostic log keeps the parent stderr byte-exact.
+set(raw_stderr_expected "${SR_TEST_ROOT}/raw-stderr-expected.bin")
+sr_write_crlf_terminated_fixture("${raw_stderr_expected}" "${SR_TEST_CHILD_STDERR_MARKER}")
+foreach(raw_source IN ITEMS timeline txt)
+    foreach(raw_condition IN ITEMS success failure)
+        foreach(raw_outcome IN ITEMS success failure)
+            set(raw_execution_id "raw-stderr-${raw_source}-${raw_condition}-${raw_outcome}")
+            set(raw_output "${SR_TEST_ROOT}/${raw_execution_id}.bin")
+            set(raw_dir "${SR_TEST_ROOT}/${raw_execution_id}-logs")
+            set(raw_diag_dir "${SR_TEST_ROOT}/${raw_execution_id}-diag")
+            set(raw_log_options)
+            if(raw_source STREQUAL "txt")
+                list(APPEND raw_log_options --stderr-dir-child-raw "${raw_dir}")
+            endif()
+            if(raw_outcome STREQUAL "success")
+                set(raw_cmd "${SR_STDERR_CMD}")
+                set(raw_exit 0)
+            else()
+                set(raw_cmd "${SR_FAIL}")
+                set(raw_exit "${SR_TEST_FAIL_CMD_EXIT_CODE}")
+            endif()
+            sr_run(raw ERROR_FILE "${raw_output}" ARGS
+                --id-base "${raw_execution_id}"
+                --stdout-emit never
+                --stderr-emit-child-raw "${raw_condition}"
+                --stderr-dir-sr "${raw_diag_dir}"
+                ${raw_log_options}
+                "${raw_cmd}"
+            )
+            sr_assert_exit(raw "${raw_exit}")
+            sr_assert_stdout_empty(raw)
+            if(raw_condition STREQUAL raw_outcome)
+                sr_assert_files_equal_bytes("${raw_output}" "${raw_stderr_expected}")
+            else()
+                sr_assert_file_hex("${raw_output}" "")
+            endif()
+            if(raw_source STREQUAL "txt")
+                set(raw_log "${raw_dir}/${raw_execution_id}_stderr_child_raw_${raw_outcome}.log")
+                sr_assert_files_equal_bytes("${raw_log}" "${raw_stderr_expected}")
+                sr_assert_directory_file_count("${raw_dir}" 1)
+            endif()
+            sr_assert_directory_file_count("${raw_diag_dir}" 1)
+        endforeach()
+    endforeach()
+endforeach()

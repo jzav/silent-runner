@@ -1,31 +1,16 @@
 // SRLogGatewayStderr.h
-// -------------------
- // Responsibility:
- // - Serialize and route logical STDERR views:
- //   - stderr-sr-and-child: child stderr bytes plus SilentRunner diagnostics
- //   - stderr-child: only child stderr bytes
- //   - stderr-sr: only SilentRunner diagnostic lines
- // - Use one active parent/replay view selected by StderrEmitSource.
-
-//
-// Non-responsibility:
-// - Formatting [SILENTRUNNER-.] (belongs to SRDiagnostics)
-// - "ERRORS" immediate path (belongs to SRDiagnostics::FatalErrorLine)
-// - Reading child pipes (belongs to ChildStdReader)
+// Routes child stderr bytes into ExecutionTimeline.
+// SilentRunner diagnostics use SRLifecycleDiagnostics directly.
 
 #pragma once
 
-#include <cstddef>   // size_t
-#include <memory>    // std::unique_ptr
-#include <mutex>     // std::mutex
-#include <string>    // std::wstring
-#include <vector>    // std::vector
-
-#include "SRTypes.h"
-#include "SRExecutionTimeline.h"
+#include <cstddef>
+#include <memory>
+#include <mutex>
 
 class SRBufferLimiter;
 class SRParentEmitPolicy;
+class ExecutionTimeline;
 
 class SRLogGatewayStderr {
 public:
@@ -33,54 +18,21 @@ public:
     SRLogGatewayStderr(const SRLogGatewayStderr&) = delete;
     SRLogGatewayStderr& operator=(const SRLogGatewayStderr&) = delete;
 
-    // Init routing targets.
-    // NOTE: Pointers are borrowed (owned by SRRuntime stack / orchestration).
+    // Borrowed dependencies must outlive the gateway.
     void Init(
         const SRParentEmitPolicy& parentEmitPolicy,
         SRBufferLimiter* bufferLimitOrNull,
         ExecutionTimeline* executionTimelineOrNull
     ) noexcept;
 
-
-
-
-
-    // Main API for child STDERR chunks (bytes).
-    // This is the one ChildStdReader should call for stderr routing.
-    void RouteChildBytes(
-        const char* p,
-        size_t n
-    );
-
-    void RouteDiagnosticLineUtf16(
-        SR::DiagnosticSeverity severity,
-        const std::wstring& msg
-    );
-
-
+    void RouteChildBytes(const char* p, size_t n);
 
 private:
     void EnsureMutex_();
+    void RouteChildBytesLocked_(const char* p, size_t n);
 
-    bool ShouldRouteToActiveStderrView_(SR::StderrEmitSource source) const noexcept;
-
-    void RouteBytesLocked_(
-        SR::StderrEmitSource source,
-        const char* p,
-        size_t n,
-        const SR::DiagnosticSeverity* runtimeDiagSeverityOrNull = nullptr,
-        const std::wstring* runtimeDiagMessageOrNull = nullptr
-    );
-
-
-private:
-    // keep mutex out-of-line (8 bytes pointer instead of full mutex object).
     std::unique_ptr<std::mutex> mutex_;
-
     const SRParentEmitPolicy* parentEmitPolicy_ = nullptr;
-
     SRBufferLimiter* bufferLimit_ = nullptr;
     ExecutionTimeline* executionTimeline_ = nullptr;
-
-
 };

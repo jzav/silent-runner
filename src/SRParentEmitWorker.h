@@ -13,10 +13,11 @@
 #include <thread>
 #include <vector>
 
-#include "SRParentEmitPolicy.h"
 #include "SRPendingJobTypes.h"
+#include "SRWorkerTypes.h"
 
 class SRLifecycleDiagnostics;
+class SRParentEmitPolicy;
 class SRWorkerCommonPolicy;
 namespace SR { class SRWorkerSupervisor; }
 class SRParentEmitWorker {
@@ -59,42 +60,37 @@ private:
         ParentStreamType stream = ParentStreamType::Stdout;
 
         bool enabled = false;
-        bool headerParsingTokenEnabled = false;
+        bool headerEnabled = false;
 
     };
 
-
-    struct ParentEmitFailureLatch {
-        bool suppressed = false;
-        DWORD gle = 0;
-        std::wstring reason;
-    };
 
     struct WorkerConfig {
-        ParentEmitFailureLatch workerStdoutFailure;
-        ParentEmitFailureLatch workerStderrFailure;
+        SR::ParentEmitWorkerFailureState failure;
         std::string parsingToken;
-        SR::ChildOutputPresentation stdoutPresentation =
-            SR::ChildOutputPresentation::Block;
-        SR::ChildOutputPresentation stderrChildPresentation =
-            SR::ChildOutputPresentation::Block;
+        std::wstring executionId;
+        SR::ChildTxtHeaderGranularity stdoutTxtHeaderGranularity =
+            SR::ChildTxtHeaderGranularity::Block;
+        SR::ChildTxtHeaderGranularity stderrChildTxtHeaderGranularity =
+            SR::ChildTxtHeaderGranularity::Block;
 
     };
 
     struct WriteConfigSnapshot {
         ParentTargetConfig targetConfig;
         std::string parsingToken;
-        SR::ChildOutputPresentation stdoutPresentation =
-            SR::ChildOutputPresentation::Block;
-        SR::ChildOutputPresentation stderrChildPresentation =
-            SR::ChildOutputPresentation::Block;
+        std::wstring executionId;
+        SR::ChildTxtHeaderGranularity stdoutTxtHeaderGranularity =
+            SR::ChildTxtHeaderGranularity::Block;
+        SR::ChildTxtHeaderGranularity stderrChildTxtHeaderGranularity =
+
+            SR::ChildTxtHeaderGranularity::Block;
 
     };
 
 
 
     struct WorkerDomain {
-        SR::ParentEmitWorkerTargetLayout targetLayout;
         std::array<
             ParentTargetConfig,
             SR::kParentTargetConfigCount
@@ -144,11 +140,11 @@ private:
     );
 
 
-    ParentEmitFailureLatch& FailureLatchForStream_(
+    SR::ParentEmitWorkerFailureState::StreamFailure& FailureLatchForStream_(
         ParentStreamType streamType
     ) noexcept;
 
-    const ParentEmitFailureLatch& FailureLatchForStream_(
+    const SR::ParentEmitWorkerFailureState::StreamFailure& FailureLatchForStream_(
         ParentStreamType streamType
     ) const noexcept;
 

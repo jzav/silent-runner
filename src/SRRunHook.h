@@ -17,6 +17,7 @@ struct EnvironmentVariable {
 // The hook path is a validated existing file path; no hook arguments are added.
 // Run context is provided by environment variables prepared by the caller.
 bool RunHookDetached(
+    const std::wstring& comspecPath,
     const std::wstring& hookPath,
     const std::wstring& cwd,
     const std::vector<EnvironmentVariable>& environmentVariables,

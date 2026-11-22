@@ -47,7 +47,23 @@ sr_assert_file_txt_header(
 )
 sr_assert_file_contains(
     "${expected_diag_log}"
-    "Fatal runtime stop: Buffer limit exceeded; first_hit=stderr stdout_max=0 stderr_max=1 total_max=0 action=abort"
+    "Runtime stop: Buffer limit exceeded; first_hit=stderr stdout_max=0 stderr_max=1 total_max=0 action=abort"
 )
 
 sr_assert_directory_file_count("${diag_dir}" 1)
+# Raw child-stderr timeline replay must enforce the per-stream stderr limit.
+set(raw_diag_dir "${SR_TEST_ROOT}/raw-diag")
+set(raw_execution_id "ctest-buffer-raw-stderr-limit")
+set(raw_diag_log "${raw_diag_dir}/${raw_execution_id}_stderr_sr_failure.log")
+sr_run(raw ARGS
+    --id-base "${raw_execution_id}"
+    --stdout-emit never
+    --stderr-emit-child-raw end
+    --stderr-max-buffer-bytes 1
+    --stderr-dir-sr "${raw_diag_dir}"
+    "${SR_STDERR_CMD}"
+)
+sr_assert_exit(raw "${SR_TEST_EXIT_BUFFER_LIMIT}")
+sr_assert_stdout_empty(raw)
+sr_assert_file_contains("${raw_diag_log}" "Runtime stop: Buffer limit exceeded; first_hit=stderr")
+sr_assert_directory_file_count("${raw_diag_dir}" 1)

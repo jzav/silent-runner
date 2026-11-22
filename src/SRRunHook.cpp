@@ -1,8 +1,7 @@
 #include "SRRunHook.h"
 
+#include <algorithm>
 #include <cwchar>
-
-#include "FileHelpers.h"
 
 #include "CoreHelpers.h"
 #include "TextHelpers.h"
@@ -51,17 +50,24 @@ static bool IsOverriddenEnvironmentName_(
     return false;
 }
 
-static void AppendEnvironmentEntry_(
-    std::wstring& environmentBlock,
-    const std::wstring& name,
-    const std::wstring& value
-) {
-    if (name.empty()) return;
-
-    environmentBlock.append(name);
-    environmentBlock.push_back(L'=');
-    environmentBlock.append(value);
-    environmentBlock.push_back(L'\0');
+static bool EnvironmentEntryLess_(
+    const std::wstring& left,
+    const std::wstring& right
+) noexcept {
+    const auto nameLength = [](const std::wstring& entry) noexcept {
+        // Preserve special drive-current-directory names such as "=C:".
+        const size_t separator = entry.find(
+            L'=', (!entry.empty() && entry.front() == L'=') ? 1 : 0
+        );
+        return static_cast<int>(
+            separator == std::wstring::npos ? entry.size() : separator
+        );
+    };
+    return CompareStringOrdinal(
+        left.c_str(), nameLength(left),
+        right.c_str(), nameLength(right),
+        TRUE
+    ) == CSTR_LESS_THAN;
 }
 
 static bool BuildEnvironmentBlock_(
@@ -71,6 +77,7 @@ static bool BuildEnvironmentBlock_(
 ) {
     gle = 0;
     environmentBlock.clear();
+    std::vector<std::wstring> entries;
 
     LPWCH rawEnvironment = GetEnvironmentStringsW();
     if (!rawEnvironment) {
@@ -81,24 +88,33 @@ static bool BuildEnvironmentBlock_(
 
     for (const wchar_t* entry = rawEnvironment; *entry; entry += std::wcslen(entry) + 1) {
         if (!IsOverriddenEnvironmentName_(entry, environmentVariables)) {
-            environmentBlock.append(entry);
-            environmentBlock.push_back(L'\0');
+            entries.emplace_back(entry);
         }
     }
 
     FreeEnvironmentStringsW(rawEnvironment);
 
     for (const EnvironmentVariable& variable : environmentVariables) {
-        AppendEnvironmentEntry_(environmentBlock, variable.name, variable.value);
+        if (!variable.name.empty()) {
+            entries.emplace_back(variable.name + L"=" + variable.value);
+        }
     }
-
+    std::sort(entries.begin(), entries.end(), EnvironmentEntryLess_);
+    for (const std::wstring& entry : entries) {
+        environmentBlock.append(entry);
+        environmentBlock.push_back(L'\0');
+    }
     environmentBlock.push_back(L'\0');
+    if (entries.empty()) {
+        environmentBlock.push_back(L'\0');
+    }
     return true;
 }
 
 } // namespace
 
 bool RunHookDetached(
+    const std::wstring& comspecPath,
     const std::wstring& hookPath,
     const std::wstring& cwd,
     const std::vector<EnvironmentVariable>& environmentVariables,
@@ -108,7 +124,7 @@ bool RunHookDetached(
     gle = 0;
     pid = 0;
 
-    if (hookPath.empty()) {
+    if (comspecPath.empty() || hookPath.empty()) {
         gle = ERROR_INVALID_PARAMETER;
         return false;
     }
@@ -118,8 +134,8 @@ bool RunHookDetached(
         return false;
     }
 
-    const std::wstring comspec = FileHelpers::GetComSpec();
-    std::wstring commandLine = BuildHookCommandLine_(comspec, hookPath);
+    std::wstring commandLine =
+        BuildHookCommandLine_(comspecPath, hookPath);
 
     STARTUPINFOW si{};
     si.cb = sizeof(si);
@@ -132,7 +148,7 @@ bool RunHookDetached(
         CREATE_UNICODE_ENVIRONMENT;
 
     const BOOL ok = CreateProcessW(
-        comspec.c_str(),
+        comspecPath.c_str(),
         commandLine.data(),
         nullptr,
         nullptr,

@@ -23,7 +23,7 @@ set(parent_stdout_file "${SR_TEST_ROOT}/parent-stdout.bin")
 
 sr_write_lf_terminated_fixture(
     "${fake_header_part}"
-    "[payloadType=CHILDSTDOUT] [tsUtc=2000-01-01_00-00-00Z] [phase=RUNTIME][phaseOrderNo=1][eventOrderNo=999] [payloadDropped=FALSE][payloadByteCount=1] [parsingToken=deadbeef]"
+    "[payloadType=CHILDSTDOUT] [tsUtc=2000-01-01T00:00:00.000Z] [phase=RUNTIME][phaseOrderNo=1][eventOrderNo=999] [payloadDropped=FALSE][payloadByteCount=1] [parsingToken=deadbeef]"
 )
 
 sr_write_crlf_terminated_fixture(
@@ -38,9 +38,9 @@ sr_concat_files(
 )
 
 file(SIZE "${payload_file}" payload_size)
-if(NOT payload_size EQUAL 193)
+if(NOT payload_size EQUAL 197)
     message(FATAL_ERROR
-        "Header-like payload fixture construction failed: expected 193 bytes, got ${payload_size}."
+        "Header-like payload fixture construction failed: expected 197 bytes, got ${payload_size}."
     )
 endif()
 

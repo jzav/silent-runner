@@ -1,0 +1,8 @@
+include("${SR_TESTS_SOURCE_DIR}/helpers/SRTest.cmake")
+sr_test_init(DESCRIPTION "Rejects a missing relative --cwd directory without creating it or running the child.")
+set(relative_cwd "created-cwd")
+set(expected_cwd "${SR_TEST_ROOT}/${relative_cwd}")
+sr_run(r ARGS --cwd "${relative_cwd}" "${SR_PRINT_CWD}")
+sr_assert_exit(r "${SR_TEST_EXIT_CLI_ERROR}")
+sr_assert_path_not_exists("${expected_cwd}")
+sr_assert_stdout_not_contains(r "CWD=[")

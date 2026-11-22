@@ -11,6 +11,8 @@
 #include <vector>
 
 #include "SRTypes.h"
+#include "SRJobTypes.h"
+#include "SRParentEmitPolicyTypes.h"
 
 
 namespace SR {
@@ -101,6 +103,7 @@ namespace Resolution {
     X(InheritStdin,                     L"InheritStdin",                     L"--inherit-stdin",                    nullptr,  ProcessEnvironment,  Flag,         Bool) \
     X(Utf8,                            L"Utf8",                            L"--utf8",                            L"--utf-8", ProcessEnvironment,  Flag,         Bool) \
     X(TimeoutMs,                        L"TimeoutMs",                        L"--timeout-ms",                       nullptr,  ProcessEnvironment,  Value,        UInt32) \
+    X(AbortOnRuntimeFailure,             L"AbortOnRuntimeFailure",             L"--abort-on-runtime-failure",        nullptr,  ProcessEnvironment,  Flag,         Bool) \
     X(IdPrefix,                         L"IdPrefix",                         L"--id-prefix",                        nullptr,  ExecutionId,         Value,        WString) \
     X(IdBase,                           L"IdBase",                           L"--id-base",                          nullptr,  ExecutionId,         Value,        WString) \
     X(IdSuffix,                         L"IdSuffix",                         L"--id-suffix",                        nullptr,  ExecutionId,         Value,        IdSuffixMode) \
@@ -109,15 +112,19 @@ namespace Resolution {
     X(StderrChildEventFraming,           L"StderrChildEventFraming",           L"--stderr-child-event-framing",          nullptr,  ChildEventSeparation, Value, ChildEventFraming) \
     X(StderrChildEventNewlineMaxBytes,   L"StderrChildEventNewlineMaxBytes",   L"--stderr-child-event-newline-max-bytes", nullptr, ChildEventSeparation, Value, UInt64) \
     X(StdoutEmit,                       L"StdoutEmit",                       L"--stdout-emit",                       nullptr,  ParentEmission,      Value,        EmitMode) \
+    X(StdoutEmitRaw,                    L"StdoutEmitRaw",                    L"--stdout-emit-raw",                   nullptr,  ParentEmission,      Value,        EmitMode) \
     X(StderrEmit,                       L"StderrEmit",                       L"--stderr-emit",                       nullptr,  ParentEmission,      Value,        EmitMode) \
     X(StderrEmitChild,                   L"StderrEmitChild",                   L"--stderr-emit-child",                 nullptr,  ParentEmission,      Value,        EmitMode) \
+    X(StderrEmitChildRaw,               L"StderrEmitChildRaw",               L"--stderr-emit-child-raw",             nullptr,  ParentEmission,      Value,        EmitMode) \
     X(StderrEmitSr,                      L"StderrEmitSr",                      L"--stderr-emit-sr",                    nullptr,  ParentEmission,      Value,        EmitMode) \
     X(StderrEmitInclStdout,               L"StderrEmitInclStdout",               L"--stderr-emit-incl-stdout",            nullptr,  ParentEmission,      Value,        EmitMode) \
     X(StdoutDir,                        L"StdoutDir",                        L"--stdout-dir",                       nullptr,  PersistentLogging,   Value,        WString) \
+    X(StdoutDirRaw,                     L"StdoutDirRaw",                     L"--stdout-dir-raw",                    nullptr,  PersistentLogging,   Value,        WString) \
     X(StdoutDirJsonl,                    L"StdoutDirJsonl",                    L"--stdout-dir-jsonl",                 nullptr,  PersistentLogging,   Value,        WString) \
     X(StderrDir,                        L"StderrDir",                        L"--stderr-dir",                       nullptr,  PersistentLogging,   Value,        WString) \
     X(StderrDirJsonl,                    L"StderrDirJsonl",                    L"--stderr-dir-jsonl",                 nullptr,  PersistentLogging,   Value,        WString) \
     X(StderrDirChild,                    L"StderrDirChild",                    L"--stderr-dir-child",                 nullptr,  PersistentLogging,   Value,        WString) \
+    X(StderrDirChildRaw,                L"StderrDirChildRaw",                L"--stderr-dir-child-raw",              nullptr,  PersistentLogging,   Value,        WString) \
     X(StderrDirChildJsonl,                L"StderrDirChildJsonl",                L"--stderr-dir-child-jsonl",            nullptr,  PersistentLogging,   Value,        WString) \
     X(StderrDirSr,                       L"StderrDirSr",                       L"--stderr-dir-sr",                    nullptr,  PersistentLogging,   Value,        WString) \
     X(StderrDirSrJsonl,                   L"StderrDirSrJsonl",                   L"--stderr-dir-sr-jsonl",               nullptr,  PersistentLogging,   Value,        WString) \
@@ -134,7 +141,7 @@ namespace Resolution {
     X(StdTotalMaxBufferBytes,              L"StdTotalMaxBufferBytes",              L"--std-total-max-buffer-bytes",        nullptr,  Buffering,           Value,        UInt64) \
     X(RunOnSuccess,                      L"RunOnSuccess",                      L"--run-on-success",                   nullptr,  PostExecutionHooks,  Value,        WString) \
     X(RunOnFailure,                      L"RunOnFailure",                      L"--run-on-failure",                   nullptr,  PostExecutionHooks,  Value,        WString) \
-    X(RawCommand,                        L"RawCommand",                        L"-c",                                L"/c",      ExecutionMode,        ChildCommand, ExecutionMode) \
+    X(CommandString,                        L"CommandString",                        L"-c",                                L"/c",      ExecutionMode,        ChildCommand, ExecutionMode) \
     X(Help,                              L"Help",                              L"--help",                             nullptr,  Help,                Flag,         Bool)
 
 namespace SR {
@@ -149,6 +156,18 @@ enum class ConfigArgument {
 static constexpr std::size_t kConfigArgumentCount =
     static_cast<std::size_t>(ConfigArgument::Count);
 
+// Resolve an argument ID from the job-target layout to its typed enum.
+static inline constexpr ConfigArgument ResolveConfigArgument(
+    ConfigArgumentId id
+) noexcept {
+#define SR_X_RESOLVE_CONFIG_ARGUMENT(name, idText, spelling, alias, topic, parsingMode, valueTypeId) \
+    if (id.value == #name) return ConfigArgument::name;
+    SR_CONFIG_ARGUMENT_TABLE(SR_X_RESOLVE_CONFIG_ARGUMENT)
+#undef SR_X_RESOLVE_CONFIG_ARGUMENT
+    return ConfigArgument::Count;
+}
+
+
 } // namespace SR
 
 
@@ -161,12 +180,15 @@ static constexpr std::size_t kConfigArgumentCount =
 #define SR_CONFIG_OWNER_TABLE(X) \
     X(SRWorkerCommonPolicy,   workerCommonPolicy,   Class) \
     X(SRFileSinkWorker,       fileSinkWorker,       Class) \
+    X(SRTargetLogFiles,       targetLogFiles,       Class) \
     X(SRLifecycleDiagnostics, lifecycleDiagnostics, Class) \
     X(SRParentEmitPolicy,     parentEmitPolicy,     Class) \
     X(SRBufferLimiter,        bufferLimiter,        Class) \
+    X(SRTimeLimiter,          timeLimiter,          Class) \
+    X(SRRuntimeCoordinator,  runtimeCoordinator,  Class) \
     X(ExecutionTimeline,      executionTimeline,    Class) \
     X(PrepareRuntime,         prepareRuntime,       Function) \
-    X(RunHiddenWithRouting,   runHiddenWithRouting, Function) \
+    X(ExecuteChildProcess,   executeChildProcess, Function) \
     X(FinalizeExecution,      finalizeExecution,    Function)
 
 namespace SR {
@@ -194,65 +216,56 @@ enum class ConfigOwner {
 
 #define SR_CONFIG_ARGUMENT_OWNER_TABLE(X) \
     X(Debug,                        SRLifecycleDiagnostics, debug) \
-    X(Debug,                        RunHiddenWithRouting,   debug) \
+    X(Debug,                        ExecuteChildProcess,   debug) \
+    X(Verbose,                      ExecuteChildProcess,   verbose) \
     X(Verbose,                      SRLifecycleDiagnostics, verbose) \
     X(Verbose,                      ExecutionTimeline,      verbose) \
     X(Verbose,                      FinalizeExecution,      verbose) \
     X(ProbeDir,                     PrepareRuntime,        probeDir) \
     X(Cwd,                          PrepareRuntime,        cwd) \
     X(Cwd,                          FinalizeExecution,      cwd) \
-    X(Cwd,                          RunHiddenWithRouting,   cwd) \
-    X(InheritStdin,                  RunHiddenWithRouting,   inheritStdin) \
+    X(Cwd,                          ExecuteChildProcess,   cwd) \
+    X(Utf8,                         ExecuteChildProcess,   utf8) \
+    X(InheritStdin,                  ExecuteChildProcess,   inheritStdin) \
     X(Utf8,                         PrepareRuntime,        utf8) \
-    X(TimeoutMs,                     RunHiddenWithRouting,   timeoutMs) \
-    X(IdPrefix,                      PrepareRuntime,        idPrefix) \
-    X(IdPrefix,                      RunHiddenWithRouting,   idPrefix) \
-    X(IdBase,                        PrepareRuntime,        idBase) \
-    X(IdBase,                        RunHiddenWithRouting,   idBase) \
-    X(IdSuffix,                      PrepareRuntime,        idSuffix) \
-    X(StdoutEventFraming,               RunHiddenWithRouting,   stdoutEventFraming) \
-    X(StdoutEventNewlineMaxBytes,       RunHiddenWithRouting,   stdoutEventNewlineMaxBytes) \
-    X(StderrChildEventFraming,          RunHiddenWithRouting,   stderrChildEventFraming) \
-    X(StderrChildEventNewlineMaxBytes,  RunHiddenWithRouting,   stderrChildEventNewlineMaxBytes) \
-    X(StdoutEmit,                    SRParentEmitPolicy,     stdoutEmit) \
+    X(TimeoutMs,                     SRTimeLimiter,          timeoutMs) \
+    X(AbortOnRuntimeFailure,            SRRuntimeCoordinator, abortOnRuntimeFailure) \
+    X(IdPrefix,                      SRWorkerCommonPolicy,  idPrefix) \
+    X(IdBase,                        SRWorkerCommonPolicy,  idBase) \
+    X(IdSuffix,                      SRWorkerCommonPolicy,  idSuffix) \
+    X(StdoutEventFraming,               ExecuteChildProcess,   stdoutEventFraming) \
+    X(StdoutEventNewlineMaxBytes,       ExecuteChildProcess,   stdoutEventNewlineMaxBytes) \
+    X(StderrChildEventFraming,          ExecuteChildProcess,   stderrChildEventFraming) \
+    X(StderrChildEventNewlineMaxBytes,  ExecuteChildProcess,   stderrChildEventNewlineMaxBytes) \
     X(StdoutDir,                     PrepareRuntime,        stdoutDir) \
-    X(StdoutDir,                     SRParentEmitPolicy,     stdoutDir) \
     X(StdoutDirJsonl,                 PrepareRuntime,        stdoutDirJsonl) \
-    X(StdoutDirJsonl,                 SRParentEmitPolicy,     stdoutDirJsonl) \
     X(StderrDir,                     PrepareRuntime,        stderrDir) \
-    X(StderrDir,                     SRParentEmitPolicy,     stderrDir) \
     X(StderrDirJsonl,                 PrepareRuntime,        stderrDirJsonl) \
-    X(StderrDirJsonl,                 SRParentEmitPolicy,     stderrDirJsonl) \
     X(StderrDirChild,                 PrepareRuntime,        stderrDirChild) \
-    X(StderrDirChild,                 SRParentEmitPolicy,     stderrDirChild) \
     X(StderrDirChildJsonl,             PrepareRuntime,        stderrDirChildJsonl) \
-    X(StderrDirChildJsonl,             SRParentEmitPolicy,     stderrDirChildJsonl) \
     X(StderrDirSr,                    PrepareRuntime,        stderrDirSr) \
-    X(StderrDirSr,                    SRParentEmitPolicy,     stderrDirSr) \
     X(StderrDirSrJsonl,                PrepareRuntime,        stderrDirSrJsonl) \
-    X(StderrDirSrJsonl,                SRParentEmitPolicy,     stderrDirSrJsonl) \
     X(StderrDirInclStdout,             PrepareRuntime,        stderrDirInclStdout) \
-    X(StderrDirInclStdout,             SRParentEmitPolicy,     stderrDirInclStdout) \
     X(StderrDirInclStdoutJsonl,         PrepareRuntime,        stderrDirInclStdoutJsonl) \
-    X(StderrDirInclStdoutJsonl,         SRParentEmitPolicy,     stderrDirInclStdoutJsonl) \
     X(JsonlPayloadRepresentation,        SRFileSinkWorker,         jsonlPayloadRepresentation) \
-    X(StdoutDirKeepLog,                FinalizeExecution,      stdoutDirKeepLog) \
-    X(StderrDirKeepLog,                FinalizeExecution,      stderrDirKeepLog) \
-    X(StderrDirChildKeepLog,            FinalizeExecution,      stderrDirChildKeepLog) \
-    X(StderrDirSrKeepLog,               FinalizeExecution,      stderrDirSrKeepLog) \
-    X(StderrDirInclStdoutKeepLog,        FinalizeExecution,      stderrDirInclStdoutKeepLog) \
+    X(JsonlPayloadRepresentation,      ExecuteChildProcess,   jsonlPayloadRepresentation) \
     X(StdoutMaxBufferBytes,             SRBufferLimiter,        stdoutMaxBufferBytes) \
     X(StdoutMaxBufferBytes,             PrepareRuntime,         stdoutMaxBufferBytes) \
+    X(StdoutMaxBufferBytes,             ExecuteChildProcess,   stdoutMaxBufferBytes) \
     X(StderrMaxBufferBytes,             SRBufferLimiter,        stderrMaxBufferBytes) \
     X(StderrMaxBufferBytes,             PrepareRuntime,         stderrMaxBufferBytes) \
+    X(StderrMaxBufferBytes,             ExecuteChildProcess,   stderrMaxBufferBytes) \
     X(StdTotalMaxBufferBytes,            SRBufferLimiter,        stdTotalMaxBufferBytes) \
     X(StdTotalMaxBufferBytes,            PrepareRuntime,         stdTotalMaxBufferBytes) \
+    X(StdTotalMaxBufferBytes,        ExecuteChildProcess,   stdTotalMaxBufferBytes) \
     X(RunOnSuccess,                    PrepareRuntime,        runOnSuccessPath) \
+    X(RunOnSuccess,                ExecuteChildProcess,   runOnSuccessPath) \
     X(RunOnFailure,                    PrepareRuntime,        runOnFailurePath) \
+    X(RunOnFailure,                ExecuteChildProcess,   runOnFailurePath) \
     X(RunOnSuccess,                    FinalizeExecution,      runOnSuccessPath) \
     X(RunOnFailure,                    FinalizeExecution,      runOnFailurePath) \
-    X(RawCommand,                      PrepareRuntime,        executionMode) \
-    X(RawCommand,                    RunHiddenWithRouting,   executionMode)
+    X(CommandString,                      PrepareRuntime,        executionMode) \
+    X(CommandString,                    ExecuteChildProcess,   executionMode)
 
 // =============================================================================
 // Derived config values
@@ -261,39 +274,33 @@ enum class ConfigOwner {
 // Columns: derived value ID, C++ type, field.
 
 #define SR_CONFIG_DERIVED_VALUE_TABLE(X) \
-    X(StderrEmit,            SR::EmitMode,              stderrEmit) \
-    X(StderrEmitSource,      SR::StderrEmitSource,      stderrEmitSource) \
+    X(StdoutParentTarget, SR::JobTarget, stdoutParentTarget) \
+    X(StderrParentTarget, SR::JobTarget, stderrParentTarget) \
+    X(StdoutEmitMode, SR::EmitMode, stdoutEmitMode) \
+    X(StderrEmitMode, SR::EmitMode, stderrEmitMode) \
     X(ArgVector,             std::vector<std::wstring>, argVector) \
     X(ChildArgsStartIndex,   int,                       childArgsStartIndex) \
-    X(GeneratedSuffix,       std::wstring,              generatedSuffix) \
-    X(EffectiveIdSuffixMode, SR::IdSuffixMode,          effectiveIdSuffixMode) \
-    X(UseDefaultSuffixMode,  bool,                      useDefaultSuffixMode) \
-    X(ExecutionId,           std::wstring,              executionId) \
     X(NeedsParsingToken,     bool,                      needsParsingToken) \
-    X(StdoutPresentation,    SR::ChildOutputPresentation, stdoutPresentation) \
-    X(StderrChildPresentation, SR::ChildOutputPresentation, stderrChildPresentation)
+    X(TargetLogConfigs,         SR::TargetLogConfigs,        targetLogConfigs) \
+    X(StdoutTxtHeaderGranularity,    SR::ChildTxtHeaderGranularity, stdoutTxtHeaderGranularity) \
+    X(StderrChildTxtHeaderGranularity, SR::ChildTxtHeaderGranularity, stderrChildTxtHeaderGranularity)
 
 
 // Columns: derived value ID, owner ID.
 #define SR_CONFIG_DERIVED_VALUE_OWNER_TABLE(X) \
-    X(StderrEmit,            SRParentEmitPolicy) \
-    X(StderrEmitSource,      SRParentEmitPolicy) \
+    X(StdoutParentTarget, SRParentEmitPolicy) \
+    X(StderrParentTarget, SRParentEmitPolicy) \
+    X(StdoutEmitMode, SRParentEmitPolicy) \
+    X(StderrEmitMode, SRParentEmitPolicy) \
     X(ArgVector,             PrepareRuntime) \
     X(ChildArgsStartIndex,   PrepareRuntime) \
-    X(GeneratedSuffix,       PrepareRuntime) \
-    X(GeneratedSuffix,       RunHiddenWithRouting) \
-    X(EffectiveIdSuffixMode, PrepareRuntime) \
-    X(EffectiveIdSuffixMode, RunHiddenWithRouting) \
-    X(UseDefaultSuffixMode,  PrepareRuntime) \
-    X(UseDefaultSuffixMode,  RunHiddenWithRouting) \
-    X(ExecutionId,           PrepareRuntime) \
-    X(ExecutionId,           RunHiddenWithRouting) \
-    X(ExecutionId,           FinalizeExecution) \
     X(NeedsParsingToken,       SRWorkerCommonPolicy) \
-    X(StdoutPresentation,      SRWorkerCommonPolicy) \
-    X(StdoutPresentation,      FinalizeExecution) \
-    X(StderrChildPresentation, SRWorkerCommonPolicy) \
-    X(StderrChildPresentation, FinalizeExecution)
+    X(TargetLogConfigs,         SRTargetLogFiles) \
+    X(StdoutTxtHeaderGranularity,      SRWorkerCommonPolicy) \
+    X(StdoutTxtHeaderGranularity,      FinalizeExecution) \
+    X(StderrChildTxtHeaderGranularity, SRWorkerCommonPolicy) \
+    X(StderrChildTxtHeaderGranularity, FinalizeExecution)
+
 
 
 
@@ -400,6 +407,61 @@ static inline bool ResolveConfigValue(
 
 
 
+// Argument ID -> C++ type for compile-time typed access.
+template <ConfigArgument argument>
+struct ConfigArgumentValueTypeOf;
+
+#define SR_X_CONFIG_ARGUMENT_VALUE_TYPE_TRAIT(id, idText, spelling, alias, topic, parsingMode, valueTypeId) \
+    template <> struct ConfigArgumentValueTypeOf<ConfigArgument::id> { \
+        using type = ConfigArgumentValueType_##id; \
+    };
+
+SR_CONFIG_ARGUMENT_TABLE(SR_X_CONFIG_ARGUMENT_VALUE_TYPE_TRAIT)
+#undef SR_X_CONFIG_ARGUMENT_VALUE_TYPE_TRAIT
+
+class ConfigArguments {
+public:
+    void Init() {
+        arguments_ = MakeConfigArgumentData();
+    }
+
+    ConfigArgumentData& GetData(ConfigArgument argument) {
+        return arguments_[static_cast<std::size_t>(argument)];
+    }
+
+    const ConfigArgumentData& GetData(ConfigArgument argument) const {
+        return arguments_[static_cast<std::size_t>(argument)];
+    }
+
+    bool IsSpecified(ConfigArgument argument) const {
+        return GetData(argument).optionValueSpecified;
+    }
+
+    template <typename T>
+    void CopyValue(ConfigArgument argument, T& destination) const {
+        destination = std::get<T>(GetData(argument).typedValue);
+    }
+
+    template <typename T>
+    void SetValue(ConfigArgument argument, T&& value) {
+        GetData(argument).typedValue = std::forward<T>(value);
+    }
+
+    template <ConfigArgument argument>
+    const typename ConfigArgumentValueTypeOf<argument>::type& GetValue() const {
+        using ValueType = typename ConfigArgumentValueTypeOf<argument>::type;
+        return std::get<ValueType>(GetData(argument).typedValue);
+    }
+
+    auto begin() noexcept { return arguments_.begin(); }
+    auto end() noexcept { return arguments_.end(); }
+    auto begin() const noexcept { return arguments_.begin(); }
+    auto end() const noexcept { return arguments_.end(); }
+
+private:
+    using Storage = std::array<ConfigArgumentData, kConfigArgumentCount>;
+    Storage arguments_{};
+};
 // Values derived from resolved arguments and retained by SRConfigsBuilder.
 struct ConfigDerivedValues {
 #define SR_X_CONFIG_DERIVED_VALUE_FIELD(id, valueType, field) \
@@ -477,17 +539,10 @@ struct ConfigForOwner
 {};
 
 
-// =============================================================================
-// Consumer config types
-// =============================================================================
 
-// Materialize one concrete config type per owner.
-#define SR_X_CONFIG_STRUCT(owner, member, type) \
-    struct owner##Config : ConfigForOwner<ConfigOwner::owner> {};
 
-SR_CONFIG_OWNER_TABLE(SR_X_CONFIG_STRUCT)
 
-#undef SR_X_CONFIG_STRUCT
+
 
 
 // Complete set of consumer configs.
@@ -526,16 +581,14 @@ static inline auto& RetrieveConfigForOwner(
 
 
 static inline void BuildConsumerConfigsHelper(
-    const std::array<ConfigArgumentData, kConfigArgumentCount>& configArguments,
+    const ConfigArguments& configArguments,
     SRConfigs& configs
 ) {
 #define SR_X_BUILD_CONSUMER_CONFIG(argument, owner, field) \
-    RetrieveConfigForOwner<ConfigOwner::owner>(configs).field = \
-        std::get<ConfigArgumentValueType_##argument>( \
-            configArguments[ \
-                static_cast<std::size_t>(ConfigArgument::argument) \
-            ].typedValue \
-        );
+    configArguments.CopyValue( \
+        ConfigArgument::argument, \
+        RetrieveConfigForOwner<ConfigOwner::owner>(configs).field \
+    );
 
     SR_CONFIG_ARGUMENT_OWNER_TABLE(SR_X_BUILD_CONSUMER_CONFIG)
 #undef SR_X_BUILD_CONSUMER_CONFIG

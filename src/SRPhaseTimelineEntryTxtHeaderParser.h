@@ -7,7 +7,7 @@
 namespace SR {
 
 
-// Parses one complete canonical stderr-sr-and-child TXT segment header.
+// Parses one complete canonical stderr-sr-and-child TXT block header.
 //
 // Responsibilities:
 // - Parse canonical [field=value] records and consume schema-defined TXT spacing.
@@ -17,7 +17,8 @@ namespace SR {
 // - Populate the corresponding schema data variant.
 //
 // Non-responsibilities:
-// - Locate segment boundaries in a TXT stream.
+// - Locate block boundaries in a TXT stream.
+
 // - Read or interpret the payload following the header.
 // - Populate JSON-only payload representation fields.
 // - Split payload bytes or construct replay jobs.

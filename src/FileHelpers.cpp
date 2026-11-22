@@ -3,6 +3,7 @@
 #include <cwchar>
 
 #include "HandleHelpers.h"
+#include "ErrorHelpers.h"
 
 #include "CoreHelpers.h"
 
@@ -10,21 +11,233 @@ using CoreHelpers::UniqueHandle;
 
 namespace FileHelpers {
 
-std::wstring GetComSpec() {
-    wchar_t buf[MAX_PATH];
-    DWORD n = GetEnvironmentVariableW(L"ComSpec", buf, MAX_PATH);
-    if (n > 0 && n < MAX_PATH) {
-        return std::wstring(buf, n);
+bool TryResolveComSpecPath(
+    std::wstring& resolvedPath,
+    std::wstring& err
+) {
+    resolvedPath.clear();
+    err.clear();
+
+    std::wstring rawPath;
+    std::vector<wchar_t> buffer(MAX_PATH);
+
+    for (;;) {
+        SetLastError(ERROR_SUCCESS);
+        const DWORD length = GetEnvironmentVariableW(
+            L"ComSpec",
+            buffer.data(),
+            static_cast<DWORD>(buffer.size())
+        );
+
+        if (length == 0) {
+            const DWORD gle = GetLastError();
+            if (gle != ERROR_SUCCESS &&
+                gle != ERROR_ENVVAR_NOT_FOUND) {
+                err = L"Failed to read ComSpec; " +
+                    ErrorHelpers::FormatGle(gle);
+                return false;
+            }
+
+            rawPath = L"C:\\Windows\\System32\\cmd.exe";
+            break;
+        }
+
+        if (length >= buffer.size()) {
+            buffer.resize(static_cast<size_t>(length) + 1);
+            continue;
+        }
+
+        rawPath.assign(buffer.data(), length);
+        break;
     }
-    return L"C:\\Windows\\System32\\cmd.exe";
+
+    std::wstring expandedPath;
+    std::wstring missingVariable;
+    DWORD gle = 0;
+
+    if (!TryExpandEnvironmentVariables(
+            rawPath,
+            expandedPath,
+            missingVariable,
+            &gle
+        )) {
+        if (!missingVariable.empty()) {
+            err = L"Invalid ComSpec: environment variable %" +
+                missingVariable + L"% is not defined";
+        } else {
+            err = L"Failed to expand ComSpec; " +
+                ErrorHelpers::FormatGle(gle);
+        }
+        return false;
+    }
+
+    if (expandedPath.empty()) {
+        err = L"Invalid ComSpec: expanded path is empty";
+        return false;
+    }
+
+    if (!TryResolveFullPath(
+            expandedPath,
+            resolvedPath,
+            &gle
+        )) {
+        err = L"Failed to resolve ComSpec path; " +
+            ErrorHelpers::FormatGle(gle);
+        return false;
+    }
+
+    if (!FileExists(resolvedPath)) {
+        err = L"Invalid ComSpec: path must point to an existing file; path=" +
+            resolvedPath;
+        resolvedPath.clear();
+        return false;
+    }
+
+    return true;
 }
 
+// Expand SilentRunner-managed paths (ComSpec, --cwd, run hooks,
+// log directories, and --probe-dir) during Prepare.
+// Undefined %VAR% references in these paths are treated as errors.
+// Child script/executable paths and arguments are left unexpanded
+// and passed to cmd.exe for interpretation.
+//
+// Expansion is non-recursive, matching cmd.exe's %VAR% substitution:
+// https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/cmd#substituting-environment-variable-values
+bool TryExpandEnvironmentVariables(
+    const std::wstring& input,
+    std::wstring& expanded,
+    std::wstring& missingVariable,
+    DWORD* outGle
+) {
+    expanded.clear();
+    missingVariable.clear();
+    if (outGle) *outGle = 0;
+    // Process original path components independently to prevent
+    // percent signs in different components from forming a reference.
+    std::wstring result;
+    std::vector<wchar_t> buffer(MAX_PATH);
+    size_t componentStart = 0;
+
+    for (;;) {
+        const size_t separator =
+            input.find_first_of(L"\\/", componentStart);
+        const size_t componentEnd =
+            separator == std::wstring::npos ? input.size() : separator;
+        const std::wstring component =
+            input.substr(componentStart, componentEnd - componentStart);
+
+        // Check only references present in the original component.
+        // An empty %% pair is not an environment variable.
+        size_t start = component.find(L'%');
+        while (start != std::wstring::npos) {
+            const size_t end = component.find(L'%', start + 1);
+            if (end == std::wstring::npos) break;
+
+            if (end > start + 1) {
+                const std::wstring name =
+                    component.substr(start + 1, end - start - 1);
+                SetLastError(ERROR_SUCCESS);
+                const DWORD required =
+                    GetEnvironmentVariableW(name.c_str(), nullptr, 0);
+
+                if (required == 0) {
+                    const DWORD gle = GetLastError();
+                    if (gle == ERROR_ENVVAR_NOT_FOUND) {
+                        missingVariable = name;
+                        if (outGle) *outGle = gle;
+                        return false;
+                    }
+                    if (gle != ERROR_SUCCESS) {
+                        if (outGle) *outGle = gle;
+                        return false;
+                    }
+                }
+            }
+            start = component.find(L'%', end + 1);
+        }
+
+        // Buffer-size retries do not expand the result recursively.
+        for (;;) {
+            const DWORD required = ExpandEnvironmentStringsW(
+                component.c_str(),
+                buffer.data(),
+                static_cast<DWORD>(buffer.size())
+            );
+
+            if (required == 0) {
+                const DWORD gle = GetLastError();
+                if (outGle) *outGle = gle ? gle : ERROR_GEN_FAILURE;
+                return false;
+            }
+
+            if (required <= buffer.size()) {
+                result.append(buffer.data(), required - 1);
+                break;
+            }
+
+            buffer.resize(required);
+        }
+
+        if (separator == std::wstring::npos) {
+            expanded.swap(result);
+            return true;
+        }
+
+        result.push_back(input[separator]);
+        componentStart = separator + 1;
+    }
+}
+
+bool TryResolveFullPath(
+    const std::wstring& path,
+    std::wstring& resolvedPath,
+    DWORD* outGle
+) {
+    if (outGle) *outGle = 0;
+
+    if (path.empty()) {
+        if (outGle) *outGle = ERROR_INVALID_PARAMETER;
+        return false;
+    }
+
+    std::vector<wchar_t> buffer(MAX_PATH);
+
+    for (;;) {
+        const DWORD length = GetFullPathNameW(
+            path.c_str(),
+            static_cast<DWORD>(buffer.size()),
+            buffer.data(),
+            nullptr
+        );
+
+        if (length == 0) {
+            if (outGle) *outGle = GetLastError();
+            return false;
+        }
+
+        if (length < buffer.size()) {
+            resolvedPath.assign(buffer.data(), length);
+            return true;
+        }
+
+        buffer.resize(static_cast<std::size_t>(length) + 1);
+    }
+}
 bool FileExists(const std::wstring& path) noexcept {
     const DWORD attrs = GetFileAttributesW(path.c_str());
     if (attrs == INVALID_FILE_ATTRIBUTES) {
         return false;
     }
     return (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+bool DirectoryExists(const std::wstring& path) noexcept {
+    const DWORD attrs = GetFileAttributesW(path.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        return false;
+    }
+    return (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
 static std::wstring NormalizeDirPath(std::wstring dir) {
@@ -173,6 +386,24 @@ std::wstring MakeRunUtcTimestamp() {
         L"%04u-%02u-%02u_%02u-%02u-%02uZ",
         st.wYear, st.wMonth, st.wDay,
         st.wHour, st.wMinute, st.wSecond
+    );
+    return std::wstring(buf);
+}
+std::wstring MakeEventUtcTimestamp() {
+    FILETIME fileTime{};
+    GetSystemTimePreciseAsFileTime(&fileTime);
+
+    SYSTEMTIME st{};
+    if (!FileTimeToSystemTime(&fileTime, &st)) {
+        GetSystemTime(&st);
+    }
+
+    wchar_t buf[32];
+    swprintf_s(
+        buf,
+        L"%04u-%02u-%02uT%02u:%02u:%02u.%03uZ",
+        st.wYear, st.wMonth, st.wDay,
+        st.wHour, st.wMinute, st.wSecond, st.wMilliseconds
     );
     return std::wstring(buf);
 }

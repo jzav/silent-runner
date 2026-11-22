@@ -4,30 +4,12 @@
 #include "SRLifecycleDiagnostics.h"
 #include "SRReplayJsonlToParent.h"
 #include "SRReplayTxtToParent.h"
+#include "SRParentReplayTypes.h"
+#include "SRTargetLogFiles.h"
 
 namespace {
 
 
-void SelectPersistentReplaySource_(
-    const std::wstring& txtPath,
-    const std::wstring& jsonlPath,
-    SR::ParentReplayParameterSet& parameters
-) noexcept {
-    if (!jsonlPath.empty()) {
-        parameters.source = SR::ParentReplaySource::Jsonl;
-        parameters.path = jsonlPath;
-        return;
-    }
-
-    if (!txtPath.empty()) {
-        parameters.source = SR::ParentReplaySource::Txt;
-        parameters.path = txtPath;
-        return;
-    }
-
-    parameters.source = SR::ParentReplaySource::None;
-    parameters.path.clear();
-}
 
 bool HasReplaySource_(
     const SR::ParentReplayParameterSet& parameters,
@@ -86,9 +68,11 @@ std::wstring FormatReplayParameterSet_(
 } // namespace
 
 bool SRParentReplayRouter::Init(
-    SRLifecycleDiagnostics& lifecycleDiag
+    SRLifecycleDiagnostics& lifecycleDiag,
+    const SR::ParentReplaySourceLayout& replaySourceLayout
 ) noexcept {
     lifecycleDiag_ = &lifecycleDiag;
+    replaySourceLayout_ = replaySourceLayout;
     executionTimeline_ = nullptr;
     replayTxtToParent_ = nullptr;
     replayJsonlToParent_ = nullptr;
@@ -117,7 +101,7 @@ void SRParentReplayRouter::SetReplayJsonlToParent(
 bool SRParentReplayRouter::ReplayToParent(
     const SR::ParentReplayPolicySnapshot& policySnapshot,
     bool executionSucceeded,
-    const SR::LogPaths& logPaths
+    const std::vector<TargetLogPathBinding>& replayLogPaths
 ) {
     if (!lifecycleDiag_) {
         return false;
@@ -142,14 +126,11 @@ bool SRParentReplayRouter::ReplayToParent(
     if (!BuildReplayParameters_(
             policySnapshot,
             executionSucceeded,
-            logPaths,
+            replayLogPaths,
             parameters
         )) {
         lifecycleDiag_->ProbeLine(
             L"[PARENT-REPLAY] Failed to build replay parameters"
-        );
-        lifecycleDiag_->ProbeLine(
-            L"[PARENT-REPLAY] BuildReplayParameters_ returned false"
         );
         return false;
     }
@@ -266,15 +247,10 @@ bool SRParentReplayRouter::ReplayToParent(
 bool SRParentReplayRouter::BuildReplayParameters_(
     const SR::ParentReplayPolicySnapshot& policySnapshot,
     bool executionSucceeded,
-    const SR::LogPaths& logPaths,
+    const std::vector<TargetLogPathBinding>& replayLogPaths,
     SR::ParentReplayParameters& parameters
 ) const noexcept {
-
     parameters = SR::ParentReplayParameters{};
-
-    const SR::LogPathSet& replayLogPaths =
-        logPaths.running;
-
     return
         BuildStdoutReplayParameters_(
             policySnapshot,
@@ -293,11 +269,11 @@ bool SRParentReplayRouter::BuildReplayParameters_(
 bool SRParentReplayRouter::BuildStdoutReplayParameters_(
     const SR::ParentReplayPolicySnapshot& policySnapshot,
     bool executionSucceeded,
-    const SR::LogPathSet& logPaths,
+    const std::vector<TargetLogPathBinding>& replayLogPaths,
     SR::ParentReplayParameterSet& parameters
 ) const noexcept {
     parameters = SR::ParentReplayParameterSet{};
-    parameters.target = SR::JobTarget::StdoutParent;
+    parameters.target = policySnapshot.stdoutParentTarget;
 
     const SR::EmitMode emitMode =
         policySnapshot.stdoutEmitMode;
@@ -319,12 +295,6 @@ bool SRParentReplayRouter::BuildStdoutReplayParameters_(
             L" needsReplayBuffer=" +
             (policySnapshot.needsStdoutReplayBuffer ? L"true" : L"false")
         );
-        lifecycleDiag_->ProbeLine(
-            std::wstring(L"[PARENT-REPLAY] BuildStdoutReplayParameters_; txtPath=") +
-            (logPaths.stdoutTxt.empty() ? L"<none>" : logPaths.stdoutTxt) +
-            L" jsonlPath=" +
-            (logPaths.stdoutJsonl.empty() ? L"<none>" : logPaths.stdoutJsonl)
-        );
     }
 
     if (!shouldReplay) {
@@ -335,8 +305,8 @@ bool SRParentReplayRouter::BuildStdoutReplayParameters_(
         parameters.source = SR::ParentReplaySource::Timeline;
     } else {
         SelectPersistentReplaySource_(
-            logPaths.stdoutTxt,
-            logPaths.stdoutJsonl,
+            parameters.target,
+            replayLogPaths,
             parameters
         );
     }
@@ -354,15 +324,12 @@ bool SRParentReplayRouter::BuildStdoutReplayParameters_(
 bool SRParentReplayRouter::BuildStderrReplayParameters_(
     const SR::ParentReplayPolicySnapshot& policySnapshot,
     bool executionSucceeded,
-    const SR::LogPathSet& logPaths,
+    const std::vector<TargetLogPathBinding>& replayLogPaths,
     SR::ParentReplayParameterSet& parameters
 ) const noexcept {
     parameters = SR::ParentReplayParameterSet{};
 
-    parameters.target =
-        SR::RetrieveStderrJobTarget(
-            policySnapshot.stderrEmitSource
-        );
+    parameters.target = policySnapshot.stderrParentTarget;
     const SR::EmitMode emitMode =
         policySnapshot.stderrEmitMode;
     const bool shouldReplay =
@@ -376,8 +343,8 @@ bool SRParentReplayRouter::BuildStderrReplayParameters_(
         lifecycleDiag_->ProbeLine(
             std::wstring(L"[PARENT-REPLAY] Stderr decision; emitMode=") +
             SR::EmitModeToString(emitMode) +
-            L" emitSource=" +
-            SR::StderrEmitSourceToString(policySnapshot.stderrEmitSource) +
+            L" target=" +
+            SR::JobTargetNameToString(parameters.target) +
             L" executionSucceeded=" +
             (executionSucceeded ? L"true" : L"false") +
             L" shouldReplay=" +
@@ -394,47 +361,11 @@ bool SRParentReplayRouter::BuildStderrReplayParameters_(
     if (policySnapshot.needsStderrReplayBuffer) {
         parameters.source = SR::ParentReplaySource::Timeline;
     } else {
-        switch (parameters.target) {
-            case SR::JobTarget::StderrSrAndChildParent:
-                SelectPersistentReplaySource_(
-                    logPaths.stderrSrAndChildTxt,
-                    logPaths.stderrSrAndChildJsonl,
-                    parameters
-                );
-                break;
-
-            case SR::JobTarget::StderrChildParent:
-                SelectPersistentReplaySource_(
-                    logPaths.stderrChildTxt,
-                    logPaths.stderrChildJsonl,
-                    parameters
-                );
-                break;
-
-            case SR::JobTarget::StderrSrParent:
-                SelectPersistentReplaySource_(
-                    logPaths.stderrSrTxt,
-                    logPaths.stderrSrJsonl,
-                    parameters
-                );
-                break;
-            case SR::JobTarget::StderrSrAndChildInclStdoutParent:
-                SelectPersistentReplaySource_(
-                    logPaths.stderrSrAndChildInclStdoutTxt,
-                    logPaths.stderrSrAndChildInclStdoutJsonl,
-                    parameters
-                );
-                break;
-
-
-            default:
-                if (lifecycleDiag_) {
-                    lifecycleDiag_->ProbeLine(
-                        L"[PARENT-REPLAY] BuildStderrReplayParameters_ invalid target"
-                    );
-                }
-                return false;
-        }
+        SelectPersistentReplaySource_(
+            parameters.target,
+            replayLogPaths,
+            parameters
+        );
     }
 
     if (lifecycleDiag_) {
@@ -450,6 +381,53 @@ bool SRParentReplayRouter::BuildStderrReplayParameters_(
     }
 
     return parameters.source != SR::ParentReplaySource::None;
+}
+void SRParentReplayRouter::SelectPersistentReplaySource_(
+    SR::JobTarget parentTarget,
+    const std::vector<TargetLogPathBinding>& replayLogPaths,
+    SR::ParentReplayParameterSet& parameters
+) const noexcept {
+    parameters.source = SR::ParentReplaySource::None;
+    parameters.path.clear();
+    const SR::ParentReplaySourceLayoutEntry* selectedSource = nullptr;
+    const std::wstring* selectedPath = nullptr;
+    for (const auto& source : replaySourceLayout_.entries) {
+        if (source.parentTarget != parentTarget) {
+            continue;
+        }
+        const std::wstring* sourcePath = nullptr;
+        for (const auto& binding : replayLogPaths) {
+            if (binding.target == source.sourceTarget) {
+                if (binding.created) {
+                    sourcePath = binding.path;
+                }
+                break;
+            }
+        }
+        if (!sourcePath) {
+            continue;
+        }
+        
+        if (!selectedSource ||
+            source.priority < selectedSource->priority) {
+            selectedSource = &source;
+            selectedPath = sourcePath;
+        }
+    }
+    if (!selectedSource || !selectedPath) {
+        return;
+    }
+    switch (SR::JobTargetFormatOf(selectedSource->sourceTarget)) {
+        case SR::JobTargetFormat::Txt:
+            parameters.source = SR::ParentReplaySource::Txt;
+            break;
+        case SR::JobTargetFormat::Jsonl:
+            parameters.source = SR::ParentReplaySource::Jsonl;
+            break;
+        default:
+            return;
+    }
+    parameters.path = *selectedPath;
 }
 
 bool SRParentReplayRouter::ReplayTimeline_(

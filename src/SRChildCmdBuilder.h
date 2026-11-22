@@ -11,6 +11,7 @@ public:
     std::wstring err;
 
     bool Build(
+        const std::wstring& comspecPath,
         const std::vector<std::wstring>& argVector,
         int childArgsStartIndex,
         SR::ExecutionMode executionMode,
@@ -18,7 +19,7 @@ public:
     );
 
 private:
-    struct ParsedRawCommand {
+    struct ParsedCommandString {
         std::wstring command;
         std::size_t childArgCount = 0;
     };
@@ -43,7 +44,7 @@ private:
         int childArgsStartIndex
     );
 
-    void ParseRawCommand(
+    void ParseCommandString(
         const std::vector<std::wstring>& argVector,
         int childArgsStartIndex
     );
@@ -54,14 +55,14 @@ private:
     );
 
     bool ValidateParsedChildCommand();
-    bool ValidateParsedRawCommand();
+    bool ValidateParsedCommandString();
     bool ValidateParsedScriptOrExeCommand();
 
     std::wstring BuildCommandForCmdExe(
         SpecialCharsDebugItems& specialCharsDebugItems
     ) const;
 
-    std::wstring BuildRawCommand() const;
+    std::wstring BuildCommandString() const;
 
     std::wstring BuildScriptOrExeCommand(
         SpecialCharsDebugItems& specialCharsDebugItems
@@ -82,6 +83,6 @@ private:
 
     bool childArgsStartIndexValid_ = false;
 
-    ParsedRawCommand parsedRawCommand_{};
+    ParsedCommandString parsedCommandString_{};
     ParsedScriptOrExeCommand parsedScriptOrExeCommand_{};
 };

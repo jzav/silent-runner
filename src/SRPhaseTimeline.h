@@ -11,10 +11,9 @@
 #include <cstddef>
 
 #include <memory>
+#include <optional>
 
-#include "SRRuntimeStopReason.h"
 #include "SRTypes.h"
-#include "SRTimelineLocationResolveBatch.h"
 
 #include "SRPhaseTimelineEntry.h"
 
@@ -53,6 +52,12 @@ struct PhaseTimeline {
 
     std::wstring phaseStartUtc;
     std::wstring phaseEndUtc;
+
+// Exit code captured before entering FinalizeExecution.
+// Not populated by EndCurrentPhase().
+// Excludes failures that occur during finalization.
+std::optional<int> phaseExitCode;
+    std::optional<DWORD> childExitCode;
 
     uint64_t nextEventOrderNo = 0;
     PhaseEventStamp Stamp();

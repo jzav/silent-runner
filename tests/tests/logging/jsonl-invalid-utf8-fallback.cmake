@@ -86,3 +86,52 @@ foreach(representation IN ITEMS
         )
     endif()
 endforeach()
+
+# Raw presentation must not decode or replace invalid UTF-8 bytes, in either
+# parent channel or either child-only Raw TXT log target.
+sr_assert_file_hex("${payload_file}" "666f80ff6f")
+foreach(raw_stream IN ITEMS stdout stderr)
+    set(raw_log_dir "${SR_TEST_ROOT}/raw-${raw_stream}")
+    set(raw_diag_dir "${SR_TEST_ROOT}/raw-diag-${raw_stream}")
+    set(raw_execution_id "ctest-raw-invalid-utf8-${raw_stream}")
+    set(raw_child_cmd "${SR_TEST_ROOT}/raw-invalid-utf8-${raw_stream}.cmd")
+    set(raw_parent_file "${SR_TEST_ROOT}/raw-parent-${raw_stream}.bin")
+    sr_write_type_emitter_cmd("${raw_child_cmd}" "${payload_file}" "${raw_stream}")
+
+    if(raw_stream STREQUAL "stdout")
+        set(raw_parent_file_option OUTPUT_FILE)
+        set(raw_log
+            "${raw_log_dir}/${raw_execution_id}_stdout_raw_success.log"
+        )
+        set(raw_options
+            --stdout-emit-raw stream
+            --stdout-dir-raw "${raw_log_dir}"
+            --stderr-emit-sr stream
+        )
+    else()
+        set(raw_parent_file_option ERROR_FILE)
+        set(raw_log
+            "${raw_log_dir}/${raw_execution_id}_stderr_child_raw_success.log"
+        )
+        set(raw_options
+            --stdout-emit never
+            --stderr-emit-child-raw stream
+            --stderr-dir-child-raw "${raw_log_dir}"
+            --stderr-dir-sr "${raw_diag_dir}"
+        )
+    endif()
+
+    sr_run(raw ${raw_parent_file_option} "${raw_parent_file}" ARGS
+        --id-base "${raw_execution_id}"
+        ${raw_options}
+        "${raw_child_cmd}"
+    )
+    sr_assert_exit(raw 0)
+    sr_assert_files_equal_bytes("${raw_parent_file}" "${payload_file}")
+    sr_assert_files_equal_bytes("${raw_log}" "${payload_file}")
+    sr_assert_directory_file_count("${raw_log_dir}" 1)
+    if(raw_stream STREQUAL "stderr")
+        sr_assert_stdout_empty(raw)
+        sr_assert_directory_file_count("${raw_diag_dir}" 1)
+    endif()
+endforeach()

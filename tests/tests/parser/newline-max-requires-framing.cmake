@@ -71,11 +71,11 @@ sr_run(a ARGS
 sr_assert_exit(a 0)
 sr_assert_stderr_contains(
     a
-    "STDOUT_EVENT_FRAMING=lf STDOUT_EVENT_NEWLINE_MAX_BYTES=7"
+    "STDOUT_EVENT_FRAMING=lf NEWLINE_MAX_BYTES=7"
 )
 sr_assert_stderr_contains(
     a
-    "STDERR_CHILD_EVENT_FRAMING=crlf STDERR_CHILD_EVENT_NEWLINE_MAX_BYTES=9"
+    "STDERR_CHILD_EVENT_FRAMING=crlf NEWLINE_MAX_BYTES=9"
 )
 
 sr_run(b ARGS
@@ -91,9 +91,9 @@ sr_run(b ARGS
 sr_assert_exit(b 0)
 sr_assert_stderr_contains(
     b
-    "STDOUT_EVENT_FRAMING=lf STDOUT_EVENT_NEWLINE_MAX_BYTES=7"
+    "STDOUT_EVENT_FRAMING=lf NEWLINE_MAX_BYTES=7"
 )
 sr_assert_stderr_contains(
     b
-    "STDERR_CHILD_EVENT_FRAMING=crlf STDERR_CHILD_EVENT_NEWLINE_MAX_BYTES=9"
+    "STDERR_CHILD_EVENT_FRAMING=crlf NEWLINE_MAX_BYTES=9"
 )

@@ -1,10 +1,7 @@
 #include "SRBufferLimiter.h"
-#include "SRConfigsBuilderTypes.h"
 #include "SRLifecycleDiagnostics.h"
+#include "SRRuntimeCoordinator.h"
 
-
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 
 void SRBufferLimiter::Init(
     const SR::SRBufferLimiterConfig& config,
@@ -12,35 +9,14 @@ void SRBufferLimiter::Init(
 ) noexcept {
     diagnostics_ = diagnosticsOrNull;
 
-    eventFailureDetected_.store(false, std::memory_order_relaxed);
-    firstEventFailureOperation_.store(
-        static_cast<int>(EventOperation::None),
-        std::memory_order_relaxed
-    );
-    firstEventFailureGle_.store(0, std::memory_order_relaxed);
-
     stdoutMax_ = config.stdoutMaxBufferBytes;
     stderrMax_ = config.stderrMaxBufferBytes;
     totalMax_  = config.stdTotalMaxBufferBytes;
 
+
+
     ResetRuntimeState();
-
-    const bool anyLimitEnabled =
-        (stdoutMax_ != 0) ||
-        (stderrMax_ != 0) ||
-        (totalMax_  != 0);
-
-    if (anyLimitEnabled) {
-        HANDLE eventHandle = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        if (!eventHandle) {
-            RecordEventFailure_(EventOperation::Create, GetLastError());
-        }
-        limitEvent_.reset(eventHandle);
-    } else {
-        limitEvent_.reset();
-    }
 }
-
 
 void SRBufferLimiter::ResetRuntimeState() noexcept {
 
@@ -50,13 +26,6 @@ void SRBufferLimiter::ResetRuntimeState() noexcept {
     stdoutLimitReached_.store(false, std::memory_order_relaxed);
     stderrLimitReached_.store(false, std::memory_order_relaxed);
     totalLimitReached_.store(false, std::memory_order_relaxed);
-
-
-    if (limitEvent_.valid()) {
-        if (!ResetEvent(limitEvent_.get())) {
-            RecordEventFailure_(EventOperation::Reset, GetLastError());
-        }
-    }
 }
 
 
@@ -105,54 +74,6 @@ bool SRBufferLimiter::TotalLimitReached() const noexcept {
 }
 
 
-HANDLE SRBufferLimiter::LimitEventHandle() const noexcept {
-    return limitEvent_.valid() ? limitEvent_.get() : nullptr;
-}
-bool SRBufferLimiter::EventFailureDetected() const noexcept {
-    return eventFailureDetected_.load(std::memory_order_relaxed);
-}
-
-SRBufferLimiter::EventOperation
-SRBufferLimiter::FirstEventFailureOperation() const noexcept {
-    return static_cast<EventOperation>(
-        firstEventFailureOperation_.load(std::memory_order_relaxed)
-    );
-}
-
-const wchar_t* SRBufferLimiter::FirstEventFailureOperationName() const noexcept {
-    switch (FirstEventFailureOperation()) {
-        case EventOperation::Create: return L"CreateEventW";
-        case EventOperation::Reset:  return L"ResetEvent";
-        case EventOperation::Set:    return L"SetEvent";
-        case EventOperation::None:
-        default:
-            return L"none";
-    }
-}
-
-DWORD SRBufferLimiter::FirstEventFailureGle() const noexcept {
-    return firstEventFailureGle_.load(std::memory_order_relaxed);
-}
-
-void SRBufferLimiter::RecordEventFailure_(
-    EventOperation operation,
-    DWORD gle
-) noexcept {
-    bool expected = false;
-    if (eventFailureDetected_.compare_exchange_strong(
-            expected,
-            true,
-            std::memory_order_relaxed)) {
-        firstEventFailureOperation_.store(
-            static_cast<int>(operation),
-            std::memory_order_relaxed
-        );
-        firstEventFailureGle_.store(
-            (gle != 0) ? gle : ERROR_INVALID_FUNCTION,
-            std::memory_order_relaxed
-        );
-    }
-}
 
 
 bool SRBufferLimiter::TryReserve_(
@@ -260,10 +181,10 @@ void SRBufferLimiter::SignalLimitHit_(StreamType stream) noexcept {
     if (limitSignaled_.compare_exchange_strong(expected, true, std::memory_order_relaxed)) {
         firstHitStream_.store(static_cast<int>(stream), std::memory_order_relaxed);
 
-        if (limitEvent_.valid()) {
-            if (!SetEvent(limitEvent_.get())) {
-                RecordEventFailure_(EventOperation::Set, GetLastError());
-            }
+        try {
+            coordinator_.ReportBufferLimitExceeded();
+        } catch (...) {
+            // The buffer-limit path must not throw into the routing pipeline.
         }
     }
 }

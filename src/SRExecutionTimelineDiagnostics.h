@@ -86,8 +86,6 @@ inline constexpr const wchar_t* PendingJobBuildFailedReasonToString(
 
 #define SR_PRUNE_SKIPPED_REASON_TABLE(X) \
     X(NoParentEmitPolicy, L"noParentEmitPolicy") \
-    X(StdoutReplayBufferNeeded, L"stdoutReplayBufferNeeded") \
-    X(StderrReplayBufferNeeded, L"stderrReplayBufferNeeded") \
     X(UnresolvedLocation, L"unresolvedLocation") \
     X(InvalidLocationIndex, L"invalidLocationIndex") \
     X(NotPruneable, L"notPruneable")

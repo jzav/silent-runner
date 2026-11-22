@@ -20,14 +20,6 @@ struct ParentReplayParameterSet {
     std::wstring path;
 };
 
-struct ParentReplayPolicySnapshot {
-    EmitMode stdoutEmitMode = EmitMode::Never;
-    EmitMode stderrEmitMode = EmitMode::Never;
-    StderrEmitSource stderrEmitSource = StderrEmitSource::SrAndChild;
-    bool needsStdoutReplayBuffer = false;
-    bool needsStderrReplayBuffer = false;
-};
-
 struct ParentReplayParameters {
     ParentReplayParameterSet stdoutParentReplayParameters;
     ParentReplayParameterSet stderrParentReplayParameters;

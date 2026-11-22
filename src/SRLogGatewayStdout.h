@@ -1,26 +1,23 @@
 // SRLogGatewayStdout.h
 // -------------------
- // Responsibility:
- // - Serialize and route child STDOUT bytes:
- //   - optional ExecutionTimeline RAM replay storage (for end/success/failure modes without dirs)
- //   - optional buffer-limit reservation via SRBufferLimiter
- //   - emit to parent stdout in Stream mode only
-
+// Responsibility:
+// - Accept child stdout bytes and determine their replay-storage needs.
+// - Request replay-buffer reservations through SRBufferLimiter.
+// - Route events into ExecutionTimeline.
 //
 // Non-responsibility:
-// - child pipe reading (belongs to ChildStdReader)
-// - buffering policy / total-per-stream enforcement details
-//   (belongs to SRBufferLimiter)
+// - Reading child pipes (SRChildStreamReader).
+// - Event ordering and worker dispatch (ExecutionTimeline / JobsExchange).
+// - Parent emission and persistent file output (output workers).
+// - Buffer-limit policy and accounting (SRBufferLimiter).
 
 #pragma once
 
 #include <cstddef>   // size_t
 
-#include "SRTypes.h"
-#include "SRExecutionTimeline.h"
-
 class SRBufferLimiter;
 class SRParentEmitPolicy;
+class ExecutionTimeline;
 
 class SRLogGatewayStdout {
 public:

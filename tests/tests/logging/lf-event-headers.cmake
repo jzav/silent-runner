@@ -59,6 +59,24 @@ sr_assert_file_occurrence_count(
     "[payloadByteCount=11]"
     2
 )
+# Each LF-framed header identifies the execution before its phase.
+file(STRINGS "${expected_log}" txt_lines ENCODING UTF-8)
+set(checked_headers 0)
+foreach(txt_line IN LISTS txt_lines)
+    string(FIND "${txt_line}" "[payloadType=CHILDSTDOUT]" payload_pos)
+    if(payload_pos EQUAL -1)
+        continue()
+    endif()
+    string(FIND "${txt_line}" "[executionId=${execution_id}]" id_pos)
+    string(FIND "${txt_line}" "[phase=RUNTIME]" phase_pos)
+    if(id_pos EQUAL -1 OR phase_pos EQUAL -1 OR NOT id_pos LESS phase_pos)
+        message(FATAL_ERROR "Invalid TXT execution identity header: ${txt_line}")
+    endif()
+    math(EXPR checked_headers "${checked_headers} + 1")
+endforeach()
+if(NOT checked_headers EQUAL 2)
+    message(FATAL_ERROR "Expected two TXT execution identity headers, got ${checked_headers}.")
+endif()
 sr_assert_file_occurrence_count(
     "${expected_log}"
     "N4_LOG_ONE"

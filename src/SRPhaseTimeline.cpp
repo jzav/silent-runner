@@ -7,7 +7,7 @@ PhaseEventStamp PhaseTimeline::Stamp() {
     stamp.phase = phase;
     stamp.phaseOrderNo = phaseOrderNo;
     stamp.eventOrderNo = nextEventOrderNo++;
-    stamp.timestampUtc = FileHelpers::MakeRunUtcTimestamp();
+    stamp.timestampUtc = FileHelpers::MakeEventUtcTimestamp();
     return stamp;
 }
 
@@ -21,6 +21,8 @@ void PhaseTimeline::Reset(
     name = nameValue;
     phaseStartUtc.clear();
     phaseEndUtc.clear();
+    phaseExitCode.reset();
+    childExitCode.reset();
     nextEventOrderNo = 0;
 
     bufferUsage = SR::BufferUsage{};
@@ -31,13 +33,13 @@ void PhaseTimeline::Reset(
 
 void PhaseTimeline::Start() {
     if (phaseStartUtc.empty()) {
-        phaseStartUtc = FileHelpers::MakeRunUtcTimestamp();
+        phaseStartUtc = FileHelpers::MakeEventUtcTimestamp();
     }
 }
 
 void PhaseTimeline::End() {
     if (phaseEndUtc.empty()) {
-        phaseEndUtc = FileHelpers::MakeRunUtcTimestamp();
+        phaseEndUtc = FileHelpers::MakeEventUtcTimestamp();
     }
 }
 
@@ -151,22 +153,8 @@ void PhaseTimeline::GetAllDelayed(
                 const SR::EventJobResults& jobResults = entry.jobResults;
 
                 const bool matchesFilter =
-                    (filter.stdoutParent &&
-                     jobResults.At(SR::JobTarget::StdoutParent).state ==
-                         SR::JobState::Delayed) ||
-                    (filter.stderrSrAndChildParent &&
-                     jobResults.At(SR::JobTarget::StderrSrAndChildParent).state ==
-                         SR::JobState::Delayed) ||
-                    (filter.stderrChildParent &&
-                     jobResults.At(SR::JobTarget::StderrChildParent).state ==
-                         SR::JobState::Delayed) ||
-                    (filter.stderrSrParent &&
-                     jobResults.At(SR::JobTarget::StderrSrParent).state ==
-                         SR::JobState::Delayed) ||
-                    (filter.stderrSrAndChildInclStdoutParent &&
-                     jobResults.At(SR::JobTarget::StderrSrAndChildInclStdoutParent).state ==
-                         SR::JobState::Delayed);
-
+                    jobResults.At(filter.target).state ==
+                        SR::JobState::Delayed;
 
                 if (!matchesFilter) {
                     return;

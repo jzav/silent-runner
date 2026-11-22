@@ -7,7 +7,7 @@
 #include "TextHelpers.h"
 #include "SRBufferLimiter.h"
 #include "SRParentEmitPolicy.h"
-#include "SRConfigsBuilderTypes.h"
+#include "SRExecutionTimeline.h"
 
 namespace {
 
@@ -103,6 +103,8 @@ bool SRLifecycleDiagnostics::Init(
     return true;
 }
 
+
+
 void SRLifecycleDiagnostics::SetBufferLimiter(
     SRBufferLimiter* bufferLimitOrNull
 ) noexcept {
@@ -183,7 +185,7 @@ void SRLifecycleDiagnostics::ProbeLine(const std::wstring& msg) {
     try {
         const std::wstring line =
             L"[" +
-            FileHelpers::MakeRunUtcTimestamp() +
+            FileHelpers::MakeEventUtcTimestamp() +
             L"] " +
             msg;
         const auto bytes = FileHelpers::WideToUtf8(line);
@@ -204,7 +206,7 @@ void SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
     SR::DiagnosticSeverity severity,
     SR::LifecyclePhase phase,
     const std::wstring& msg
-) noexcept {
+) {
     const std::wstring lineWithNewline =
         FormatPrefixedLine_(
             timestampUtc,
@@ -215,29 +217,6 @@ void SRLifecycleDiagnostics::BestEffortEmitFormattedToParentStderr(
 
     ParentStdEmitter::EmitStderrUtf16(lineWithNewline);
 }
-
-// Shared formatter + last-resort parent STDERR emit helper.
-// Intended for internal lifecycle use and std::terminate fallback reporting.
-void SRLifecycleDiagnostics::LastResortEmitFormattedToParentStderr(
-    const std::wstring& timestampUtc,
-    SR::DiagnosticSeverity severity,
-    SR::LifecyclePhase phase,
-    const std::wstring& msg
-) noexcept {
-    const std::wstring lineWithNewline =
-        FormatPrefixedLine_(
-            timestampUtc,
-            severity,
-            phase,
-            msg
-        ) + L"\n";
-
-    const std::vector<char> utf8 = FileHelpers::WideToUtf8(lineWithNewline);
-    if (utf8.empty()) return;
-    ParentStdEmitter::EmitStderrLastResort(utf8.data(), utf8.size());
-}
-
-
 
 
 
@@ -262,15 +241,18 @@ void SRLifecycleDiagnostics::EmitLineWithSeverity_(
         SR::ReplayPayloadStorage replayPayloadStorage =
             SR::ReplayPayloadStorage::NotNeeded;
 
-        const SR::StderrEmitSource stderrEmitSource =
+        const SR::JobTarget stderrParentTarget =
             parentEmitPolicy_
-                ? parentEmitPolicy_->StderrEmitSource()
-                : SR::StderrEmitSource::SrAndChild;
+                ? parentEmitPolicy_->StderrParentTarget()
+                : SR::JobTarget::StderrSrAndChildParent;
+
+        const SR::JobTargetChannel channel =
+            SR::JobTargetChannelOf(stderrParentTarget);
 
         const bool routeToActiveView =
-            stderrEmitSource == SR::StderrEmitSource::SrAndChild ||
-            stderrEmitSource == SR::StderrEmitSource::Sr ||
-            stderrEmitSource == SR::StderrEmitSource::SrAndChildInclStdout;
+            channel == SR::JobTargetChannel::SrAndChild ||
+            channel == SR::JobTargetChannel::SrAndChildInclStdout ||
+            channel == SR::JobTargetChannel::Sr;
 
 
         if (routeToActiveView &&
