@@ -29,11 +29,12 @@ jobs:
           pacboy: >-
             toolchain:p
             cmake:p
+            ninja:p
 
       - name: Configure
         run: >
           cmake -S . -B build
-          -G "MinGW Makefiles"
+          -G Ninja
           -DCMAKE_CXX_COMPILER=g++
           -DCMAKE_BUILD_TYPE=Release
 
